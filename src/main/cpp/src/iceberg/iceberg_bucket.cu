@@ -30,6 +30,7 @@
 
 #include <rmm/exec_policy.hpp>
 
+#include <cuco/detail/hash_functions/murmurhash3.cuh>
 #include <thrust/tabulate.h>
 
 #include <cstdint>
@@ -49,92 +50,34 @@ constexpr int32_t INT_MAX_VALUE = std::numeric_limits<int32_t>::max();
  * - com.google.common.hash.Murmur3_32HashFunction (Guava)
  * - org.apache.iceberg.transforms.Bucket
  *
- * Key differences from Spark's MurmurHash3:
- * - Tail bytes are processed differently: accumulated into k1, then h1 ^= mix_k1(k1) (no mix_h1)
- * - Uses unsigned byte interpretation for tail bytes
+ * The core byte hashing is delegated to cuco::detail::MurmurHash3_32, which implements the
+ * standard MurmurHash3_32 algorithm. This class adds Iceberg-specific type handling on top:
+ * - hash_int: promotes int32 to int64 then hashes (Iceberg specific behavior)
+ * - hash_long: hashes int64 directly as 8 bytes
+ * - hash_decimal*: converts to minimal two's complement big-endian bytes before hashing
  */
 class iceberg_murmur_hash3_32 {
  public:
-  static constexpr int32_t C1   = 0xcc9e2d51;
-  static constexpr int32_t C2   = 0x1b873593;
-  static constexpr int32_t SEED = 0;
+  static constexpr uint32_t SEED = 0;
 
   /**
-   * @brief Rotate left operation - same signature as Java Integer.rotateLeft(int i, int distance)
-   * Java: return (i << distance) | (i >>> -distance);
+   * @brief Hash a byte array using cuco's MurmurHash3_32 implementation
    */
-  __device__ static inline int32_t rotate_left(int32_t i, int distance)
+  __device__ static inline int32_t hash_bytes(uint8_t const* data, int32_t len)
   {
-    uint32_t u = static_cast<uint32_t>(i);
-    return static_cast<int32_t>((u << distance) | (u >> (-distance & 31)));
-  }
-
-  /**
-   * @brief Mix k1 value - matches Java exactly
-   * Java: k1 *= C1; k1 = Integer.rotateLeft(k1, 15); k1 *= C2;
-   */
-  __device__ static inline int32_t mix_k1(int32_t k1)
-  {
-    k1 *= C1;
-    k1 = rotate_left(k1, 15);
-    k1 *= C2;
-    return k1;
-  }
-
-  /**
-   * @brief Mix h1 value - matches Java exactly
-   * Java: h1 ^= k1; h1 = Integer.rotateLeft(h1, 13); h1 = h1 * 5 + 0xe6546b64;
-   */
-  __device__ static inline int32_t mix_h1(int32_t h1, int32_t k1)
-  {
-    h1 ^= k1;
-    h1 = rotate_left(h1, 13);
-    h1 = h1 * 5 + 0xe6546b64;
-    return h1;
-  }
-
-  /**
-   * @brief Finalization mix - force all bits of a hash block to avalanche
-   * Java uses >>> (unsigned right shift), we simulate with cast to uint32_t
-   */
-  __device__ static inline int32_t fmix(int32_t h1, int32_t length)
-  {
-    h1 ^= length;
-    h1 ^= static_cast<uint32_t>(h1) >> 16;
-    h1 *= 0x85ebca6b;
-    h1 ^= static_cast<uint32_t>(h1) >> 13;
-    h1 *= 0xc2b2ae35;
-    h1 ^= static_cast<uint32_t>(h1) >> 16;
-    return h1;
-  }
-
-  /**
-   * @brief Read 4 bytes as little-endian int32
-   */
-  __device__ static inline int32_t get_int_little_endian(uint8_t const* data, int offset)
-  {
-    return static_cast<int32_t>(static_cast<uint32_t>(data[offset]) |
-                                (static_cast<uint32_t>(data[offset + 1]) << 8) |
-                                (static_cast<uint32_t>(data[offset + 2]) << 16) |
-                                (static_cast<uint32_t>(data[offset + 3]) << 24));
+    cuco::detail::MurmurHash3_32<int> hasher{SEED};
+    return static_cast<int32_t>(
+      hasher.compute_hash(reinterpret_cast<cuda::std::byte const*>(data), len));
   }
 
   /**
    * @brief Hash a 64-bit integer
-   * Direct translation of Java hashLong
+   * Direct translation of Java hashLong - hashes as 8 little-endian bytes
    */
   __device__ static inline int32_t hash_long(int64_t input)
   {
-    int32_t low  = static_cast<int32_t>(input);
-    int32_t high = static_cast<int32_t>(static_cast<uint64_t>(input) >> 32);
-
-    int32_t k1 = mix_k1(low);
-    int32_t h1 = mix_h1(SEED, k1);
-
-    k1 = mix_k1(high);
-    h1 = mix_h1(h1, k1);
-
-    return fmix(h1, 8);
+    // Hash the 8 bytes of the long value in little-endian order
+    return hash_bytes(reinterpret_cast<uint8_t const*>(&input), 8);
   }
 
   /**
@@ -146,36 +89,6 @@ class iceberg_murmur_hash3_32 {
   {
     // Iceberg promotes int to long and uses hashLong
     return hash_long(static_cast<int64_t>(input));
-  }
-
-  /**
-   * @brief Hash a byte array
-   * Matches Java: hashBytes(byte[] input, int off, int len)
-   *
-   * For strings (UTF-8 encoded), this is the correct method to use since
-   * C++ strings are already UTF-8 encoded bytes.
-   */
-  __device__ static inline int32_t hash_bytes(uint8_t const* data, int32_t len)
-  {
-    int32_t h1 = SEED;
-    int32_t i  = 0;
-
-    // Process 4-byte chunks
-    for (; i + 4 <= len; i += 4) {
-      int32_t k1 = mix_k1(get_int_little_endian(data, i));
-      h1         = mix_h1(h1, k1);
-    }
-
-    // Process remaining bytes (tail)
-    // Key difference from Spark: accumulate all tail bytes into k1, then h1 ^= mix_k1(k1)
-    int32_t k1 = 0;
-    for (int shift = 0; i < len; i++, shift += 8) {
-      // Use unsigned byte interpretation (toInt in Java's UnsignedBytes)
-      k1 ^= static_cast<int32_t>(data[i]) << shift;
-    }
-    h1 ^= mix_k1(k1);
-
-    return fmix(h1, len);
   }
 
   /**
@@ -192,8 +105,6 @@ class iceberg_murmur_hash3_32 {
    */
   __device__ static inline int32_t hash_decimal32(numeric::decimal32 const& value)
   {
-    // For decimal32, the unscaled value is an int32
-    // We need to convert to minimal two's complement byte representation
     int32_t unscaled = value.value();
     return hash_decimal_unscaled(unscaled);
   }
