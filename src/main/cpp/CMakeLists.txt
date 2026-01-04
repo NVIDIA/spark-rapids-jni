@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2022-2025, NVIDIA CORPORATION.
+# Copyright (c) 2022-2026, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -208,6 +208,7 @@ add_library(
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
+  src/ProtobufSimpleJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
@@ -251,6 +252,7 @@ add_library(
   src/murmur_hash.cu
   src/number_converter.cu
   src/parse_uri.cu
+  src/protobuf_simple.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/round_float.cu
