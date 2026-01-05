@@ -305,26 +305,26 @@ public class TimeZoneTest {
   @Test
   void convertToUtcMicroSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-          -1262260800000000L,
-          -908838000000000L,
-          -908840700000000L,
-          -888800400000000L,
-          -888799500000000L,
-          -888796800000000L,
+          -1262260800000123L,
+          -908838000000456L,
+          -908840700000789L,
+          -888800400000001L,
+          -888799500000999L,
+          -888796800000500L,
           0L,
-          1699571634312000L,
-          568036800000000L
+          1699571634312456L,
+          568036800000789L
         );
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-          -1262289600000000L,
-          -908870400000000L,
-          -908869500000000L,
-          -888832800000000L,
-          -888831900000000L,
-          -888825600000000L,
+          -1262289600000123L,
+          -908870400000456L,
+          -908869500000789L,
+          -888832800000001L,
+          -888831900000999L,
+          -888825600000500L,
           -28800000000L,
-          1699542834312000L,
-          568008000000000L
+          1699542834312456L,
+          568008000000789L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
           ZoneId.of("Asia/Shanghai"))) {
@@ -391,26 +391,86 @@ public class TimeZoneTest {
   @Test
   void convertFromUtcMicroSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-          -1262289600000000L,
-          -908870400000000L,
-          -908869500000000L,
-          -888832800000000L,
-          -888831900000000L,
-          -888825600000000L,
+          -1262289600000123L,
+          -908870400000456L,
+          -908869500000789L,
+          -888832800000001L,
+          -888831900000999L,
+          -888825600000500L,
           0L,
-          1699542834312000L,
-          568008000000000L,
+          1699542834312456L,
+          568008000000789L,
           null);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-          -1262260800000000L,
-          -908838000000000L,
-          -908837100000000L,
-          -888800400000000L,
-          -888799500000000L,
-          -888796800000000L,
+          -1262260800000123L,
+          -908838000000456L,
+          -908837100000789L,
+          -888800400000001L,
+          -888799500000999L,
+          -888796800000500L,
           28800000000L,
-          1699571634312000L,
-          568036800000000L,
+          1699571634312456L,
+          568036800000789L,
+          null);
+        ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void convertToUtcNanoSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampNanoSecondsFromBoxedLongs(
+          -1262260800000000123L,
+          -908838000000000456L,
+          -908840700000000789L,
+          -888800400000000001L,
+          -888799500000000999L,
+          -888796800000000500L,
+          123L,
+          1699571634312000456L,
+          568036800000000789L
+        );
+        ColumnVector expected = ColumnVector.timestampNanoSecondsFromBoxedLongs(
+          -1262289600000000123L,
+          -908870400000000456L,
+          -908869500000000789L,
+          -888832800000000001L,
+          -888831900000000999L,
+          -888825600000000500L,
+          -28799999999877L, // 123ns - 8h = 123 - 28800000000000
+          1699542834312000456L,
+          568008000000000789L
+        );
+        ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void convertFromUtcNanoSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampNanoSecondsFromBoxedLongs(
+          -1262289600000000123L,
+          -908870400000000456L,
+          -908869500000000789L,
+          -888832800000000001L,
+          -888831900000000999L,
+          -888825600000000500L,
+          123L,
+          1699542834312000456L,
+          568008000000000789L,
+          null);
+        ColumnVector expected = ColumnVector.timestampNanoSecondsFromBoxedLongs(
+          -1262260800000000123L,
+          -908838000000000456L,
+          -908837100000000789L,
+          -888800400000000001L,
+          -888799500000000999L,
+          -888796800000000500L,
+          28800000000123L,
+          1699571634312000456L,
+          568036800000000789L,
           null);
         ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
           ZoneId.of("Asia/Shanghai"))) {

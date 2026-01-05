@@ -236,6 +236,7 @@ add_library(
   src/from_json_to_raw_map.cu
   src/from_json_to_structs.cu
   src/get_json_object.cu
+  src/hash/sha.cpp
   src/histogram.cu
   src/hive_hash.cu
   src/hyper_log_log_plus_plus.cu
