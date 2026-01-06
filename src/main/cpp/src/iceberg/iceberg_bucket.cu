@@ -58,6 +58,7 @@ constexpr int32_t INT_MAX_VALUE = std::numeric_limits<int32_t>::max();
  */
 class iceberg_murmur_hash3_32 {
  public:
+  // Iceberg requires deterministic hashing, so we use a constant seed of 0.
   static constexpr uint32_t SEED = 0;
 
   /**
@@ -65,7 +66,7 @@ class iceberg_murmur_hash3_32 {
    */
   __device__ static inline int32_t hash_bytes(uint8_t const* data, int32_t len)
   {
-    cuco::detail::MurmurHash3_32<int> hasher{SEED};
+    cuco::detail::MurmurHash3_32<int> const hasher{SEED};
     return static_cast<int32_t>(
       hasher.compute_hash(reinterpret_cast<cuda::std::byte const*>(data), len));
   }
@@ -134,24 +135,23 @@ class iceberg_murmur_hash3_32 {
   template <typename T>
   __device__ static inline int32_t minimal_bytes_needed(T value)
   {
+    static_assert(sizeof(T) == 4 or sizeof(T) == 8, "Unexpected input");
+
     if (value == 0) return 1;
 
-    // For negative numbers, find the position of the first 0 bit from the left
     // For positive numbers, find the position of the first 1 bit from the left
-    int leading;
-    if constexpr (sizeof(T) == 4) {
-      if (value < 0) {
-        leading = __clz(~static_cast<uint32_t>(value));
-      } else {
-        leading = __clz(static_cast<uint32_t>(value));
+    // For negative numbers, find the position of the first 0 bit from the left
+    int leading = [&] {
+      if constexpr (sizeof(T) == 4) {
+        auto normalized = static_cast<uint32_t>(value);
+        if (value < 0) { normalized = ~normalized; }
+        return __clz(normalized);
+      } else {  // sizeof(T) == 8
+        auto normalized = static_cast<uint64_t>(value);
+        if (value < 0) { normalized = ~normalized; }
+        return __clzll(normalized);
       }
-    } else if constexpr (sizeof(T) == 8) {
-      if (value < 0) {
-        leading = __clzll(~static_cast<uint64_t>(value));
-      } else {
-        leading = __clzll(static_cast<uint64_t>(value));
-      }
-    }
+    }();
 
     int significant_bits = sizeof(T) * 8 - leading;
     // Add 1 for sign bit, then round up to bytes
@@ -188,32 +188,17 @@ class iceberg_murmur_hash3_32 {
     }
 
     // Determine number of bytes needed
-    int32_t num_bytes;
-    if (value > 0) {
-      // Count leading zeros
-      uint64_t high = static_cast<uint64_t>(static_cast<unsigned __int128>(value) >> 64);
-      uint64_t low  = static_cast<uint64_t>(value);
-      int leading;
-      if (high != 0) {
-        leading = __clzll(high);
-      } else {
-        leading = 64 + __clzll(low);
-      }
-      int significant_bits = 128 - leading;
-      num_bytes            = (significant_bits + 8) / 8;
-    } else {
-      // For negative, count leading ones (find first 0)
-      uint64_t high = static_cast<uint64_t>(static_cast<unsigned __int128>(value) >> 64);
-      uint64_t low  = static_cast<uint64_t>(value);
-      int leading;
-      if (~high != 0) {
-        leading = __clzll(~high);
-      } else {
-        leading = 64 + __clzll(~low);
-      }
-      int significant_bits = 128 - leading;
-      num_bytes            = (significant_bits + 8) / 8;
+    uint64_t high = static_cast<uint64_t>(static_cast<unsigned __int128>(value) >> 64);
+    uint64_t low  = static_cast<uint64_t>(value);
+    // For positive values, we count the number of leading 0s.
+    // For negative values, we count the number of leading 1s.
+    if (value < 0) {
+      high = ~high;
+      low  = ~low;
     }
+    int leading          = high == 0 ? (64 + __clzll(low)) : __clzll(high);
+    int significant_bits = 128 - leading;
+    int32_t num_bytes    = (significant_bits + 8) / 8;
 
     // Convert to big-endian bytes
     uint8_t bytes[16];
@@ -391,6 +376,18 @@ struct bucket_decimal128_fn {
   }
 };
 
+/**
+ * @brief Helper to generate bucket values using a functor
+ */
+template <typename GeneratorFunc>
+void generate_buckets(GeneratorFunc generator,
+                      cudf::mutable_column_view output,
+                      rmm::cuda_stream_view stream)
+{
+  thrust::tabulate(
+    rmm::exec_policy_nosync(stream), output.begin<int32_t>(), output.end<int32_t>(), generator);
+}
+
 std::unique_ptr<cudf::column> compute_bucket_impl(cudf::column_view const& input,
                                                   int32_t num_buckets,
                                                   rmm::cuda_stream_view stream,
@@ -415,62 +412,30 @@ std::unique_ptr<cudf::column> compute_bucket_impl(cudf::column_view const& input
   auto type_id = input.type().id();
 
   switch (type_id) {
-    case cudf::type_id::INT32: {
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_int32_fn{*d_input, num_buckets});
+    case cudf::type_id::INT32:
+      generate_buckets(bucket_int32_fn{*d_input, num_buckets}, output_view, stream);
       break;
-    }
-    case cudf::type_id::INT64: {
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_int64_fn{*d_input, num_buckets});
+    case cudf::type_id::INT64:
+      generate_buckets(bucket_int64_fn{*d_input, num_buckets}, output_view, stream);
       break;
-    }
-    case cudf::type_id::DECIMAL32: {
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_decimal32_fn{*d_input, num_buckets});
+    case cudf::type_id::DECIMAL32:
+      generate_buckets(bucket_decimal32_fn{*d_input, num_buckets}, output_view, stream);
       break;
-    }
-    case cudf::type_id::DECIMAL64: {
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_decimal64_fn{*d_input, num_buckets});
+    case cudf::type_id::DECIMAL64:
+      generate_buckets(bucket_decimal64_fn{*d_input, num_buckets}, output_view, stream);
       break;
-    }
-    case cudf::type_id::DECIMAL128: {
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_decimal128_fn{*d_input, num_buckets});
+    case cudf::type_id::DECIMAL128:
+      generate_buckets(bucket_decimal128_fn{*d_input, num_buckets}, output_view, stream);
       break;
-    }
-    case cudf::type_id::TIMESTAMP_DAYS: {
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_date_fn{*d_input, num_buckets});
+    case cudf::type_id::TIMESTAMP_DAYS:
+      generate_buckets(bucket_date_fn{*d_input, num_buckets}, output_view, stream);
       break;
-    }
-    case cudf::type_id::TIMESTAMP_MICROSECONDS: {
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_timestamp_fn{*d_input, num_buckets});
+    case cudf::type_id::TIMESTAMP_MICROSECONDS:
+      generate_buckets(bucket_timestamp_fn{*d_input, num_buckets}, output_view, stream);
       break;
-    }
-    case cudf::type_id::STRING: {
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_string_fn{*d_input, num_buckets});
+    case cudf::type_id::STRING:
+      generate_buckets(bucket_string_fn{*d_input, num_buckets}, output_view, stream);
       break;
-    }
     case cudf::type_id::LIST: {
       // Binary is represented as LIST of UINT8
       cudf::lists_column_view list_col(input);
@@ -478,13 +443,12 @@ std::unique_ptr<cudf::column> compute_bucket_impl(cudf::column_view const& input
       CUDF_EXPECTS(child.type().id() == cudf::type_id::UINT8, "Binary type must be LIST of UINT8");
 
       auto const offsets_view = list_col.offsets();
-      thrust::tabulate(rmm::exec_policy_nosync(stream),
-                       output_view.begin<int32_t>(),
-                       output_view.end<int32_t>(),
-                       bucket_binary_fn{child.begin<uint8_t>(),
+      generate_buckets(bucket_binary_fn{child.begin<uint8_t>(),
                                         offsets_view.begin<cudf::size_type>(),
                                         input.null_mask(),
-                                        num_buckets});
+                                        num_buckets},
+                       output_view,
+                       stream);
       break;
     }
     default:
