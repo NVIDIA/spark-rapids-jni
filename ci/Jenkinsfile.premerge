@@ -1,6 +1,6 @@
 #!/usr/local/env groovy
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,8 +30,8 @@ import ipp.blossom.*
 
 def githubHelper // blossom github helper
 def TEMP_IMAGE_BUILD = true
-def IMAGE_PREMERGE_CU12 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.9.1-blossom"
-def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.0.1-blossom"
+def IMAGE_PREMERGE_CU12 = "${common.ARTIFACTORY_NAME_V2}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.9.1-blossom"
+def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME_V2}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.1.0-blossom"
 def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE_CU12)
 def PREMERGE_DOCKERFILE = 'ci/Dockerfile'
 def PREMERGE_TAG_CU12
@@ -69,10 +69,10 @@ pipeline {
     environment {
         JENKINS_ROOT = 'jenkins'
         GITHUB_TOKEN = credentials("github-token")
-        ART_CREDS = credentials("urm_creds")
         ART_URL = "https://${common.ARTIFACTORY_NAME}/artifactory/sw-spark-maven"
         MVN_MIRROR = '-s ci/settings.xml -P mirror-apache-to-urm'
-        ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME}"
+        ART_CREDS = credentials("urm_creds_v2")
+        ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME_V2}"
         PVC = credentials("pvc")
         CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
         PVC_MOUNT_PATH = "/pvc"
@@ -162,7 +162,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                                 "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU12 .")
                             uploadDocker(IMAGE_PREMERGE_CU12)
                             docker.build(IMAGE_PREMERGE_CU13,
-                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 --build-arg CUDA_VERSION=13.0.1 .")
+                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 --build-arg CUDA_VERSION=13.1.0 .")
                             uploadDocker(IMAGE_PREMERGE_CU13)
                         }
                     }
@@ -247,7 +247,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         kubernetes {
                             label "cu13-${BUILD_TAG}"
                             cloud "${common.CLOUD_NAME}"
-                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU13}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '10', '48Gi', '580.82.07')
+                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU13}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '10', '48Gi', '590.44.01')
                             customWorkspace "${CUSTOM_WORKSPACE}-cu13"
                         }
                     }
