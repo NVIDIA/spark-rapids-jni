@@ -63,9 +63,7 @@ class iceberg_murmur_hash3_32 {
    */
   __device__ static inline int32_t hash_bytes(uint8_t const* data, int32_t len)
   {
-    // Iceberg requires deterministic hashing, so we use a constant seed of 0.
-    // Function-local static is the idiomatic CUDA approach for device-accessible singletons.
-    static cuco::detail::MurmurHash3_32<int> const hasher{0};
+    cuco::detail::MurmurHash3_32<int> const hasher{0};
     return static_cast<int32_t>(
       hasher.compute_hash(reinterpret_cast<cuda::std::byte const*>(data), len));
   }
