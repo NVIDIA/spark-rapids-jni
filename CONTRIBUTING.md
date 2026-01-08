@@ -302,11 +302,11 @@ then run `cuda-gdb`. You do not necessarily need to run `cuda-gdb` in Docker):
 bash-4.2$ cuda-gdb target/jni/cmake-build/gtests/ROW_CONVERSION
 ```
 
-You can also use the [NVIDIA Nsight VSCode Code Integration](https://docs.nvidia.com/nsight-visual-studio-code-edition/cuda-debugger/index.html)
+You can also use the [NVIDIA Nsight VSCode Code Integration](https://docs.nvidia.com/nsight-visual-studio-code-edition/latest/cuda-debugger/index.html)
 as well to debug within Visual Studio Code.
 
-To debug libcudf code, please see [Debugging cuDF](thirdparty/cudf/CONTRIBUTING.md#debugging-cudf)
-in the cuDF [CONTRIBUTING](thirdparty/cudf/CONTRIBUTING.md) guide.
+To debug libcudf code, please see [Debugging cuDF](https://github.com/rapidsai/cudf/blob/main/CONTRIBUTING.md#debugging-cudf)
+in the cuDF [CONTRIBUTING](https://github.com/rapidsai/cudf/blob/main/CONTRIBUTING.md) guide.
 
 ### Benchmarks
 Benchmarks exist for c++ benchmarks using NVBench and are in the `src/main/cpp/benchmarks` directory.
@@ -321,7 +321,7 @@ script can be run without any arguments to get into an interactive shell inside 
 
 ### Your first issue
 
-1. Read the [Developer Overview](https://github.com/NVIDIA/spark-rapids/docs/dev/README.md)
+1. Read the [Developer Overview](https://github.com/NVIDIA/spark-rapids/blob/main/docs/dev/README.md)
     to understand how the RAPIDS Accelerator plugin works.
 2. Find an issue to work on. The best way is to look for the
     [good first issue](https://github.com/NVIDIA/spark-rapids-jni/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)

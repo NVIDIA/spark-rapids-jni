@@ -41,25 +41,27 @@ namespace {
 
 void assert_start_is_not_zero(column_device_view const& start, rmm::cuda_stream_view stream)
 {
-  bool start_valid = thrust::all_of(rmm::exec_policy(stream),
-                                    thrust::make_counting_iterator(0),
-                                    thrust::make_counting_iterator(start.size()),
-                                    [start] __device__(size_type index) {
-                                      if (start.is_null(index)) return true;
-                                      return start.element<int32_t>(index) != 0;
-                                    });
+  bool start_valid =
+    thrust::all_of(rmm::exec_policy(stream),
+                   thrust::make_counting_iterator(0),
+                   thrust::make_counting_iterator(start.size()),
+                   cuda::proclaim_return_type<bool>([start] __device__(size_type index) {
+                     if (start.is_null(index)) return true;
+                     return start.element<int32_t>(index) != 0;
+                   }));
   CUDF_EXPECTS(start_valid, "Invalid start value: start must not be 0");
 }
 
 void assert_length_is_not_negative(column_device_view const& length, rmm::cuda_stream_view stream)
 {
-  bool length_valid = thrust::all_of(rmm::exec_policy(stream),
-                                     thrust::make_counting_iterator(0),
-                                     thrust::make_counting_iterator(length.size()),
-                                     [length] __device__(size_type index) {
-                                       if (length.is_null(index)) return true;
-                                       return length.element<int32_t>(index) >= 0;
-                                     });
+  bool length_valid =
+    thrust::all_of(rmm::exec_policy(stream),
+                   thrust::make_counting_iterator(0),
+                   thrust::make_counting_iterator(length.size()),
+                   cuda::proclaim_return_type<bool>([length] __device__(size_type index) {
+                     if (length.is_null(index)) return true;
+                     return length.element<int32_t>(index) >= 0;
+                   }));
   CUDF_EXPECTS(length_valid, "Invalid length value: length must be >= 0");
 }
 

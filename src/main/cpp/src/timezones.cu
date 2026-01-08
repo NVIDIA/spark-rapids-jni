@@ -514,6 +514,12 @@ std::unique_ptr<column> convert_timestamp(column_view const& input,
     case cudf::type_id::TIMESTAMP_MICROSECONDS:
       return convert_timestamp_tz<cudf::timestamp_us>(
         input, transitions, tz_index, to_utc, stream, mr);
+    case cudf::type_id::TIMESTAMP_NANOSECONDS:
+      // Nanoseconds supported for users who need sub-microsecond precision
+      // (e.g., when storing the resultant timestamp as string rather than
+      // Spark TimestampType).
+      return convert_timestamp_tz<cudf::timestamp_ns>(
+        input, transitions, tz_index, to_utc, stream, mr);
     default: CUDF_FAIL("Unsupported timestamp unit for timezone conversion");
   }
 }

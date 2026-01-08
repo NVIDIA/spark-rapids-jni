@@ -75,4 +75,56 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_hiveHash(JNIEnv* e
   }
   JNI_CATCH(env, 0);
 }
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_Hash_sha224NullsPreserved(JNIEnv* env, jclass, jlong column_handle)
+{
+  JNI_NULL_CHECK(env, column_handle, "column handle is null", 0);
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    return cudf::jni::release_as_jlong(spark_rapids_jni::sha224_nulls_preserved(
+      *reinterpret_cast<cudf::column_view const*>(column_handle)));
+  }
+  JNI_CATCH(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_Hash_sha256NullsPreserved(JNIEnv* env, jclass, jlong column_handle)
+{
+  JNI_NULL_CHECK(env, column_handle, "column handle is null", 0);
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    return cudf::jni::release_as_jlong(spark_rapids_jni::sha256_nulls_preserved(
+      *reinterpret_cast<cudf::column_view const*>(column_handle)));
+  }
+  JNI_CATCH(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_Hash_sha384NullsPreserved(JNIEnv* env, jclass, jlong column_handle)
+{
+  JNI_NULL_CHECK(env, column_handle, "column handle is null", 0);
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    return cudf::jni::release_as_jlong(spark_rapids_jni::sha384_nulls_preserved(
+      *reinterpret_cast<cudf::column_view const*>(column_handle)));
+  }
+  JNI_CATCH(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_Hash_sha512NullsPreserved(JNIEnv* env, jclass, jlong column_handle)
+{
+  JNI_NULL_CHECK(env, column_handle, "column handle is null", 0);
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    return cudf::jni::release_as_jlong(spark_rapids_jni::sha512_nulls_preserved(
+      *reinterpret_cast<cudf::column_view const*>(column_handle)));
+  }
+  JNI_CATCH(env, 0);
+}
 }

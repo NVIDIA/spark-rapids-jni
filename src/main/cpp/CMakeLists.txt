@@ -195,7 +195,6 @@ add_library(
   src/DecimalUtilsJni.cpp
   src/DeviceAttrJni.cpp
   src/GpuTimeZoneDBJni.cpp
-  src/HashJni.cpp
   src/HistogramJni.cpp
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
@@ -216,6 +215,7 @@ add_library(
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
+  src/iceberg/IcebergBucketJni.cpp
   src/iceberg/IcebergDateTimeUtilJni.cpp
   src/iceberg/IcebergTruncateJni.cpp
   # Files starting with lowercase
@@ -236,19 +236,23 @@ add_library(
   src/from_json_to_raw_map.cu
   src/from_json_to_structs.cu
   src/get_json_object.cu
+  src/hash/HashJni.cpp
+  src/hash/hive_hash.cu
+  src/hash/murmur_hash.cu
+  src/hash/sha.cpp
+  src/hash/xxhash64.cu
   src/histogram.cu
-  src/hive_hash.cu
   src/hyper_log_log_plus_plus.cu
   src/hyper_log_log_plus_plus_host_udf.cu
+  src/iceberg/iceberg_bucket.cu
   src/iceberg/iceberg_datetime_util.cu
   src/iceberg/iceberg_truncate.cu
   src/json_utils.cu
+  src/join_primitives.cu
   src/list_slice.cu
   src/map.cu
   src/map_zip_with_utils.cu
-  src/join_primitives.cu
   src/multiply.cu
-  src/murmur_hash.cu
   src/number_converter.cu
   src/parse_uri.cu
   src/protobuf_simple.cu
@@ -261,7 +265,6 @@ add_library(
   src/timezones.cu
   src/utilities.cu
   src/uuid.cu
-  src/xxhash64.cu
   src/zorder.cu
 )
 
