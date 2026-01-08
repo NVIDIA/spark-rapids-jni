@@ -214,6 +214,7 @@ add_library(
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
+  src/iceberg/IcebergBucketJni.cpp
   src/iceberg/IcebergDateTimeUtilJni.cpp
   src/iceberg/IcebergTruncateJni.cpp
   # Files starting with lowercase
@@ -242,6 +243,7 @@ add_library(
   src/histogram.cu
   src/hyper_log_log_plus_plus.cu
   src/hyper_log_log_plus_plus_host_udf.cu
+  src/iceberg/iceberg_bucket.cu
   src/iceberg/iceberg_datetime_util.cu
   src/iceberg/iceberg_truncate.cu
   src/json_utils.cu
