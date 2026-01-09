@@ -29,7 +29,7 @@ namespace spark_rapids_jni {
  * Decode protobuf messages (one message per row) from a LIST<INT8/UINT8> column into a STRUCT
  * column.
  *
- * This is intentionally limited to "simple types" (top-level scalar fields).
+ * This is intentionally limited to top-level scalar fields.
  *
  * Supported output child types (cudf dtypes) and corresponding protobuf field types:
  * - BOOL8   : protobuf `bool` (varint wire type)
@@ -54,9 +54,10 @@ namespace spark_rapids_jni {
  * @param out_types output cudf data types (one per output child)
  * @param encodings encoding type for each field (0=default, 1=fixed, 2=zigzag)
  * @param fail_on_errors whether to throw on malformed messages
- * @return STRUCT column with the given children types, with nullability propagated from input rows
+ * @return STRUCT column with the given children types; the STRUCT itself is always non-null,
+ *         and individual child fields may be null when input message is null or field is missing
  */
-std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
+std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   cudf::column_view const& binary_input,
   std::vector<int> const& field_numbers,
   std::vector<cudf::data_type> const& out_types,

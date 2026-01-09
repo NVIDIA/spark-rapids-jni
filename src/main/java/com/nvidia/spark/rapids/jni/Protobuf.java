@@ -21,9 +21,9 @@ import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.NativeDepsLoader;
 
 /**
- * Simple GPU protobuf decoding utilities.
+ * GPU protobuf decoding utilities.
  *
- * This API is intentionally limited to "simple types", i.e., top-level scalar fields whose
+ * This API is intentionally limited to top-level scalar fields whose
  * values can be represented by a single cuDF scalar type. Supported protobuf field types
  * include scalar fields using the standard protobuf wire encodings:
  * <ul>
@@ -38,7 +38,7 @@ import ai.rapids.cudf.NativeDepsLoader;
  * <p>
  * Nested messages, repeated fields, map fields, and oneof fields are out of scope for this API.
  */
-public class ProtobufSimple {
+public class Protobuf {
   static {
     NativeDepsLoader.loadNativeDeps();
   }

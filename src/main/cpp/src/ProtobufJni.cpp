@@ -16,7 +16,7 @@
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
-#include "protobuf_simple.hpp"
+#include "protobuf.hpp"
 
 #include <cudf/column/column_view.hpp>
 #include <cudf/utilities/traits.hpp>
@@ -24,7 +24,7 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(JNIEnv* env,
+Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                                                                jclass,
                                                                jlong binary_input_view,
                                                                jintArray field_numbers,
@@ -57,9 +57,9 @@ Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(JNIEnv* env,
     std::vector<cudf::data_type> out_types;
     out_types.reserve(n_type_ids.size());
     for (int i = 0; i < n_type_ids.size(); ++i) {
-      // For protobuf simple decoding, typeScales contains encoding info (0=default, 1=fixed,
+      // For protobuf decoding, typeScales contains encoding info (0=default, 1=fixed,
       // 2=zigzag) not decimal scales. For non-decimal types, scale should be 0. Decimal types are
-      // not currently supported in protobuf simple decoder.
+      // not currently supported in protobuf decoder.
       auto type_id = static_cast<cudf::type_id>(n_type_ids[i]);
       if (cudf::is_fixed_point(cudf::data_type{type_id})) {
         // For decimal types, use the scale from typeScales (though currently unsupported)
@@ -70,7 +70,7 @@ Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(JNIEnv* env,
       }
     }
 
-    auto result = spark_rapids_jni::decode_protobuf_simple_to_struct(
+    auto result = spark_rapids_jni::decode_protobuf_to_struct(
       *input, field_nums, out_types, encodings, fail_on_errors);
     return cudf::jni::release_as_jlong(result);
   }

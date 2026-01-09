@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "protobuf_simple.hpp"
+#include "protobuf.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -63,6 +63,11 @@ __device__ inline bool read_varint(uint8_t const* cur,
   int shift = 0;
   while (cur < end && bytes < 10) {
     uint8_t b = *cur++;
+    // For the 10th byte (bytes == 9, shift == 63), only the lowest bit is valid
+    // since we can only fit 1 more bit into uint64_t
+    if (bytes == 9 && (b & 0xFE) != 0) {
+      return false;  // Invalid: 10th byte has more than 1 significant bit
+    }
     out |= (static_cast<uint64_t>(b & 0x7Fu) << shift);
     bytes++;
     if ((b & 0x80u) == 0) { return true; }
@@ -381,7 +386,7 @@ inline std::pair<rmm::device_buffer, cudf::size_type> make_null_mask_from_valid(
 
 namespace spark_rapids_jni {
 
-std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
+std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   cudf::column_view const& binary_input,
   std::vector<int> const& field_numbers,
   std::vector<cudf::data_type> const& out_types,
@@ -561,20 +566,46 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
         }
         auto strings =
           cudf::strings::detail::make_strings_column(pairs.begin(), pairs.end(), stream, mr);
+
+        // Use strings_column_view to get the underlying data
+        cudf::strings_column_view scv(*strings);
         auto const null_count = strings->null_count();
-        auto contents         = strings->release();
-        auto null_mask =
-          contents.null_mask ? std::move(*contents.null_mask) : rmm::device_buffer{0, stream, mr};
+
+        // Get offsets - need to copy since we can't take ownership from a view
+        auto offsets_col = std::make_unique<cudf::column>(scv.offsets(), stream, mr);
+
+        // Get chars data as INT8 column
+        auto chars_data = scv.chars_begin(stream);
+        auto chars_size = static_cast<cudf::size_type>(scv.chars_size(stream));
+        rmm::device_uvector<int8_t> chars_vec(chars_size, stream, mr);
+        if (chars_size > 0) {
+          CUDF_CUDA_TRY(cudaMemcpyAsync(chars_vec.data(),
+                                        chars_data,
+                                        chars_size,
+                                        cudaMemcpyDeviceToDevice,
+                                        stream.value()));
+        }
+        // Create INT8 column from chars data
+        auto child_col = std::make_unique<cudf::column>(
+          cudf::data_type{cudf::type_id::INT8},
+          chars_size,
+          chars_vec.release(),
+          rmm::device_buffer{},  // no null mask for chars
+          0);                    // no nulls
+
+        // Get null mask
+        auto null_mask = cudf::copy_bitmask(*strings, stream, mr);
+
         children.push_back(cudf::make_lists_column(rows,
-                                                   std::move(contents.children[0]),
-                                                   std::move(contents.children[1]),
+                                                   std::move(offsets_col),
+                                                   std::move(child_col),
                                                    null_count,
                                                    std::move(null_mask),
                                                    stream,
                                                    mr));
         break;
       }
-      default: CUDF_FAIL("Unsupported output type for protobuf_simple");
+      default: CUDF_FAIL("Unsupported output type for protobuf decoder");
     }
   }
 
@@ -591,7 +622,7 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
   }
 
   // Note: We intentionally do NOT propagate input nulls to the output STRUCT validity.
-  // The expected semantics for this low-level helper (see ProtobufSimpleTest) are:
+  // The expected semantics for this low-level helper (see ProtobufTest) are:
   // - The STRUCT row is always valid (non-null)
   // - Individual children are null if the input message is null or the field is missing
   //
