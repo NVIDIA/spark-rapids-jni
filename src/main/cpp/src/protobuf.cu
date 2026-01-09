@@ -579,19 +579,16 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         auto chars_size = static_cast<cudf::size_type>(scv.chars_size(stream));
         rmm::device_uvector<int8_t> chars_vec(chars_size, stream, mr);
         if (chars_size > 0) {
-          CUDF_CUDA_TRY(cudaMemcpyAsync(chars_vec.data(),
-                                        chars_data,
-                                        chars_size,
-                                        cudaMemcpyDeviceToDevice,
-                                        stream.value()));
+          CUDF_CUDA_TRY(cudaMemcpyAsync(
+            chars_vec.data(), chars_data, chars_size, cudaMemcpyDeviceToDevice, stream.value()));
         }
         // Create INT8 column from chars data
-        auto child_col = std::make_unique<cudf::column>(
-          cudf::data_type{cudf::type_id::INT8},
-          chars_size,
-          chars_vec.release(),
-          rmm::device_buffer{},  // no null mask for chars
-          0);                    // no nulls
+        auto child_col =
+          std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT8},
+                                         chars_size,
+                                         chars_vec.release(),
+                                         rmm::device_buffer{},  // no null mask for chars
+                                         0);                    // no nulls
 
         // Get null mask
         auto null_mask = cudf::copy_bitmask(*strings, stream, mr);

@@ -25,12 +25,12 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
-                                                               jclass,
-                                                               jlong binary_input_view,
-                                                               jintArray field_numbers,
-                                                               jintArray type_ids,
-                                                               jintArray type_scales,
-                                                               jboolean fail_on_errors)
+                                                         jclass,
+                                                         jlong binary_input_view,
+                                                         jintArray field_numbers,
+                                                         jintArray type_ids,
+                                                         jintArray type_scales,
+                                                         jboolean fail_on_errors)
 {
   JNI_NULL_CHECK(env, binary_input_view, "binary_input_view is null", 0);
   JNI_NULL_CHECK(env, field_numbers, "field_numbers is null", 0);
