@@ -69,10 +69,14 @@ pipeline {
     environment {
         JENKINS_ROOT = 'jenkins'
         GITHUB_TOKEN = credentials("github-token")
+
+        // v1 instance for maven mirror only, will be migrated to v2 soon
         ART_URL = "https://${common.ARTIFACTORY_NAME}/artifactory/sw-spark-maven"
         MVN_MIRROR = '-s ci/settings.xml -P mirror-apache-to-urm'
+        // v2 instance for CI images usage
         ART_CREDS = credentials("urm_creds_v2")
         ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME_V2}"
+
         PVC = credentials("pvc")
         CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
         PVC_MOUNT_PATH = "/pvc"
