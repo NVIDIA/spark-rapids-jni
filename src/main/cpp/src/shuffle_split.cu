@@ -1039,7 +1039,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
                         buf_sizes_by_type,
                         thrust::make_discard_iterator(),
                         d_partition_sizes_unpadded,
-                        thrust::equal_to{},  // key equality check
+                        thrust::equal_to<size_t>{},  // key equality check
                         buf_size_reduce);
 
   // - compute: padded section sizes

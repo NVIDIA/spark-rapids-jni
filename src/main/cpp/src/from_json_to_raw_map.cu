@@ -689,7 +689,7 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
 
   auto const valid_it          = should_be_nullified->view().begin<bool>();
   auto [null_mask, null_count] = cudf::detail::valid_if(
-    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not{}, stream, mr);
+    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not<bool>{}, stream, mr);
   return {null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr}, null_count};
 }
 
