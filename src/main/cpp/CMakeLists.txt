@@ -209,6 +209,7 @@ add_library(
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
+  src/SequenceFileJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/StringUtilsJni.cpp
   src/SubStringIndexJni.cpp
@@ -257,6 +258,7 @@ add_library(
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/round_float.cu
+  src/sequence_file.cu
   src/shuffle_assemble.cu
   src/shuffle_split.cu
   src/substring_index.cu

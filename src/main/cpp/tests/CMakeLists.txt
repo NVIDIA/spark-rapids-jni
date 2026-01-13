@@ -127,3 +127,6 @@ ConfigureTest(CONV
 
 ConfigureTest(MULTIPLY
     multiply.cpp)
+
+ConfigureTest(SEQUENCE_FILE
+    sequence_file.cpp)
