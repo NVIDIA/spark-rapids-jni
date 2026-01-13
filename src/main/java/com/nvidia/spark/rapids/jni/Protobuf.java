@@ -76,6 +76,8 @@ public class Protobuf {
    *                   - For decimal types, this is the scale (currently unsupported).
    * @param failOnErrors if true, throw an exception on malformed protobuf messages.
    *                     If false, return nulls for fields that cannot be parsed.
+   *                     Note: error checking is performed after all fields are processed,
+   *                     not between fields, to avoid synchronization overhead.
    * @return a cudf STRUCT column where children correspond 1:1 with {@code fieldNumbers}/{@code typeIds}.
    */
   public static ColumnVector decodeToStruct(ColumnView binaryInput,
@@ -85,6 +87,9 @@ public class Protobuf {
                                            boolean failOnErrors) {
     if (fieldNumbers == null || typeIds == null || typeScales == null) {
       throw new IllegalArgumentException("fieldNumbers/typeIds/typeScales must be non-null");
+    }
+    if (fieldNumbers.length == 0) {
+      throw new IllegalArgumentException("fieldNumbers must not be empty");
     }
     if (fieldNumbers.length != typeIds.length || fieldNumbers.length != typeScales.length) {
       throw new IllegalArgumentException("fieldNumbers/typeIds/typeScales must be the same length");

@@ -407,8 +407,20 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   auto const stream = cudf::get_default_stream();
   auto mr           = cudf::get_current_device_resource_ref();
 
-  auto d_in = cudf::column_device_view::create(binary_input, stream);
   auto rows = binary_input.size();
+
+  // Handle zero-row case explicitly - return empty STRUCT with properly typed children
+  if (rows == 0) {
+    std::vector<std::unique_ptr<cudf::column>> empty_children;
+    empty_children.reserve(out_types.size());
+    for (auto const& dt : out_types) {
+      empty_children.push_back(cudf::make_empty_column(dt));
+    }
+    return cudf::make_structs_column(
+      0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
+  }
+
+  auto d_in = cudf::column_device_view::create(binary_input, stream);
 
   // Track parse errors across kernels.
   rmm::device_uvector<int> d_error(1, stream, mr);
@@ -610,6 +622,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   CUDF_CUDA_TRY(cudaPeekAtLastError());
 
   // Check for any parse errors.
+  // Note: We check errors after all kernels complete rather than between kernel launches
+  // to avoid expensive synchronization overhead. If fail_on_errors is true and an error
+  // occurred, all kernels will have executed but we throw an exception here.
   int h_error = 0;
   CUDF_CUDA_TRY(
     cudaMemcpyAsync(&h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));

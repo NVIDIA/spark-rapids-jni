@@ -53,7 +53,10 @@ namespace spark_rapids_jni {
  * @param field_numbers protobuf field numbers (one per output child)
  * @param out_types output cudf data types (one per output child)
  * @param encodings encoding type for each field (0=default, 1=fixed, 2=zigzag)
- * @param fail_on_errors whether to throw on malformed messages
+ * @param fail_on_errors whether to throw on malformed messages. Note: error checking is performed
+ *        after all kernels complete (not between kernel launches) to avoid synchronization
+ * overhead. If an error is detected, all kernels will have executed but an exception will be
+ * thrown.
  * @return STRUCT column with the given children types; the STRUCT itself is always non-null,
  *         and individual child fields may be null when input message is null or field is missing
  */
