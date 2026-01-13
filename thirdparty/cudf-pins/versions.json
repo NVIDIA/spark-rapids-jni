@@ -5,7 +5,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "698c2511de5ebf693086d6ff7a9d0d94cbb64922",
+      "git_tag" : "01b14f5a5d88586523b9ed43bccca93df1fa7cb4",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "version" : "3.2.0"
     },
@@ -69,7 +69,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "2cba14dd8b6a637ba26661cbb105daeb4b05a667",
+      "git_tag" : "e7ffd20b42163964a4567041c8c2f6d9e327ef1e",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "source_subdir" : "cpp",
       "version" : "26.02"
