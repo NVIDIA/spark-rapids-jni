@@ -373,4 +373,204 @@ public class SequenceFileTest {
             }
         }
     }
+
+    // ============================================================================
+    // Multi-file Parsing Tests
+    // ============================================================================
+
+    private static final byte[] TEST_SYNC_MARKER_2 = new byte[] {
+        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20
+    };
+
+    private static final byte[] TEST_SYNC_MARKER_3 = new byte[] {
+        0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+        0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30
+    };
+
+    @Test
+    void testParseMultipleFilesBasic() {
+        // Create 3 files with different sync markers and record counts
+        List<byte[][]> records1 = new ArrayList<>();
+        records1.add(new byte[][] {"file1key1".getBytes(), "file1val1".getBytes()});
+        records1.add(new byte[][] {"file1key2".getBytes(), "file1val2".getBytes()});
+        byte[] data1 = buildTestData(records1, TEST_SYNC_MARKER, 0);
+
+        List<byte[][]> records2 = new ArrayList<>();
+        records2.add(new byte[][] {"f2k1".getBytes(), "f2v1".getBytes()});
+        records2.add(new byte[][] {"f2k2".getBytes(), "f2v2".getBytes()});
+        records2.add(new byte[][] {"f2k3".getBytes(), "f2v3".getBytes()});
+        byte[] data2 = buildTestData(records2, TEST_SYNC_MARKER_2, 0);
+
+        List<byte[][]> records3 = new ArrayList<>();
+        records3.add(new byte[][] {"3k1".getBytes(), "3v1".getBytes()});
+        byte[] data3 = buildTestData(records3, TEST_SYNC_MARKER_3, 0);
+
+        // Combine all data into one buffer
+        int totalSize = data1.length + data2.length + data3.length;
+        byte[] combinedData = new byte[totalSize];
+        System.arraycopy(data1, 0, combinedData, 0, data1.length);
+        System.arraycopy(data2, 0, combinedData, data1.length, data2.length);
+        System.arraycopy(data3, 0, combinedData, data1.length + data2.length, data3.length);
+
+        long[] fileOffsets = new long[] {0, data1.length, data1.length + data2.length};
+        long[] fileSizes = new long[] {data1.length, data2.length, data3.length};
+        byte[][] syncMarkers = new byte[][] {TEST_SYNC_MARKER, TEST_SYNC_MARKER_2, TEST_SYNC_MARKER_3};
+
+        try (HostMemoryBuffer hostBuffer = HostMemoryBuffer.allocate(totalSize);
+             DeviceMemoryBuffer deviceBuffer = DeviceMemoryBuffer.allocate(totalSize)) {
+
+            hostBuffer.setBytes(0, combinedData, 0, totalSize);
+            deviceBuffer.copyFromHostBuffer(hostBuffer);
+
+            try (SequenceFile.MultiFileParseResult result = SequenceFile.parseMultipleFiles(
+                    deviceBuffer, fileOffsets, fileSizes, syncMarkers, true, true)) {
+
+                // Verify total rows
+                assertEquals(6, result.getTotalRows());  // 2 + 3 + 1
+
+                // Verify per-file row counts
+                int[] fileCounts = result.getFileRowCounts();
+                assertEquals(3, fileCounts.length);
+                assertEquals(2, fileCounts[0]);  // file1 has 2 records
+                assertEquals(3, fileCounts[1]);  // file2 has 3 records
+                assertEquals(1, fileCounts[2]);  // file3 has 1 record
+
+                // Verify columns exist
+                assertNotNull(result.getKeyColumn());
+                assertNotNull(result.getValueColumn());
+                assertEquals(6, result.getKeyColumn().getRowCount());
+                assertEquals(6, result.getValueColumn().getRowCount());
+            }
+        }
+    }
+
+    @Test
+    void testParseMultipleFilesWithSyncMarkers() {
+        // Create 2 files with sync markers inserted
+        List<byte[][]> records1 = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            records1.add(new byte[][] {
+                ("f1k" + i).getBytes(),
+                ("f1v" + i).getBytes()
+            });
+        }
+        byte[] data1 = buildTestData(records1, TEST_SYNC_MARKER, 10);  // Sync every 10 records
+
+        List<byte[][]> records2 = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            records2.add(new byte[][] {
+                ("f2k" + i).getBytes(),
+                ("f2v" + i).getBytes()
+            });
+        }
+        byte[] data2 = buildTestData(records2, TEST_SYNC_MARKER_2, 5);  // Sync every 5 records
+
+        // Combine data
+        int totalSize = data1.length + data2.length;
+        byte[] combinedData = new byte[totalSize];
+        System.arraycopy(data1, 0, combinedData, 0, data1.length);
+        System.arraycopy(data2, 0, combinedData, data1.length, data2.length);
+
+        long[] fileOffsets = new long[] {0, data1.length};
+        long[] fileSizes = new long[] {data1.length, data2.length};
+        byte[][] syncMarkers = new byte[][] {TEST_SYNC_MARKER, TEST_SYNC_MARKER_2};
+
+        try (HostMemoryBuffer hostBuffer = HostMemoryBuffer.allocate(totalSize);
+             DeviceMemoryBuffer deviceBuffer = DeviceMemoryBuffer.allocate(totalSize)) {
+
+            hostBuffer.setBytes(0, combinedData, 0, totalSize);
+            deviceBuffer.copyFromHostBuffer(hostBuffer);
+
+            try (SequenceFile.MultiFileParseResult result = SequenceFile.parseMultipleFiles(
+                    deviceBuffer, fileOffsets, fileSizes, syncMarkers, true, true)) {
+
+                assertEquals(80, result.getTotalRows());  // 50 + 30
+
+                int[] fileCounts = result.getFileRowCounts();
+                assertEquals(50, fileCounts[0]);
+                assertEquals(30, fileCounts[1]);
+            }
+        }
+    }
+
+    @Test
+    void testParseMultipleFilesValueOnly() {
+        // Create 2 simple files and only request values
+        List<byte[][]> records1 = new ArrayList<>();
+        records1.add(new byte[][] {"k1".getBytes(), "value1".getBytes()});
+        records1.add(new byte[][] {"k2".getBytes(), "value2".getBytes()});
+        byte[] data1 = buildTestData(records1, TEST_SYNC_MARKER, 0);
+
+        List<byte[][]> records2 = new ArrayList<>();
+        records2.add(new byte[][] {"k3".getBytes(), "value3".getBytes()});
+        byte[] data2 = buildTestData(records2, TEST_SYNC_MARKER_2, 0);
+
+        int totalSize = data1.length + data2.length;
+        byte[] combinedData = new byte[totalSize];
+        System.arraycopy(data1, 0, combinedData, 0, data1.length);
+        System.arraycopy(data2, 0, combinedData, data1.length, data2.length);
+
+        long[] fileOffsets = new long[] {0, data1.length};
+        long[] fileSizes = new long[] {data1.length, data2.length};
+        byte[][] syncMarkers = new byte[][] {TEST_SYNC_MARKER, TEST_SYNC_MARKER_2};
+
+        try (HostMemoryBuffer hostBuffer = HostMemoryBuffer.allocate(totalSize);
+             DeviceMemoryBuffer deviceBuffer = DeviceMemoryBuffer.allocate(totalSize)) {
+
+            hostBuffer.setBytes(0, combinedData, 0, totalSize);
+            deviceBuffer.copyFromHostBuffer(hostBuffer);
+
+            try (SequenceFile.MultiFileParseResult result = SequenceFile.parseMultipleFiles(
+                    deviceBuffer, fileOffsets, fileSizes, syncMarkers, false, true)) {
+
+                assertEquals(3, result.getTotalRows());
+                assertNull(result.getKeyColumn());  // No keys requested
+                assertNotNull(result.getValueColumn());
+                assertEquals(3, result.getValueColumn().getRowCount());
+            }
+        }
+    }
+
+    @Test
+    void testParseMultipleFilesEmptyFile() {
+        // Create 3 files, with the middle one empty
+        List<byte[][]> records1 = new ArrayList<>();
+        records1.add(new byte[][] {"k1".getBytes(), "v1".getBytes()});
+        byte[] data1 = buildTestData(records1, TEST_SYNC_MARKER, 0);
+
+        byte[] data2 = new byte[0];  // Empty file
+
+        List<byte[][]> records3 = new ArrayList<>();
+        records3.add(new byte[][] {"k3".getBytes(), "v3".getBytes()});
+        byte[] data3 = buildTestData(records3, TEST_SYNC_MARKER_3, 0);
+
+        int totalSize = data1.length + data2.length + data3.length;
+        byte[] combinedData = new byte[totalSize];
+        System.arraycopy(data1, 0, combinedData, 0, data1.length);
+        // data2 is empty, no copy needed
+        System.arraycopy(data3, 0, combinedData, data1.length, data3.length);
+
+        long[] fileOffsets = new long[] {0, data1.length, data1.length};
+        long[] fileSizes = new long[] {data1.length, 0, data3.length};
+        byte[][] syncMarkers = new byte[][] {TEST_SYNC_MARKER, TEST_SYNC_MARKER_2, TEST_SYNC_MARKER_3};
+
+        try (HostMemoryBuffer hostBuffer = HostMemoryBuffer.allocate(totalSize);
+             DeviceMemoryBuffer deviceBuffer = DeviceMemoryBuffer.allocate(totalSize)) {
+
+            hostBuffer.setBytes(0, combinedData, 0, totalSize);
+            deviceBuffer.copyFromHostBuffer(hostBuffer);
+
+            try (SequenceFile.MultiFileParseResult result = SequenceFile.parseMultipleFiles(
+                    deviceBuffer, fileOffsets, fileSizes, syncMarkers, true, true)) {
+
+                assertEquals(2, result.getTotalRows());  // 1 + 0 + 1
+
+                int[] fileCounts = result.getFileRowCounts();
+                assertEquals(1, fileCounts[0]);
+                assertEquals(0, fileCounts[1]);  // Empty file
+                assertEquals(1, fileCounts[2]);
+            }
+        }
+    }
 }

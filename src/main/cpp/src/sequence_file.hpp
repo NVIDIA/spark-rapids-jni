@@ -54,6 +54,29 @@ struct sequence_file_result {
 };
 
 /**
+ * @brief Descriptor for a single file in a multi-file batch.
+ *
+ * Used when parsing multiple SequenceFiles in a single GPU kernel launch.
+ */
+struct file_descriptor {
+  int64_t data_offset;                ///< Offset of this file's data in the combined buffer
+  int64_t data_size;                  ///< Size of this file's data in bytes
+  uint8_t sync_marker[SYNC_MARKER_SIZE];  ///< This file's 16-byte sync marker
+};
+
+/**
+ * @brief Result of parsing multiple SequenceFiles.
+ *
+ * Contains combined key/value columns plus per-file record counts for partition value assignment.
+ */
+struct multi_file_result {
+  std::unique_ptr<cudf::column> key_column;    ///< Combined key column (LIST<UINT8>)
+  std::unique_ptr<cudf::column> value_column;  ///< Combined value column (LIST<UINT8>)
+  std::vector<int32_t> file_row_counts;        ///< Number of records from each file
+  cudf::size_type total_rows;                  ///< Total number of records across all files
+};
+
+/**
  * @brief Parse uncompressed SequenceFile data on the GPU.
  *
  * This function parses the record portion of a Hadoop SequenceFile (version 6, uncompressed)
@@ -101,5 +124,28 @@ cudf::size_type count_records(uint8_t const* data,
                               size_t data_size,
                               std::vector<uint8_t> const& sync_marker,
                               rmm::cuda_stream_view stream = cudf::get_default_stream());
+
+/**
+ * @brief Parse multiple SequenceFiles in a single GPU operation.
+ *
+ * This function parses multiple SequenceFiles that have been concatenated into
+ * a single buffer, using their individual sync markers. This enables higher
+ * GPU parallelism by processing chunks from all files simultaneously.
+ *
+ * @param combined_data Pointer to device memory containing concatenated file data.
+ * @param file_descs Vector of file descriptors (offset, size, sync_marker for each file).
+ * @param wants_key If true, extract and return the key column.
+ * @param wants_value If true, extract and return the value column.
+ * @param stream CUDA stream to use for operations.
+ * @param mr Device memory resource for allocations.
+ * @return A multi_file_result containing combined columns and per-file record counts.
+ */
+multi_file_result parse_multiple_sequence_files(
+  uint8_t const* combined_data,
+  std::vector<file_descriptor> const& file_descs,
+  bool wants_key,
+  bool wants_value,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni

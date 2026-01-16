@@ -64,6 +64,44 @@ public class SequenceFile {
   }
 
   /**
+   * Result of parsing multiple SequenceFiles in a single GPU operation.
+   */
+  public static class MultiFileParseResult implements AutoCloseable {
+    private ColumnVector keyColumn;
+    private ColumnVector valueColumn;
+    private final int[] fileRowCounts;
+    private final int totalRows;
+
+    /**
+     * Constructor called from JNI.
+     */
+    public MultiFileParseResult(long keyColumnHandle, long valueColumnHandle,
+                                 int[] fileRowCounts, int totalRows) {
+      this.keyColumn = keyColumnHandle != 0 ? new ColumnVector(keyColumnHandle) : null;
+      this.valueColumn = valueColumnHandle != 0 ? new ColumnVector(valueColumnHandle) : null;
+      this.fileRowCounts = fileRowCounts;
+      this.totalRows = totalRows;
+    }
+
+    public ColumnVector getKeyColumn() { return keyColumn; }
+    public ColumnVector getValueColumn() { return valueColumn; }
+    public int[] getFileRowCounts() { return fileRowCounts; }
+    public int getTotalRows() { return totalRows; }
+
+    @Override
+    public void close() {
+      if (keyColumn != null) {
+        keyColumn.close();
+        keyColumn = null;
+      }
+      if (valueColumn != null) {
+        valueColumn.close();
+        valueColumn = null;
+      }
+    }
+  }
+
+  /**
    * Parse uncompressed SequenceFile data on the GPU and return key/value columns.
    *
    * <p>The input data buffer should contain only the record data portion of the SequenceFile,
@@ -188,4 +226,67 @@ public class SequenceFile {
       long dataAddress,
       long dataSize,
       byte[] syncMarker);
+
+  /**
+   * Parse multiple SequenceFiles from a combined device buffer in a single GPU operation.
+   *
+   * <p>This method provides higher GPU parallelism by processing chunks from all files
+   * simultaneously, rather than processing files one at a time.</p>
+   *
+   * @param combinedData Device memory buffer containing all files' data concatenated.
+   * @param fileOffsets Start offset of each file's data in the combined buffer.
+   * @param fileSizes Size of each file's data in bytes.
+   * @param syncMarkers Array of 16-byte sync markers, one per file.
+   * @param wantsKey If true, include the key column in the output.
+   * @param wantsValue If true, include the value column in the output.
+   * @return A MultiFileParseResult containing combined columns and per-file record counts.
+   * @throws IllegalArgumentException if arrays have mismatched lengths or invalid sync markers.
+   */
+  public static MultiFileParseResult parseMultipleFiles(
+      DeviceMemoryBuffer combinedData,
+      long[] fileOffsets,
+      long[] fileSizes,
+      byte[][] syncMarkers,
+      boolean wantsKey,
+      boolean wantsValue) {
+    if (combinedData == null) {
+      throw new IllegalArgumentException("combinedData buffer cannot be null");
+    }
+    if (fileOffsets == null || fileSizes == null || syncMarkers == null) {
+      throw new IllegalArgumentException("fileOffsets, fileSizes, and syncMarkers cannot be null");
+    }
+    int numFiles = fileOffsets.length;
+    if (fileSizes.length != numFiles || syncMarkers.length != numFiles) {
+      throw new IllegalArgumentException(
+          "fileOffsets, fileSizes, and syncMarkers must have the same length");
+    }
+    for (int i = 0; i < numFiles; i++) {
+      if (syncMarkers[i] == null || syncMarkers[i].length != 16) {
+        throw new IllegalArgumentException(
+            "Each syncMarker must be exactly 16 bytes, file " + i + " has invalid marker");
+      }
+    }
+    if (!wantsKey && !wantsValue) {
+      return new MultiFileParseResult(0, 0, new int[numFiles], 0);
+    }
+
+    return parseMultipleFilesNative(
+        combinedData.getAddress(),
+        fileOffsets,
+        fileSizes,
+        syncMarkers,
+        wantsKey,
+        wantsValue);
+  }
+
+  /**
+   * Native implementation of multi-file parsing.
+   */
+  private static native MultiFileParseResult parseMultipleFilesNative(
+      long dataAddress,
+      long[] fileOffsets,
+      long[] fileSizes,
+      byte[][] syncMarkers,
+      boolean wantsKey,
+      boolean wantsValue);
 }
