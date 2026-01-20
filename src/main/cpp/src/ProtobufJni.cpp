@@ -27,51 +27,58 @@ JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                                                          jclass,
                                                          jlong binary_input_view,
+                                                         jint total_num_fields,
+                                                         jintArray decoded_field_indices,
                                                          jintArray field_numbers,
-                                                         jintArray type_ids,
-                                                         jintArray type_scales,
+                                                         jintArray all_type_ids,
+                                                         jintArray encodings,
                                                          jboolean fail_on_errors)
 {
   JNI_NULL_CHECK(env, binary_input_view, "binary_input_view is null", 0);
+  JNI_NULL_CHECK(env, decoded_field_indices, "decoded_field_indices is null", 0);
   JNI_NULL_CHECK(env, field_numbers, "field_numbers is null", 0);
-  JNI_NULL_CHECK(env, type_ids, "type_ids is null", 0);
-  JNI_NULL_CHECK(env, type_scales, "type_scales is null", 0);
+  JNI_NULL_CHECK(env, all_type_ids, "all_type_ids is null", 0);
+  JNI_NULL_CHECK(env, encodings, "encodings is null", 0);
 
   JNI_TRY
   {
     cudf::jni::auto_set_device(env);
     auto const* input = reinterpret_cast<cudf::column_view const*>(binary_input_view);
+
+    cudf::jni::native_jintArray n_decoded_indices(env, decoded_field_indices);
     cudf::jni::native_jintArray n_field_numbers(env, field_numbers);
-    cudf::jni::native_jintArray n_type_ids(env, type_ids);
-    cudf::jni::native_jintArray n_type_scales(env, type_scales);
-    if (n_field_numbers.size() != n_type_ids.size() ||
-        n_field_numbers.size() != n_type_scales.size()) {
+    cudf::jni::native_jintArray n_all_type_ids(env, all_type_ids);
+    cudf::jni::native_jintArray n_encodings(env, encodings);
+
+    // Validate array sizes
+    if (n_decoded_indices.size() != n_field_numbers.size() ||
+        n_decoded_indices.size() != n_encodings.size()) {
       JNI_THROW_NEW(env,
                     cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
-                    "fieldNumbers/typeIds/typeScales must be the same length",
+                    "decoded_field_indices/field_numbers/encodings must be the same length",
+                    0);
+    }
+    if (n_all_type_ids.size() != total_num_fields) {
+      JNI_THROW_NEW(env,
+                    cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                    "all_type_ids size must equal total_num_fields",
                     0);
     }
 
+    std::vector<int> decoded_indices(n_decoded_indices.begin(), n_decoded_indices.end());
     std::vector<int> field_nums(n_field_numbers.begin(), n_field_numbers.end());
-    std::vector<int> encodings(n_type_scales.begin(), n_type_scales.end());
-    std::vector<cudf::data_type> out_types;
-    out_types.reserve(n_type_ids.size());
-    for (int i = 0; i < n_type_ids.size(); ++i) {
-      // For protobuf decoding, typeScales contains encoding info (0=default, 1=fixed,
-      // 2=zigzag) not decimal scales. For non-decimal types, scale should be 0. Decimal types are
-      // not currently supported in protobuf decoder.
-      auto type_id = static_cast<cudf::type_id>(n_type_ids[i]);
-      if (cudf::is_fixed_point(cudf::data_type{type_id})) {
-        // For decimal types, use the scale from typeScales (though currently unsupported)
-        out_types.emplace_back(cudf::jni::make_data_type(n_type_ids[i], n_type_scales[i]));
-      } else {
-        // For non-decimal types, scale is always 0; typeScales contains encoding info
-        out_types.emplace_back(cudf::jni::make_data_type(n_type_ids[i], 0));
-      }
+    std::vector<int> encs(n_encodings.begin(), n_encodings.end());
+
+    // Build all_types vector - types for ALL fields in the output struct
+    std::vector<cudf::data_type> all_types;
+    all_types.reserve(total_num_fields);
+    for (int i = 0; i < total_num_fields; ++i) {
+      // For non-decimal types, scale is always 0
+      all_types.emplace_back(cudf::jni::make_data_type(n_all_type_ids[i], 0));
     }
 
     auto result = spark_rapids_jni::decode_protobuf_to_struct(
-      *input, field_nums, out_types, encodings, fail_on_errors);
+      *input, total_num_fields, decoded_indices, field_nums, all_types, encs, fail_on_errors);
     return cudf::jni::release_as_jlong(result);
   }
   JNI_CATCH(env, 0);

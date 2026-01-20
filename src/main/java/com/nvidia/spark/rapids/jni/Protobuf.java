@@ -23,9 +23,16 @@ import ai.rapids.cudf.NativeDepsLoader;
 /**
  * GPU protobuf decoding utilities.
  *
- * This API is intentionally limited to top-level scalar fields whose
- * values can be represented by a single cuDF scalar type. Supported protobuf field types
- * include scalar fields using the standard protobuf wire encodings:
+ * This API uses a two-pass approach for efficient decoding:
+ * <ul>
+ *   <li>Pass 1: Scan all messages once, recording (offset, length) for each requested field</li>
+ *   <li>Pass 2: Extract data in parallel using the recorded locations</li>
+ * </ul>
+ *
+ * This is significantly faster than per-field parsing when decoding multiple fields,
+ * as each message is only parsed once regardless of the number of fields.
+ *
+ * Supported protobuf field types include scalar fields using the standard wire encodings:
  * <ul>
  *   <li>VARINT: {@code int32}, {@code int64}, {@code uint32}, {@code uint64}, {@code bool}</li>
  *   <li>ZIGZAG VARINT (encoding=2): {@code sint32}, {@code sint64}</li>
@@ -33,9 +40,7 @@ import ai.rapids.cudf.NativeDepsLoader;
  *   <li>FIXED64 (encoding=1): {@code fixed64}, {@code sfixed64}, {@code double}</li>
  *   <li>LENGTH_DELIMITED: {@code string}, {@code bytes}</li>
  * </ul>
- * Each decoded field becomes a child column of the resulting STRUCT, with its cuDF type
- * specified via the corresponding {@code typeIds} entry.
- * <p>
+ *
  * Nested messages, repeated fields, map fields, and oneof fields are out of scope for this API.
  */
 public class Protobuf {
@@ -48,77 +53,127 @@ public class Protobuf {
   public static final int ENC_ZIGZAG  = 2;
 
   /**
-   * Decode a protobuf message-per-row binary column into a single STRUCT column.
+   * Decode a protobuf message-per-row binary column into a STRUCT column.
+   *
+   * This method supports schema projection: only the fields specified in
+   * {@code decodedFieldIndices} will be decoded. Other fields in the output
+   * struct will contain all null values.
    *
    * @param binaryInput column of type LIST&lt;INT8/UINT8&gt; where each row is one protobuf message.
-   * @param fieldNumbers protobuf field numbers to decode (one per struct child)
-   * @param typeIds cudf native type ids (one per struct child)
-   * @param typeScales encoding info or decimal scales:
-   *                   - For non-decimal types, this is the encoding: 0=default, 1=fixed, 2=zigzag.
-   *                   - For decimal types, this is the scale (currently unsupported).
-   * @return a cudf STRUCT column where children correspond 1:1 with {@code fieldNumbers}/{@code typeIds}.
+   * @param totalNumFields Total number of fields in the output struct (including null columns).
+   * @param decodedFieldIndices Indices into the output struct for fields that should be decoded.
+   *                            These must be sorted in ascending order.
+   * @param fieldNumbers Protobuf field numbers for decoded fields (parallel to decodedFieldIndices).
+   * @param allTypeIds cudf native type ids for ALL fields in the output struct (size = totalNumFields).
+   * @param encodings Encoding info for decoded fields (parallel to decodedFieldIndices):
+   *                  0=default (varint), 1=fixed, 2=zigzag.
+   * @return a cudf STRUCT column with totalNumFields children. Decoded fields contain parsed data,
+   *         other fields contain all nulls.
    */
   public static ColumnVector decodeToStruct(ColumnView binaryInput,
+                                           int totalNumFields,
+                                           int[] decodedFieldIndices,
                                            int[] fieldNumbers,
-                                           int[] typeIds,
-                                           int[] typeScales) {
-    return decodeToStruct(binaryInput, fieldNumbers, typeIds, typeScales, true);
+                                           int[] allTypeIds,
+                                           int[] encodings) {
+    return decodeToStruct(binaryInput, totalNumFields, decodedFieldIndices, fieldNumbers,
+                          allTypeIds, encodings, true);
   }
 
   /**
-   * Decode a protobuf message-per-row binary column into a single STRUCT column.
+   * Decode a protobuf message-per-row binary column into a STRUCT column.
+   *
+   * This method supports schema projection: only the fields specified in
+   * {@code decodedFieldIndices} will be decoded. Other fields in the output
+   * struct will contain all null values.
    *
    * @param binaryInput column of type LIST&lt;INT8/UINT8&gt; where each row is one protobuf message.
-   * @param fieldNumbers protobuf field numbers to decode (one per struct child)
-   * @param typeIds cudf native type ids (one per struct child)
-   * @param typeScales encoding info or decimal scales:
-   *                   - For non-decimal types, this is the encoding: 0=default, 1=fixed, 2=zigzag.
-   *                   - For decimal types, this is the scale (currently unsupported).
+   * @param totalNumFields Total number of fields in the output struct (including null columns).
+   * @param decodedFieldIndices Indices into the output struct for fields that should be decoded.
+   *                            These must be sorted in ascending order.
+   * @param fieldNumbers Protobuf field numbers for decoded fields (parallel to decodedFieldIndices).
+   * @param allTypeIds cudf native type ids for ALL fields in the output struct (size = totalNumFields).
+   * @param encodings Encoding info for decoded fields (parallel to decodedFieldIndices):
+   *                  0=default (varint), 1=fixed, 2=zigzag.
    * @param failOnErrors if true, throw an exception on malformed protobuf messages.
    *                     If false, return nulls for fields that cannot be parsed.
    *                     Note: error checking is performed after all fields are processed,
    *                     not between fields, to avoid synchronization overhead.
-   * @return a cudf STRUCT column where children correspond 1:1 with {@code fieldNumbers}/{@code typeIds}.
+   * @return a cudf STRUCT column with totalNumFields children. Decoded fields contain parsed data,
+   *         other fields contain all nulls.
    */
   public static ColumnVector decodeToStruct(ColumnView binaryInput,
+                                           int totalNumFields,
+                                           int[] decodedFieldIndices,
                                            int[] fieldNumbers,
-                                           int[] typeIds,
-                                           int[] typeScales,
+                                           int[] allTypeIds,
+                                           int[] encodings,
                                            boolean failOnErrors) {
-    if (fieldNumbers == null || typeIds == null || typeScales == null) {
-      throw new IllegalArgumentException("fieldNumbers/typeIds/typeScales must be non-null");
+    // Parameter validation
+    if (decodedFieldIndices == null || fieldNumbers == null ||
+        allTypeIds == null || encodings == null) {
+      throw new IllegalArgumentException("Arrays must be non-null");
     }
-    if (fieldNumbers.length == 0) {
-      throw new IllegalArgumentException("fieldNumbers must not be empty");
+    if (totalNumFields < 0) {
+      throw new IllegalArgumentException("totalNumFields must be non-negative");
     }
-    if (fieldNumbers.length != typeIds.length || fieldNumbers.length != typeScales.length) {
-      throw new IllegalArgumentException("fieldNumbers/typeIds/typeScales must be the same length");
+    if (allTypeIds.length != totalNumFields) {
+      throw new IllegalArgumentException(
+          "allTypeIds length (" + allTypeIds.length + ") must equal totalNumFields (" +
+          totalNumFields + ")");
     }
-    // Validate field numbers are positive (protobuf field numbers must be 1-536870911)
+    if (decodedFieldIndices.length != fieldNumbers.length ||
+        decodedFieldIndices.length != encodings.length) {
+      throw new IllegalArgumentException(
+          "decodedFieldIndices/fieldNumbers/encodings must be the same length");
+    }
+
+    // Validate decoded field indices are in bounds and sorted
+    int prevIdx = -1;
+    for (int i = 0; i < decodedFieldIndices.length; i++) {
+      int idx = decodedFieldIndices[i];
+      if (idx < 0 || idx >= totalNumFields) {
+        throw new IllegalArgumentException(
+            "Invalid decoded field index at position " + i + ": " + idx +
+            " (must be in range [0, " + totalNumFields + "))");
+      }
+      if (idx <= prevIdx) {
+        throw new IllegalArgumentException(
+            "decodedFieldIndices must be sorted in ascending order without duplicates");
+      }
+      prevIdx = idx;
+    }
+
+    // Validate field numbers are positive
     for (int i = 0; i < fieldNumbers.length; i++) {
       if (fieldNumbers[i] <= 0) {
         throw new IllegalArgumentException(
-            "Invalid field number at index " + i + ": " + fieldNumbers[i]
-                + " (field numbers must be positive)");
+            "Invalid field number at index " + i + ": " + fieldNumbers[i] +
+            " (field numbers must be positive)");
       }
     }
-    // Validate encoding values are within valid range
-    for (int i = 0; i < typeScales.length; i++) {
-      int enc = typeScales[i];
+
+    // Validate encoding values
+    for (int i = 0; i < encodings.length; i++) {
+      int enc = encodings[i];
       if (enc < ENC_DEFAULT || enc > ENC_ZIGZAG) {
         throw new IllegalArgumentException(
-            "Invalid encoding value at index " + i + ": " + enc
-                + " (expected " + ENC_DEFAULT + ", " + ENC_FIXED + ", or " + ENC_ZIGZAG + ")");
+            "Invalid encoding value at index " + i + ": " + enc +
+            " (expected " + ENC_DEFAULT + ", " + ENC_FIXED + ", or " + ENC_ZIGZAG + ")");
       }
     }
-    long handle = decodeToStruct(binaryInput.getNativeView(), fieldNumbers, typeIds, typeScales, failOnErrors);
+
+    long handle = decodeToStruct(binaryInput.getNativeView(), totalNumFields,
+                                 decodedFieldIndices, fieldNumbers, allTypeIds,
+                                 encodings, failOnErrors);
     return new ColumnVector(handle);
   }
 
   private static native long decodeToStruct(long binaryInputView,
+                                            int totalNumFields,
+                                            int[] decodedFieldIndices,
                                             int[] fieldNumbers,
-                                            int[] typeIds,
-                                            int[] typeScales,
+                                            int[] allTypeIds,
+                                            int[] encodings,
                                             boolean failOnErrors);
 }
-

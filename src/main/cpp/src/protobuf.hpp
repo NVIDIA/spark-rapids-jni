@@ -25,11 +25,21 @@
 
 namespace spark_rapids_jni {
 
+// Encoding constants
+constexpr int ENC_DEFAULT = 0;
+constexpr int ENC_FIXED   = 1;
+constexpr int ENC_ZIGZAG  = 2;
+
 /**
  * Decode protobuf messages (one message per row) from a LIST<INT8/UINT8> column into a STRUCT
  * column.
  *
- * This is intentionally limited to top-level scalar fields.
+ * This uses a two-pass approach for efficiency:
+ * - Pass 1: Scan all messages once, recording (offset, length) for each requested field
+ * - Pass 2: Extract data in parallel using the recorded locations
+ *
+ * This is significantly faster than the per-field approach when decoding multiple fields,
+ * as each message is only parsed once regardless of the number of fields.
  *
  * Supported output child types (cudf dtypes) and corresponding protobuf field types:
  * - BOOL8   : protobuf `bool` (varint wire type)
@@ -50,20 +60,24 @@ namespace spark_rapids_jni {
  * Nested messages, repeated fields, map fields, and oneof fields are out of scope for this API.
  *
  * @param binary_input LIST<INT8/UINT8> column, each row is one protobuf message
- * @param field_numbers protobuf field numbers (one per output child)
- * @param out_types output cudf data types (one per output child)
- * @param encodings encoding type for each field (0=default, 1=fixed, 2=zigzag)
- * @param fail_on_errors whether to throw on malformed messages. Note: error checking is performed
- *        after all kernels complete (not between kernel launches) to avoid synchronization
- * overhead. If an error is detected, all kernels will have executed but an exception will be
- * thrown.
- * @return STRUCT column with the given children types; the STRUCT itself is always non-null,
- *         and individual child fields may be null when input message is null or field is missing
+ * @param total_num_fields Total number of fields in the output struct (including null columns)
+ * @param decoded_field_indices Indices into the output struct for fields that should be decoded.
+ *                              Fields not in this list will be null columns in the output.
+ * @param field_numbers Protobuf field numbers for decoded fields (parallel to decoded_field_indices)
+ * @param all_types Output cudf data types for ALL fields in the struct (size = total_num_fields)
+ * @param encodings Encoding type for each decoded field (0=default, 1=fixed, 2=zigzag)
+ *                  (parallel to decoded_field_indices)
+ * @param fail_on_errors Whether to throw on malformed messages. Note: error checking is performed
+ *        after all kernels complete (not between kernel launches) to avoid synchronization overhead.
+ * @return STRUCT column with total_num_fields children. Decoded fields contain the parsed data,
+ *         other fields contain all nulls. The STRUCT itself is always non-null.
  */
 std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   cudf::column_view const& binary_input,
+  int total_num_fields,
+  std::vector<int> const& decoded_field_indices,
   std::vector<int> const& field_numbers,
-  std::vector<cudf::data_type> const& out_types,
+  std::vector<cudf::data_type> const& all_types,
   std::vector<int> const& encodings,
   bool fail_on_errors);
 

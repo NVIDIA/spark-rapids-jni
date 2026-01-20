@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector.*;
 import ai.rapids.cudf.Table;
@@ -142,6 +143,40 @@ public class ProtobufTest {
   }
 
   // ============================================================================
+  // Helper methods for calling the new API
+  // ============================================================================
+
+  /**
+   * Helper method that wraps the new API for tests that decode all fields.
+   * This simulates the old API behavior where all fields are decoded.
+   */
+  private static ColumnVector decodeAllFields(ColumnView binaryInput,
+                                              int[] fieldNumbers,
+                                              int[] typeIds,
+                                              int[] encodings) {
+    return decodeAllFields(binaryInput, fieldNumbers, typeIds, encodings, true);
+  }
+
+  /**
+   * Helper method that wraps the new API for tests that decode all fields.
+   * This simulates the old API behavior where all fields are decoded.
+   */
+  private static ColumnVector decodeAllFields(ColumnView binaryInput,
+                                              int[] fieldNumbers,
+                                              int[] typeIds,
+                                              int[] encodings,
+                                              boolean failOnErrors) {
+    int numFields = fieldNumbers.length;
+    // When decoding all fields, decodedFieldIndices is [0, 1, 2, ..., n-1]
+    int[] decodedFieldIndices = new int[numFields];
+    for (int i = 0; i < numFields; i++) {
+      decodedFieldIndices[i] = i;
+    }
+    return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
+                                   fieldNumbers, typeIds, encodings, failOnErrors);
+  }
+
+  // ============================================================================
   // Basic Type Tests
   // ============================================================================
 
@@ -168,7 +203,7 @@ public class ProtobufTest {
          ColumnVector expectedId = ColumnVector.fromBoxedLongs(100L, 200L, null);
          ColumnVector expectedName = ColumnVector.fromStrings("alice", null, null);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedId, expectedName);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1, 2},
              new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
@@ -198,7 +233,7 @@ public class ProtobufTest {
          ColumnVector expectedB = ColumnVector.fromLists(
              new ListType(true, new BasicType(true, DType.INT8)),
              Arrays.asList((byte) 1, (byte) 2, (byte) 3));
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1, 2, 3, 4},
              new int[]{
@@ -237,7 +272,7 @@ public class ProtobufTest {
          ColumnVector expectedFloat = ColumnVector.fromBoxedFloats(3.14f, -1.5f);
          ColumnVector expectedDouble = ColumnVector.fromBoxedDoubles(2.71828, 0.0);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedBool, expectedFloat, expectedDouble);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1, 2, 3},
              new int[]{
@@ -245,6 +280,64 @@ public class ProtobufTest {
                  DType.FLOAT32.getTypeId().getNativeId(),
                  DType.FLOAT64.getTypeId().getNativeId()},
              new int[]{0, 0, 0})) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  // ============================================================================
+  // Schema Projection Tests (new API feature)
+  // ============================================================================
+
+  @Test
+  void testSchemaProjection() {
+    // message Msg { int64 f1 = 1; string f2 = 2; int32 f3 = 3; }
+    // Only decode f1 and f3, f2 should be null
+    Byte[] row0 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(100)),
+        box(tag(2, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()),
+        box(tag(3, WT_VARINT)), box(encodeVarint(42)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0}).build();
+         // Expected: f1=100, f2=null (not decoded), f3=42
+         ColumnVector expectedF1 = ColumnVector.fromBoxedLongs(100L);
+         ColumnVector expectedF2 = ColumnVector.fromStrings((String)null);
+         ColumnVector expectedF3 = ColumnVector.fromBoxedInts(42);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedF1, expectedF2, expectedF3);
+         // Decode only fields at indices 0 and 2 (skip index 1)
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             3,  // total fields
+             new int[]{0, 2},  // decode only indices 0 and 2
+             new int[]{1, 3},  // field numbers for decoded fields
+             new int[]{DType.INT64.getTypeId().getNativeId(),
+                       DType.STRING.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId()},  // types for ALL fields
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},  // encodings for decoded fields
+             true)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testSchemaProjectionDecodeNone() {
+    // Decode no fields - all should be null
+    Byte[] row0 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(100)),
+        box(tag(2, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0}).build();
+         ColumnVector expectedF1 = ColumnVector.fromBoxedLongs((Long)null);
+         ColumnVector expectedF2 = ColumnVector.fromStrings((String)null);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedF1, expectedF2);
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             2,  // total fields
+             new int[]{},  // decode no fields
+             new int[]{},  // no field numbers
+             new int[]{DType.INT64.getTypeId().getNativeId(),
+                       DType.STRING.getTypeId().getNativeId()},  // types for ALL fields
+             new int[]{},  // no encodings
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -263,7 +356,7 @@ public class ProtobufTest {
                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0x01});
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.UINT64.getTypeId().getNativeId()},
@@ -284,7 +377,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(0L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -305,7 +398,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(0L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -324,7 +417,7 @@ public class ProtobufTest {
                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0x02});  // 0x02 has 2nd bit set
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -353,7 +446,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(minInt32);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT32.getTypeId().getNativeId()},
@@ -374,7 +467,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(maxInt32);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT32.getTypeId().getNativeId()},
@@ -394,7 +487,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedLong = ColumnVector.fromBoxedLongs(minInt64);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedLong);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -413,7 +506,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedLong = ColumnVector.fromBoxedLongs(maxInt64);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedLong);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -432,7 +525,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedLong = ColumnVector.fromBoxedLongs(-1L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedLong);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -452,7 +545,7 @@ public class ProtobufTest {
                                    (byte)0xFF, (byte)0xFF, (byte)0xFF,
                                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{malformed}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -470,7 +563,7 @@ public class ProtobufTest {
     // Single byte with continuation bit set but no following byte
     Byte[] truncated = concat(box(tag(1, WT_VARINT)), new Byte[]{(byte)0x80});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -488,7 +581,7 @@ public class ProtobufTest {
     // String field with length=5 but no actual data
     Byte[] truncated = concat(box(tag(2, WT_LEN)), box(encodeVarint(5)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{2},
              new int[]{DType.STRING.getTypeId().getNativeId()},
@@ -506,7 +599,7 @@ public class ProtobufTest {
     // Fixed32 needs 4 bytes but only 3 provided
     Byte[] truncated = concat(box(tag(1, WT_32BIT)), new Byte[]{0x01, 0x02, 0x03});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT32.getTypeId().getNativeId()},
@@ -525,7 +618,7 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(1, WT_64BIT)), 
         new Byte[]{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -546,7 +639,7 @@ public class ProtobufTest {
         box(encodeVarint(10)),
         box("hello".getBytes()));  // only 5 bytes
     try (Table input = new Table.TestBuilder().column(new Byte[][]{partial}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.STRING.getTypeId().getNativeId()},
@@ -570,7 +663,7 @@ public class ProtobufTest {
         box(tag(1, WT_32BIT)),  // wire type 5 instead of 0
         box(encodeFixed32(100)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{wrongType}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},  // expects varint
@@ -590,7 +683,7 @@ public class ProtobufTest {
         box(tag(1, WT_VARINT)),
         box(encodeVarint(12345)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{wrongType}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.STRING.getTypeId().getNativeId()},  // expects LEN
@@ -619,7 +712,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -640,7 +733,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -662,7 +755,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -683,7 +776,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -707,7 +800,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(300L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -727,7 +820,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedStr = ColumnVector.fromStrings("last");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.STRING.getTypeId().getNativeId()},
@@ -747,7 +840,7 @@ public class ProtobufTest {
                                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{malformed}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -763,7 +856,7 @@ public class ProtobufTest {
     // Field number 0 is reserved and invalid
     Byte[] invalid = concat(box(tag(0, WT_VARINT)), box(encodeVarint(123)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{invalid}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -784,7 +877,7 @@ public class ProtobufTest {
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs((Long)null);
          ColumnVector expectedStr = ColumnVector.fromStrings((String)null);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt, expectedStr);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1, 2},
              new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
@@ -810,7 +903,7 @@ public class ProtobufTest {
              Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NaN, 
              Float.MIN_VALUE, Float.MAX_VALUE);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedFloat);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.FLOAT32.getTypeId().getNativeId()},
@@ -832,7 +925,7 @@ public class ProtobufTest {
              Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NaN,
              Double.MIN_VALUE, Double.MAX_VALUE);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedDouble);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.FLOAT64.getTypeId().getNativeId()},
@@ -906,7 +999,7 @@ public class ProtobufTest {
                                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{malformed}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeAllFields(
             input.getColumn(0),
             new int[]{1},
             new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -923,7 +1016,7 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(1, WT_VARINT)), new Byte[]{(byte)0x80});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeAllFields(
             input.getColumn(0),
             new int[]{1},
             new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -940,7 +1033,7 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(2, WT_LEN)), box(encodeVarint(5)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeAllFields(
             input.getColumn(0),
             new int[]{2},
             new int[]{DType.STRING.getTypeId().getNativeId()},
@@ -957,7 +1050,7 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(1, WT_32BIT)), new Byte[]{0x01, 0x02, 0x03});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeAllFields(
             input.getColumn(0),
             new int[]{1},
             new int[]{DType.INT32.getTypeId().getNativeId()},
@@ -974,7 +1067,7 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(1, WT_64BIT)), new Byte[]{0x01, 0x02, 0x03, 0x04, 0x05});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeAllFields(
             input.getColumn(0),
             new int[]{1},
             new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -991,7 +1084,7 @@ public class ProtobufTest {
     Byte[] row = concat(box(tag(1, WT_LEN)), box(encodeVarint(3)), box("abc".getBytes()));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeAllFields(
             input.getColumn(0),
             new int[]{1},
             new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -1008,7 +1101,7 @@ public class ProtobufTest {
     Byte[] row = concat(box(tag(0, WT_VARINT)), box(encodeVarint(42)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeAllFields(
             input.getColumn(0),
             new int[]{1},
             new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -1024,7 +1117,7 @@ public class ProtobufTest {
     // Valid protobuf should not throw even with failOnErrors = true
     Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
@@ -1033,6 +1126,47 @@ public class ProtobufTest {
       try (ColumnVector expected = ColumnVector.fromBoxedLongs(42L);
            ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
         AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
+      }
+    }
+  }
+
+  // ============================================================================
+  // Performance Benchmark Tests (Multi-field)
+  // ============================================================================
+
+  @Test
+  void testMultiFieldPerformance() {
+    // Test with 6 fields to verify fused kernel efficiency
+    // message Msg { bool f1=1; int32 f2=2; int64 f3=3; float f4=4; double f5=5; string f6=6; }
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), new Byte[]{0x01},
+        box(tag(2, WT_VARINT)), box(encodeVarint(12345)),
+        box(tag(3, WT_VARINT)), box(encodeVarint(9876543210L)),
+        box(tag(4, WT_32BIT)), box(encodeFloat(3.14f)),
+        box(tag(5, WT_64BIT)), box(encodeDouble(2.71828)),
+        box(tag(6, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector actualStruct = decodeAllFields(
+             input.getColumn(0),
+             new int[]{1, 2, 3, 4, 5, 6},
+             new int[]{
+                 DType.BOOL8.getTypeId().getNativeId(),
+                 DType.INT32.getTypeId().getNativeId(),
+                 DType.INT64.getTypeId().getNativeId(),
+                 DType.FLOAT32.getTypeId().getNativeId(),
+                 DType.FLOAT64.getTypeId().getNativeId(),
+                 DType.STRING.getTypeId().getNativeId()},
+             new int[]{0, 0, 0, 0, 0, 0})) {
+      try (ColumnVector expectedBool = ColumnVector.fromBoxedBooleans(true);
+           ColumnVector expectedInt = ColumnVector.fromBoxedInts(12345);
+           ColumnVector expectedLong = ColumnVector.fromBoxedLongs(9876543210L);
+           ColumnVector expectedFloat = ColumnVector.fromBoxedFloats(3.14f);
+           ColumnVector expectedDouble = ColumnVector.fromBoxedDoubles(2.71828);
+           ColumnVector expectedString = ColumnVector.fromStrings("hello");
+           ColumnVector expectedStruct = ColumnVector.makeStruct(
+               expectedBool, expectedInt, expectedLong, expectedFloat, expectedDouble, expectedString)) {
+        AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
       }
     }
   }
