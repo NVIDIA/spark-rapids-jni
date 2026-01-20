@@ -581,19 +581,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
       rows, std::move(null_children), 0, rmm::device_buffer{}, stream, mr);
   }
 
-  auto rows = binary_input.size();
-
-  // Handle zero-row case explicitly - return empty STRUCT with properly typed children
-  if (rows == 0) {
-    std::vector<std::unique_ptr<cudf::column>> empty_children;
-    empty_children.reserve(out_types.size());
-    for (auto const& dt : out_types) {
-      empty_children.push_back(cudf::make_empty_column(dt));
-    }
-    return cudf::make_structs_column(
-      0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
-  }
-
   auto d_in = cudf::column_device_view::create(binary_input, stream);
 
   // Prepare field descriptors for the scanning kernel
