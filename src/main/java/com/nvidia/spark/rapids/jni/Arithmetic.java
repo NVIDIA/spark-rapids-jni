@@ -115,7 +115,38 @@ public class Arithmetic {
    * @return a new ColumnVector with rounded values.
    */
   public static ColumnVector round(ColumnView input, int decimalPlaces, RoundMode mode) {
-    return new ColumnVector(round(input.getNativeView(), decimalPlaces, mode.nativeId));
+    return new ColumnVector(round(input.getNativeView(), decimalPlaces, mode.nativeId, false));
+  }
+
+  /**
+   * Rounds all the values in a column to the specified number of decimal places with
+   * optional ANSI mode overflow checking.
+   *
+   * For integral types with negative decimalPlaces:
+   * - ANSI mode: Throws ExceptionWithRowIndex if rounding would cause overflow (the rounded
+   *   value exceeds the bounds of the data type). The exception includes the first row index
+   *   where overflow would occur.
+   * - Non-ANSI mode: Allows overflow to wrap naturally (standard integer overflow behavior).
+   *
+   * For non-integral types or positive decimal_places, always delegates to the original round() function.
+   *
+   * Examples:
+   *   - round(127, -2) for ByteType = 100 (OK)
+   *   - round(125, -1) for ByteType = 130, which overflows (throws in ANSI mode, wraps in non-ANSI)
+   *
+   * @param input         Column of values to be rounded
+   * @param decimalPlaces Number of decimal places to round to. If negative, this
+   *                      specifies the number of positions to the left of the decimal point.
+   * @param mode          Rounding method (either HALF_UP or HALF_EVEN)
+   * @param isAnsiMode    If true, throws exception when overflow would occur for integral types;
+   *                      if false, allows overflow wrapping
+   * @return a new ColumnVector with rounded values.
+   *
+   * @throws ExceptionWithRowIndex if ANSI mode is enabled and overflow would occur
+   */
+  public static ColumnVector round(ColumnView input, int decimalPlaces, RoundMode mode,
+      boolean isAnsiMode) {
+    return new ColumnVector(round(input.getNativeView(), decimalPlaces, mode.nativeId, isAnsiMode));
   }
 
   /**
@@ -158,5 +189,6 @@ public class Arithmetic {
   private static native long multiply(long leftHandle, boolean isLeftCv, long rightHandle,
       boolean isRightCv, boolean isAnsiMode, boolean isTryMode);
 
-  private static native long round(long nativeHandle, int decimalPlaces, int roundingMethod);
+  private static native long round(long nativeHandle, int decimalPlaces, int roundingMethod,
+      boolean isAnsiMode);
 }

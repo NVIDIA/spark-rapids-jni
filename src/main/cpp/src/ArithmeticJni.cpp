@@ -62,8 +62,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_multiply(JNI
   CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_round(
-  JNIEnv* env, jclass, jlong input_ptr, jint decimal_places, jint rounding_method)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_round(JNIEnv* env,
+                                                                          jclass,
+                                                                          jlong input_ptr,
+                                                                          jint decimal_places,
+                                                                          jint rounding_method,
+                                                                          jboolean is_ansi_mode)
 {
   JNI_NULL_CHECK(env, input_ptr, "input is null", 0);
   JNI_TRY
@@ -71,8 +75,10 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_round(
     cudf::jni::auto_set_device(env);
     cudf::column_view* input     = reinterpret_cast<cudf::column_view*>(input_ptr);
     cudf::rounding_method method = static_cast<cudf::rounding_method>(rounding_method);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::round(*input, decimal_places, method));
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::round(*input, decimal_places, method, is_ansi_mode));
   }
-  JNI_CATCH(env, 0);
+  // throw ExceptionWithRowIndex if an exception occurs if in ansi mode
+  CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 }

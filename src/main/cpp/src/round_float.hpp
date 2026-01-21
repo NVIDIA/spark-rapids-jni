@@ -69,4 +69,39 @@ std::unique_ptr<cudf::column> round(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
+/**
+ * @brief Rounds all the values in a column to the specified number of decimal places with
+ * optional ANSI mode overflow checking.
+ *
+ * Behavior for integral types (int8, int16, int32, int64) with negative decimal_places:
+ * - ANSI mode: Checks if rounding would cause overflow. If so, throws exception_with_row_index
+ *   with the first row index where overflow would occur. Otherwise, performs rounding normally.
+ * - Non-ANSI mode: Performs rounding normally
+ *
+ * For non-integral types or positive decimal_places, always delegates to the original round()
+ * function.
+ *
+ * Examples:
+ *   - round(127, -2) for ByteType = 100 (OK)
+ *   - round(125, -1) for ByteType = 130, which overflows (throws in ANSI mode, wraps in non-ANSI)
+ *
+ * @param input          Column of values to be rounded
+ * @param decimal_places Number of decimal places to round to (negative values round left of
+ * decimal)
+ * @param method         Rounding method (HALF_UP or HALF_EVEN)
+ * @param is_ansi_mode   If true, throws exception on overflow; if false, allows overflow wrapping
+ * @param stream         CUDA stream used for device memory operations and kernel launches
+ * @param mr             Device memory resource used to allocate the returned column's device memory
+ *
+ * @return Column with each of the values rounded
+ * @throws exception_with_row_index in ANSI mode if overflow would occur for any row
+ */
+std::unique_ptr<cudf::column> round(
+  cudf::column_view const& input,
+  int32_t decimal_places,
+  cudf::rounding_method method,
+  bool is_ansi_mode,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
 }  // namespace spark_rapids_jni
