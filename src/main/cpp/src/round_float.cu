@@ -276,8 +276,8 @@ cudf::size_type find_first_overflow_for_integral_type(cudf::column_view const& i
       return val > max_safe || val < min_safe;
     });
 
-  auto it =
-    thrust::find(rmm::exec_policy(stream), overflow_iter, overflow_iter + input.size(), true);
+  auto it = thrust::find(
+    rmm::exec_policy_nosync(stream), overflow_iter, overflow_iter + input.size(), true);
   return (it != overflow_iter + input.size()) ? cuda::std::distance(overflow_iter, it) : -1;
 }
 
@@ -319,14 +319,12 @@ std::unique_ptr<cudf::column> round(cudf::column_view const& input,
     input.type().id() == cudf::type_id::INT8 || input.type().id() == cudf::type_id::INT16 ||
     input.type().id() == cudf::type_id::INT32 || input.type().id() == cudf::type_id::INT64;
 
-  // For non-integral types or positive decimal_places, use standard round
+  // For non-integral types, positive decimal_places, or non-ANSI mode, use original round function
   // (integral types with scale >= 0 return themselves, no overflow possible)
-  if (!is_integral || decimal_places >= 0) {
+  // (non-ANSI mode allows overflow)
+  if (!is_integral || decimal_places >= 0 || !is_ansi_mode) {
     return spark_rapids_jni::round(input, decimal_places, method, stream, mr);
   }
-
-  // In non-ANSI mode, allow overflow to wrap naturally (standard integer overflow behavior)
-  if (!is_ansi_mode) { return spark_rapids_jni::round(input, decimal_places, method, stream, mr); }
 
   // ANSI mode: Check for overflow before throwing exception
   // First, check if overflow would occur
