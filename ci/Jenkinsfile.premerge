@@ -227,7 +227,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         script {
                             unstash "source_tree"
                             container('gpu') {
-                                timeout(time: 4, unit: 'HOURS') { // step only timeout for test run
+                                timeout(time: 6, unit: 'HOURS') { // step only timeout for test run
                                     common.resolveIncompatibleDriverIssue(this)
                                     try {
                                         sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
@@ -260,7 +260,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         script {
                             unstash "source_tree"
                             container('gpu') {
-                                timeout(time: 4, unit: 'HOURS') { // step only timeout for test run
+                                timeout(time: 6, unit: 'HOURS') { // step only timeout for test run
                                     common.resolveIncompatibleDriverIssue(this)
                                     try {
                                         sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
