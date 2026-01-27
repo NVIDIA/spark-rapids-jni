@@ -67,8 +67,19 @@ constexpr int ENC_ZIGZAG  = 2;
  * @param all_types Output cudf data types for ALL fields in the struct (size = total_num_fields)
  * @param encodings Encoding type for each decoded field (0=default, 1=fixed, 2=zigzag)
  *                  (parallel to decoded_field_indices)
- * @param fail_on_errors Whether to throw on malformed messages. Note: error checking is performed
- *        after all kernels complete (not between kernel launches) to avoid synchronization overhead.
+ * @param is_required Whether each decoded field is required (parallel to decoded_field_indices).
+ *                    If a required field is missing and fail_on_errors is true, an exception is thrown.
+ * @param has_default_value Whether each decoded field has a default value (parallel to decoded_field_indices)
+ * @param default_ints Default values for int/long/enum fields (parallel to decoded_field_indices)
+ * @param default_floats Default values for float/double fields (parallel to decoded_field_indices)
+ * @param default_bools Default values for bool fields (parallel to decoded_field_indices)
+ * @param default_strings Default values for string/bytes fields (parallel to decoded_field_indices)
+ * @param enum_valid_values Valid enum values for each field (parallel to decoded_field_indices).
+ *                          Empty vector means not an enum field. Non-empty vector contains the
+ *                          valid enum values. Unknown enum values will be set to null.
+ * @param fail_on_errors Whether to throw on malformed messages or missing required fields.
+ *        Note: error checking is performed after all kernels complete (not between kernel launches)
+ *        to avoid synchronization overhead.
  * @return STRUCT column with total_num_fields children. Decoded fields contain the parsed data,
  *         other fields contain all nulls. The STRUCT itself is always non-null.
  */
@@ -79,6 +90,13 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   std::vector<int> const& field_numbers,
   std::vector<cudf::data_type> const& all_types,
   std::vector<int> const& encodings,
+  std::vector<bool> const& is_required,
+  std::vector<bool> const& has_default_value,
+  std::vector<int64_t> const& default_ints,
+  std::vector<double> const& default_floats,
+  std::vector<bool> const& default_bools,
+  std::vector<std::vector<uint8_t>> const& default_strings,
+  std::vector<std::vector<int32_t>> const& enum_valid_values,
   bool fail_on_errors);
 
 }  // namespace spark_rapids_jni

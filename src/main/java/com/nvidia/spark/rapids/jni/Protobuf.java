@@ -77,7 +77,7 @@ public class Protobuf {
                                            int[] allTypeIds,
                                            int[] encodings) {
     return decodeToStruct(binaryInput, totalNumFields, decodedFieldIndices, fieldNumbers,
-                          allTypeIds, encodings, true);
+                          allTypeIds, encodings, new boolean[decodedFieldIndices.length], true);
   }
 
   /**
@@ -109,9 +109,152 @@ public class Protobuf {
                                            int[] allTypeIds,
                                            int[] encodings,
                                            boolean failOnErrors) {
+    return decodeToStruct(binaryInput, totalNumFields, decodedFieldIndices, fieldNumbers,
+                          allTypeIds, encodings, new boolean[decodedFieldIndices.length], failOnErrors);
+  }
+
+  /**
+   * Decode a protobuf message-per-row binary column into a STRUCT column.
+   *
+   * This method supports schema projection: only the fields specified in
+   * {@code decodedFieldIndices} will be decoded. Other fields in the output
+   * struct will contain all null values.
+   *
+   * @param binaryInput column of type LIST&lt;INT8/UINT8&gt; where each row is one protobuf message.
+   * @param totalNumFields Total number of fields in the output struct (including null columns).
+   * @param decodedFieldIndices Indices into the output struct for fields that should be decoded.
+   *                            These must be sorted in ascending order.
+   * @param fieldNumbers Protobuf field numbers for decoded fields (parallel to decodedFieldIndices).
+   * @param allTypeIds cudf native type ids for ALL fields in the output struct (size = totalNumFields).
+   * @param encodings Encoding info for decoded fields (parallel to decodedFieldIndices):
+   *                  0=default (varint), 1=fixed, 2=zigzag.
+   * @param isRequired Whether each decoded field is required (parallel to decodedFieldIndices).
+   *                   If a required field is missing and failOnErrors is true, an exception is thrown.
+   * @param failOnErrors if true, throw an exception on malformed protobuf messages or missing required fields.
+   *                     If false, return nulls for fields that cannot be parsed or are missing.
+   *                     Note: error checking is performed after all fields are processed,
+   *                     not between fields, to avoid synchronization overhead.
+   * @return a cudf STRUCT column with totalNumFields children. Decoded fields contain parsed data,
+   *         other fields contain all nulls.
+   */
+  public static ColumnVector decodeToStruct(ColumnView binaryInput,
+                                           int totalNumFields,
+                                           int[] decodedFieldIndices,
+                                           int[] fieldNumbers,
+                                           int[] allTypeIds,
+                                           int[] encodings,
+                                           boolean[] isRequired,
+                                           boolean failOnErrors) {
+    int numFields = decodedFieldIndices.length;
+    return decodeToStruct(binaryInput, totalNumFields, decodedFieldIndices, fieldNumbers,
+                          allTypeIds, encodings, isRequired,
+                          new boolean[numFields],  // hasDefaultValue - all false
+                          new long[numFields],     // defaultInts
+                          new double[numFields],   // defaultFloats
+                          new boolean[numFields],  // defaultBools
+                          new byte[numFields][],   // defaultStrings - all null
+                          failOnErrors);
+  }
+
+  /**
+   * Decode a protobuf message-per-row binary column into a STRUCT column with default values support.
+   *
+   * This method supports schema projection: only the fields specified in
+   * {@code decodedFieldIndices} will be decoded. Other fields in the output
+   * struct will contain all null values.
+   *
+   * @param binaryInput column of type LIST&lt;INT8/UINT8&gt; where each row is one protobuf message.
+   * @param totalNumFields Total number of fields in the output struct (including null columns).
+   * @param decodedFieldIndices Indices into the output struct for fields that should be decoded.
+   *                            These must be sorted in ascending order.
+   * @param fieldNumbers Protobuf field numbers for decoded fields (parallel to decodedFieldIndices).
+   * @param allTypeIds cudf native type ids for ALL fields in the output struct (size = totalNumFields).
+   * @param encodings Encoding info for decoded fields (parallel to decodedFieldIndices):
+   *                  0=default (varint), 1=fixed, 2=zigzag.
+   * @param isRequired Whether each decoded field is required (parallel to decodedFieldIndices).
+   *                   If a required field is missing and failOnErrors is true, an exception is thrown.
+   * @param hasDefaultValue Whether each decoded field has a default value (parallel to decodedFieldIndices).
+   * @param defaultInts Default values for int/long/enum fields (parallel to decodedFieldIndices).
+   * @param defaultFloats Default values for float/double fields (parallel to decodedFieldIndices).
+   * @param defaultBools Default values for bool fields (parallel to decodedFieldIndices).
+   * @param defaultStrings Default values for string/bytes fields as UTF-8 bytes (parallel to decodedFieldIndices).
+   * @param failOnErrors if true, throw an exception on malformed protobuf messages or missing required fields.
+   *                     If false, return nulls for fields that cannot be parsed or are missing.
+   *                     Note: error checking is performed after all fields are processed,
+   *                     not between fields, to avoid synchronization overhead.
+   * @return a cudf STRUCT column with totalNumFields children. Decoded fields contain parsed data,
+   *         other fields contain all nulls.
+   */
+  public static ColumnVector decodeToStruct(ColumnView binaryInput,
+                                           int totalNumFields,
+                                           int[] decodedFieldIndices,
+                                           int[] fieldNumbers,
+                                           int[] allTypeIds,
+                                           int[] encodings,
+                                           boolean[] isRequired,
+                                           boolean[] hasDefaultValue,
+                                           long[] defaultInts,
+                                           double[] defaultFloats,
+                                           boolean[] defaultBools,
+                                           byte[][] defaultStrings,
+                                           boolean failOnErrors) {
+    return decodeToStruct(binaryInput, totalNumFields, decodedFieldIndices, fieldNumbers,
+                          allTypeIds, encodings, isRequired, hasDefaultValue,
+                          defaultInts, defaultFloats, defaultBools, defaultStrings,
+                          new int[decodedFieldIndices.length][], failOnErrors);
+  }
+
+  /**
+   * Decode a protobuf message-per-row binary column into a STRUCT column with default values
+   * and enum validation support.
+   *
+   * This method supports schema projection: only the fields specified in
+   * {@code decodedFieldIndices} will be decoded. Other fields in the output
+   * struct will contain all null values.
+   *
+   * @param binaryInput column of type LIST&lt;INT8/UINT8&gt; where each row is one protobuf message.
+   * @param totalNumFields Total number of fields in the output struct (including null columns).
+   * @param decodedFieldIndices Indices into the output struct for fields that should be decoded.
+   *                            These must be sorted in ascending order.
+   * @param fieldNumbers Protobuf field numbers for decoded fields (parallel to decodedFieldIndices).
+   * @param allTypeIds cudf native type ids for ALL fields in the output struct (size = totalNumFields).
+   * @param encodings Encoding info for decoded fields (parallel to decodedFieldIndices):
+   *                  0=default (varint), 1=fixed, 2=zigzag.
+   * @param isRequired Whether each decoded field is required (parallel to decodedFieldIndices).
+   *                   If a required field is missing and failOnErrors is true, an exception is thrown.
+   * @param hasDefaultValue Whether each decoded field has a default value (parallel to decodedFieldIndices).
+   * @param defaultInts Default values for int/long/enum fields (parallel to decodedFieldIndices).
+   * @param defaultFloats Default values for float/double fields (parallel to decodedFieldIndices).
+   * @param defaultBools Default values for bool fields (parallel to decodedFieldIndices).
+   * @param defaultStrings Default values for string/bytes fields as UTF-8 bytes (parallel to decodedFieldIndices).
+   * @param enumValidValues Valid enum values for each field (null if not an enum). Unknown enum
+   *                        values will be set to null to match Spark CPU PERMISSIVE mode behavior.
+   * @param failOnErrors if true, throw an exception on malformed protobuf messages or missing required fields.
+   *                     If false, return nulls for fields that cannot be parsed or are missing.
+   *                     Note: error checking is performed after all fields are processed,
+   *                     not between fields, to avoid synchronization overhead.
+   * @return a cudf STRUCT column with totalNumFields children. Decoded fields contain parsed data,
+   *         other fields contain all nulls.
+   */
+  public static ColumnVector decodeToStruct(ColumnView binaryInput,
+                                           int totalNumFields,
+                                           int[] decodedFieldIndices,
+                                           int[] fieldNumbers,
+                                           int[] allTypeIds,
+                                           int[] encodings,
+                                           boolean[] isRequired,
+                                           boolean[] hasDefaultValue,
+                                           long[] defaultInts,
+                                           double[] defaultFloats,
+                                           boolean[] defaultBools,
+                                           byte[][] defaultStrings,
+                                           int[][] enumValidValues,
+                                           boolean failOnErrors) {
     // Parameter validation
     if (decodedFieldIndices == null || fieldNumbers == null ||
-        allTypeIds == null || encodings == null) {
+        allTypeIds == null || encodings == null || isRequired == null ||
+        hasDefaultValue == null || defaultInts == null || defaultFloats == null ||
+        defaultBools == null || defaultStrings == null || enumValidValues == null) {
       throw new IllegalArgumentException("Arrays must be non-null");
     }
     if (totalNumFields < 0) {
@@ -122,10 +265,18 @@ public class Protobuf {
           "allTypeIds length (" + allTypeIds.length + ") must equal totalNumFields (" +
           totalNumFields + ")");
     }
-    if (decodedFieldIndices.length != fieldNumbers.length ||
-        decodedFieldIndices.length != encodings.length) {
+    int numDecodedFields = decodedFieldIndices.length;
+    if (fieldNumbers.length != numDecodedFields ||
+        encodings.length != numDecodedFields ||
+        isRequired.length != numDecodedFields ||
+        hasDefaultValue.length != numDecodedFields ||
+        defaultInts.length != numDecodedFields ||
+        defaultFloats.length != numDecodedFields ||
+        defaultBools.length != numDecodedFields ||
+        defaultStrings.length != numDecodedFields ||
+        enumValidValues.length != numDecodedFields) {
       throw new IllegalArgumentException(
-          "decodedFieldIndices/fieldNumbers/encodings must be the same length");
+          "All decoded field arrays must have the same length as decodedFieldIndices");
     }
 
     // Validate decoded field indices are in bounds and sorted
@@ -165,7 +316,9 @@ public class Protobuf {
 
     long handle = decodeToStruct(binaryInput.getNativeView(), totalNumFields,
                                  decodedFieldIndices, fieldNumbers, allTypeIds,
-                                 encodings, failOnErrors);
+                                 encodings, isRequired, hasDefaultValue,
+                                 defaultInts, defaultFloats, defaultBools,
+                                 defaultStrings, enumValidValues, failOnErrors);
     return new ColumnVector(handle);
   }
 
@@ -175,5 +328,12 @@ public class Protobuf {
                                             int[] fieldNumbers,
                                             int[] allTypeIds,
                                             int[] encodings,
+                                            boolean[] isRequired,
+                                            boolean[] hasDefaultValue,
+                                            long[] defaultInts,
+                                            double[] defaultFloats,
+                                            boolean[] defaultBools,
+                                            byte[][] defaultStrings,
+                                            int[][] enumValidValues,
                                             boolean failOnErrors);
 }

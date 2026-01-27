@@ -277,6 +277,7 @@ __global__ void scan_all_fields_kernel(
 
 /**
  * Extract varint field data using pre-recorded locations.
+ * Supports default values for missing fields.
  */
 template <typename OutT, bool ZigZag = false>
 __global__ void extract_varint_from_locations_kernel(
@@ -289,14 +290,22 @@ __global__ void extract_varint_from_locations_kernel(
   OutT* out,
   bool* valid,
   int num_rows,
-  int* error_flag)
+  int* error_flag,
+  bool has_default = false,
+  int64_t default_value = 0)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
 
   auto loc = locations[row * num_fields + field_idx];
   if (loc.offset < 0) {
-    valid[row] = false;
+    // Field not found - use default value if available
+    if (has_default) {
+      out[row]   = static_cast<OutT>(default_value);
+      valid[row] = true;
+    } else {
+      valid[row] = false;
+    }
     return;
   }
 
@@ -320,6 +329,7 @@ __global__ void extract_varint_from_locations_kernel(
 
 /**
  * Extract fixed-size field data (fixed32, fixed64, float, double).
+ * Supports default values for missing fields.
  */
 template <typename OutT, int WT>
 __global__ void extract_fixed_from_locations_kernel(
@@ -332,14 +342,22 @@ __global__ void extract_fixed_from_locations_kernel(
   OutT* out,
   bool* valid,
   int num_rows,
-  int* error_flag)
+  int* error_flag,
+  bool has_default = false,
+  OutT default_value = OutT{})
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
 
   auto loc = locations[row * num_fields + field_idx];
   if (loc.offset < 0) {
-    valid[row] = false;
+    // Field not found - use default value if available
+    if (has_default) {
+      out[row]   = default_value;
+      valid[row] = true;
+    } else {
+      valid[row] = false;
+    }
     return;
   }
 
@@ -372,6 +390,7 @@ __global__ void extract_fixed_from_locations_kernel(
 /**
  * Kernel to copy variable-length data (string/bytes) to output buffer.
  * Uses pre-computed output offsets from prefix sum.
+ * Supports default values for missing fields.
  */
 __global__ void copy_varlen_data_kernel(
   uint8_t const* message_data,
@@ -382,17 +401,31 @@ __global__ void copy_varlen_data_kernel(
   int num_fields,
   int32_t const* output_offsets,  // Pre-computed output offsets (prefix sum)
   char* output_data,
-  int num_rows)
+  int num_rows,
+  bool has_default = false,
+  uint8_t const* default_data = nullptr,
+  int32_t default_length = 0)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
 
   auto loc = locations[row * num_fields + field_idx];
-  if (loc.offset < 0 || loc.length == 0) return;
+  char* dst = output_data + output_offsets[row];
+
+  if (loc.offset < 0) {
+    // Field not found - use default if available
+    if (has_default && default_length > 0) {
+      for (int i = 0; i < default_length; i++) {
+        dst[i] = static_cast<char>(default_data[i]);
+      }
+    }
+    return;
+  }
+
+  if (loc.length == 0) return;
 
   auto row_start       = input_offsets[row] - base_offset;
   uint8_t const* src   = message_data + row_start + loc.offset;
-  char* dst            = output_data + output_offsets[row];
 
   // Copy data
   for (int i = 0; i < loc.length; i++) {
@@ -402,19 +435,28 @@ __global__ void copy_varlen_data_kernel(
 
 /**
  * Kernel to extract lengths from locations for prefix sum.
+ * Supports default values for missing fields.
  */
 __global__ void extract_lengths_kernel(
   field_location const* locations,
   int field_idx,
   int num_fields,
   int32_t* lengths,
-  int num_rows)
+  int num_rows,
+  bool has_default = false,
+  int32_t default_length = 0)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
 
-  auto loc     = locations[row * num_fields + field_idx];
-  lengths[row] = (loc.offset >= 0) ? loc.length : 0;
+  auto loc = locations[row * num_fields + field_idx];
+  if (loc.offset >= 0) {
+    lengths[row] = loc.length;
+  } else if (has_default) {
+    lengths[row] = default_length;
+  } else {
+    lengths[row] = 0;
+  }
 }
 
 // ============================================================================
@@ -530,6 +572,85 @@ std::unique_ptr<cudf::column> make_null_column(
 
 }  // namespace
 
+// ============================================================================
+// Kernel to check required fields after scan pass
+// ============================================================================
+
+/**
+ * Check if any required fields are missing (offset < 0) and set error flag.
+ * This is called after the scan pass to validate required field constraints.
+ */
+__global__ void check_required_fields_kernel(
+  field_location const* locations,  // [num_rows * num_fields]
+  uint8_t const* is_required,       // [num_fields] (1 = required, 0 = optional)
+  int num_fields,
+  int num_rows,
+  int* error_flag)
+{
+  auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (row >= num_rows) return;
+
+  for (int f = 0; f < num_fields; f++) {
+    if (is_required[f] != 0 && locations[row * num_fields + f].offset < 0) {
+      // Required field is missing - set error flag
+      atomicExch(error_flag, 1);
+      return;  // No need to check other fields for this row
+    }
+  }
+}
+
+/**
+ * Validate enum values against a set of valid values.
+ * If a value is not in the valid set:
+ * 1. Mark the field as invalid (valid[row] = false)
+ * 2. Mark the row as having an invalid enum (row_has_invalid_enum[row] = true)
+ * 
+ * This matches Spark CPU PERMISSIVE mode behavior: when an unknown enum value is
+ * encountered, the entire struct row is set to null (not just the enum field).
+ * 
+ * The valid_values array must be sorted for binary search.
+ */
+__global__ void validate_enum_values_kernel(
+  int32_t const* values,          // [num_rows] extracted enum values
+  bool* valid,                    // [num_rows] field validity flags (will be modified)
+  bool* row_has_invalid_enum,     // [num_rows] row-level invalid enum flag (will be set to true)
+  int32_t const* valid_enum_values, // sorted array of valid enum values
+  int num_valid_values,           // size of valid_enum_values
+  int num_rows)
+{
+  auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (row >= num_rows) return;
+  
+  // Skip if already invalid (field was missing) - missing field is not an enum error
+  if (!valid[row]) return;
+  
+  int32_t val = values[row];
+  
+  // Binary search for the value in valid_enum_values
+  int left = 0;
+  int right = num_valid_values - 1;
+  bool found = false;
+  
+  while (left <= right) {
+    int mid = left + (right - left) / 2;
+    if (valid_enum_values[mid] == val) {
+      found = true;
+      break;
+    } else if (valid_enum_values[mid] < val) {
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  
+  // If not found, mark as invalid
+  if (!found) {
+    valid[row] = false;
+    // Also mark the row as having an invalid enum - this will null the entire struct row
+    row_has_invalid_enum[row] = true;
+  }
+}
+
 namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> decode_protobuf_to_struct(
@@ -539,6 +660,13 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   std::vector<int> const& field_numbers,
   std::vector<cudf::data_type> const& all_types,
   std::vector<int> const& encodings,
+  std::vector<bool> const& is_required,
+  std::vector<bool> const& has_default_value,
+  std::vector<int64_t> const& default_ints,
+  std::vector<double> const& default_floats,
+  std::vector<bool> const& default_bools,
+  std::vector<std::vector<uint8_t>> const& default_strings,
+  std::vector<std::vector<int32_t>> const& enum_valid_values,
   bool fail_on_errors)
 {
   CUDF_EXPECTS(binary_input.type().id() == cudf::type_id::LIST,
@@ -553,6 +681,18 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
                "decoded_field_indices and field_numbers must have the same length");
   CUDF_EXPECTS(encodings.size() == field_numbers.size(),
                "encodings and field_numbers must have the same length");
+  CUDF_EXPECTS(is_required.size() == field_numbers.size(),
+               "is_required and field_numbers must have the same length");
+  CUDF_EXPECTS(has_default_value.size() == field_numbers.size(),
+               "has_default_value and field_numbers must have the same length");
+  CUDF_EXPECTS(default_ints.size() == field_numbers.size(),
+               "default_ints and field_numbers must have the same length");
+  CUDF_EXPECTS(default_floats.size() == field_numbers.size(),
+               "default_floats and field_numbers must have the same length");
+  CUDF_EXPECTS(default_bools.size() == field_numbers.size(),
+               "default_bools and field_numbers must have the same length");
+  CUDF_EXPECTS(default_strings.size() == field_numbers.size(),
+               "default_strings and field_numbers must have the same length");
 
   auto const stream = cudf::get_default_stream();
   auto mr           = cudf::get_current_device_resource_ref();
@@ -607,6 +747,18 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   rmm::device_uvector<int> d_error(1, stream, mr);
   CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
 
+  // Check if any field has enum validation
+  bool has_enum_fields = std::any_of(enum_valid_values.begin(), enum_valid_values.end(),
+                                      [](auto const& v) { return !v.empty(); });
+  
+  // Track rows with invalid enum values (used to null entire struct row)
+  // This matches Spark CPU PERMISSIVE mode behavior
+  rmm::device_uvector<bool> d_row_has_invalid_enum(has_enum_fields ? rows : 0, stream, mr);
+  if (has_enum_fields) {
+    // Initialize all to false (no invalid enums yet)
+    CUDF_CUDA_TRY(cudaMemsetAsync(d_row_has_invalid_enum.data(), 0, rows * sizeof(bool), stream.value()));
+  }
+
   auto const threads = 256;
   auto const blocks  = static_cast<int>((rows + threads - 1) / threads);
 
@@ -615,6 +767,30 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   // =========================================================================
   scan_all_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
     *d_in, d_field_descs.data(), num_decoded_fields, d_locations.data(), d_error.data());
+
+  // =========================================================================
+  // Check required fields (after scan pass)
+  // =========================================================================
+  // Only check if any field is required to avoid unnecessary kernel launch
+  bool has_required_fields = std::any_of(is_required.begin(), is_required.end(), 
+                                          [](bool b) { return b; });
+  if (has_required_fields) {
+    // Copy is_required flags to device
+    // Note: std::vector<bool> is special (bitfield), so we convert to uint8_t
+    rmm::device_uvector<uint8_t> d_is_required(num_decoded_fields, stream, mr);
+    std::vector<uint8_t> h_is_required_vec(num_decoded_fields);
+    for (int i = 0; i < num_decoded_fields; i++) {
+      h_is_required_vec[i] = is_required[i] ? 1 : 0;
+    }
+    CUDF_CUDA_TRY(cudaMemcpyAsync(d_is_required.data(),
+                                  h_is_required_vec.data(),
+                                  num_decoded_fields * sizeof(uint8_t),
+                                  cudaMemcpyHostToDevice,
+                                  stream.value()));
+    
+    check_required_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
+      d_locations.data(), d_is_required.data(), num_decoded_fields, rows, d_error.data());
+  }
 
   // Get message data pointer and offsets for pass 2
   auto const* message_data =
@@ -646,6 +822,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         case cudf::type_id::BOOL8: {
           rmm::device_uvector<uint8_t> out(rows, stream, mr);
           rmm::device_uvector<bool> valid(rows, stream, mr);
+          bool has_def = has_default_value[decoded_idx];
+          int64_t def_val = has_def ? (default_bools[decoded_idx] ? 1 : 0) : 0;
           extract_varint_from_locations_kernel<uint8_t><<<blocks, threads, 0, stream.value()>>>(
             message_data,
             list_offsets,
@@ -656,7 +834,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
             out.data(),
             valid.data(),
             rows,
-            d_error.data());
+            d_error.data(),
+            has_def,
+            def_val);
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
           all_children[schema_idx] =
             std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count);
@@ -666,19 +846,44 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         case cudf::type_id::INT32: {
           rmm::device_uvector<int32_t> out(rows, stream, mr);
           rmm::device_uvector<bool> valid(rows, stream, mr);
+          bool has_def = has_default_value[decoded_idx];
+          int64_t def_int = has_def ? default_ints[decoded_idx] : 0;
+          int32_t def_fixed = static_cast<int32_t>(def_int);
           if (enc == spark_rapids_jni::ENC_ZIGZAG) {
             extract_varint_from_locations_kernel<int32_t, true><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_int);
           } else if (enc == spark_rapids_jni::ENC_FIXED) {
             extract_fixed_from_locations_kernel<int32_t, WT_32BIT><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_fixed);
           } else {
             extract_varint_from_locations_kernel<int32_t, false><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_int);
           }
+          
+          // Validate enum values if this is an enum field
+          // enum_valid_values[decoded_idx] is non-empty for enum fields
+          auto const& valid_enums = enum_valid_values[decoded_idx];
+          if (!valid_enums.empty()) {
+            // Copy valid enum values to device
+            rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
+            CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
+                                          valid_enums.data(),
+                                          valid_enums.size() * sizeof(int32_t),
+                                          cudaMemcpyHostToDevice,
+                                          stream.value()));
+            
+            // Validate enum values - unknown values will null the entire row
+            validate_enum_values_kernel<<<blocks, threads, 0, stream.value()>>>(
+              out.data(), valid.data(), d_row_has_invalid_enum.data(),
+              d_valid_enums.data(), static_cast<int>(valid_enums.size()), rows);
+          }
+          
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
           all_children[schema_idx] =
             std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count);
@@ -688,14 +893,19 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         case cudf::type_id::UINT32: {
           rmm::device_uvector<uint32_t> out(rows, stream, mr);
           rmm::device_uvector<bool> valid(rows, stream, mr);
+          bool has_def = has_default_value[decoded_idx];
+          int64_t def_int = has_def ? default_ints[decoded_idx] : 0;
+          uint32_t def_fixed = static_cast<uint32_t>(def_int);
           if (enc == spark_rapids_jni::ENC_FIXED) {
             extract_fixed_from_locations_kernel<uint32_t, WT_32BIT><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_fixed);
           } else {
             extract_varint_from_locations_kernel<uint32_t><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_int);
           }
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
           all_children[schema_idx] =
@@ -706,18 +916,23 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         case cudf::type_id::INT64: {
           rmm::device_uvector<int64_t> out(rows, stream, mr);
           rmm::device_uvector<bool> valid(rows, stream, mr);
+          bool has_def = has_default_value[decoded_idx];
+          int64_t def_int = has_def ? default_ints[decoded_idx] : 0;
           if (enc == spark_rapids_jni::ENC_ZIGZAG) {
             extract_varint_from_locations_kernel<int64_t, true><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_int);
           } else if (enc == spark_rapids_jni::ENC_FIXED) {
             extract_fixed_from_locations_kernel<int64_t, WT_64BIT><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_int);
           } else {
             extract_varint_from_locations_kernel<int64_t, false><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_int);
           }
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
           all_children[schema_idx] =
@@ -728,14 +943,19 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         case cudf::type_id::UINT64: {
           rmm::device_uvector<uint64_t> out(rows, stream, mr);
           rmm::device_uvector<bool> valid(rows, stream, mr);
+          bool has_def = has_default_value[decoded_idx];
+          int64_t def_int = has_def ? default_ints[decoded_idx] : 0;
+          uint64_t def_fixed = static_cast<uint64_t>(def_int);
           if (enc == spark_rapids_jni::ENC_FIXED) {
             extract_fixed_from_locations_kernel<uint64_t, WT_64BIT><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_fixed);
           } else {
             extract_varint_from_locations_kernel<uint64_t><<<blocks, threads, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-              num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+              num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+              has_def, def_int);
           }
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
           all_children[schema_idx] =
@@ -746,9 +966,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         case cudf::type_id::FLOAT32: {
           rmm::device_uvector<float> out(rows, stream, mr);
           rmm::device_uvector<bool> valid(rows, stream, mr);
+          bool has_def = has_default_value[decoded_idx];
+          float def_float = has_def ? static_cast<float>(default_floats[decoded_idx]) : 0.0f;
           extract_fixed_from_locations_kernel<float, WT_32BIT><<<blocks, threads, 0, stream.value()>>>(
             message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-            num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+            num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+            has_def, def_float);
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
           all_children[schema_idx] =
             std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count);
@@ -758,9 +981,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         case cudf::type_id::FLOAT64: {
           rmm::device_uvector<double> out(rows, stream, mr);
           rmm::device_uvector<bool> valid(rows, stream, mr);
+          bool has_def = has_default_value[decoded_idx];
+          double def_double = has_def ? default_floats[decoded_idx] : 0.0;
           extract_fixed_from_locations_kernel<double, WT_64BIT><<<blocks, threads, 0, stream.value()>>>(
             message_data, list_offsets, base_offset, d_locations.data(), decoded_idx,
-            num_decoded_fields, out.data(), valid.data(), rows, d_error.data());
+            num_decoded_fields, out.data(), valid.data(), rows, d_error.data(),
+            has_def, def_double);
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
           all_children[schema_idx] =
             std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count);
@@ -768,10 +994,26 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         }
 
         case cudf::type_id::STRING: {
+          // Check for default value
+          bool has_def = has_default_value[decoded_idx];
+          auto const& def_str = default_strings[decoded_idx];
+          int32_t def_len = has_def ? static_cast<int32_t>(def_str.size()) : 0;
+
+          // Copy default string to device if needed
+          rmm::device_uvector<uint8_t> d_default_str(def_len, stream, mr);
+          if (has_def && def_len > 0) {
+            CUDF_CUDA_TRY(cudaMemcpyAsync(d_default_str.data(),
+                                          def_str.data(),
+                                          def_len,
+                                          cudaMemcpyHostToDevice,
+                                          stream.value()));
+          }
+
           // Extract lengths and compute output offsets via prefix sum
           rmm::device_uvector<int32_t> lengths(rows, stream, mr);
           extract_lengths_kernel<<<blocks, threads, 0, stream.value()>>>(
-            d_locations.data(), decoded_idx, num_decoded_fields, lengths.data(), rows);
+            d_locations.data(), decoded_idx, num_decoded_fields, lengths.data(), rows,
+            has_def, def_len);
 
           rmm::device_uvector<int32_t> output_offsets(rows + 1, stream, mr);
           thrust::exclusive_scan(
@@ -812,18 +1054,21 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
               num_decoded_fields,
               output_offsets.data(),
               chars.data(),
-              rows);
+              rows,
+              has_def,
+              d_default_str.data(),
+              def_len);
           }
 
-          // Create validity mask (field found = valid)
+          // Create validity mask (field found OR has default = valid)
           rmm::device_uvector<bool> valid(rows, stream, mr);
           thrust::transform(
             rmm::exec_policy(stream),
             thrust::make_counting_iterator<cudf::size_type>(0),
             thrust::make_counting_iterator<cudf::size_type>(rows),
             valid.begin(),
-            [locs = d_locations.data(), decoded_idx, num_decoded_fields] __device__(auto row) {
-              return locs[row * num_decoded_fields + decoded_idx].offset >= 0;
+            [locs = d_locations.data(), decoded_idx, num_decoded_fields, has_def] __device__(auto row) {
+              return locs[row * num_decoded_fields + decoded_idx].offset >= 0 || has_def;
             });
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
 
@@ -843,10 +1088,26 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
 
         case cudf::type_id::LIST: {
           // For protobuf bytes: create LIST<INT8> directly (optimization #2)
+          // Check for default value
+          bool has_def = has_default_value[decoded_idx];
+          auto const& def_bytes = default_strings[decoded_idx];
+          int32_t def_len = has_def ? static_cast<int32_t>(def_bytes.size()) : 0;
+
+          // Copy default bytes to device if needed
+          rmm::device_uvector<uint8_t> d_default_bytes(def_len, stream, mr);
+          if (has_def && def_len > 0) {
+            CUDF_CUDA_TRY(cudaMemcpyAsync(d_default_bytes.data(),
+                                          def_bytes.data(),
+                                          def_len,
+                                          cudaMemcpyHostToDevice,
+                                          stream.value()));
+          }
+
           // Extract lengths and compute output offsets via prefix sum
           rmm::device_uvector<int32_t> lengths(rows, stream, mr);
           extract_lengths_kernel<<<blocks, threads, 0, stream.value()>>>(
-            d_locations.data(), decoded_idx, num_decoded_fields, lengths.data(), rows);
+            d_locations.data(), decoded_idx, num_decoded_fields, lengths.data(), rows,
+            has_def, def_len);
 
           rmm::device_uvector<int32_t> output_offsets(rows + 1, stream, mr);
           thrust::exclusive_scan(
@@ -887,18 +1148,21 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
               num_decoded_fields,
               output_offsets.data(),
               reinterpret_cast<char*>(child_data.data()),
-              rows);
+              rows,
+              has_def,
+              d_default_bytes.data(),
+              def_len);
           }
 
-          // Create validity mask
+          // Create validity mask (field found OR has default = valid)
           rmm::device_uvector<bool> valid(rows, stream, mr);
           thrust::transform(
             rmm::exec_policy(stream),
             thrust::make_counting_iterator<cudf::size_type>(0),
             thrust::make_counting_iterator<cudf::size_type>(rows),
             valid.begin(),
-            [locs = d_locations.data(), decoded_idx, num_decoded_fields] __device__(auto row) {
-              return locs[row * num_decoded_fields + decoded_idx].offset >= 0;
+            [locs = d_locations.data(), decoded_idx, num_decoded_fields, has_def] __device__(auto row) {
+              return locs[row * num_decoded_fields + decoded_idx].offset >= 0 || has_def;
             });
           auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
 
@@ -941,7 +1205,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   // Check for errors
   CUDF_CUDA_TRY(cudaPeekAtLastError());
 
-  // Check for any parse errors.
+  // Check for any parse errors or missing required fields.
   // Note: We check errors after all kernels complete rather than between kernel launches
   // to avoid expensive synchronization overhead. If fail_on_errors is true and an error
   // occurred, all kernels will have executed but we throw an exception here.
@@ -950,13 +1214,32 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
     cudaMemcpyAsync(&h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
   if (fail_on_errors) {
-    CUDF_EXPECTS(h_error == 0, "Malformed protobuf message or unsupported wire type");
+    CUDF_EXPECTS(h_error == 0, 
+      "Malformed protobuf message, unsupported wire type, or missing required field");
   }
 
   // Build the final struct
+  // If any rows have invalid enum values, create a null mask for the struct
+  // This matches Spark CPU PERMISSIVE mode: unknown enum values null the entire row
+  cudf::size_type struct_null_count = 0;
   rmm::device_buffer struct_mask{0, stream, mr};
+  
+  if (has_enum_fields) {
+    // Create struct null mask: row is valid if it has NO invalid enums
+    auto [mask, null_count] = cudf::detail::valid_if(
+      thrust::make_counting_iterator<cudf::size_type>(0),
+      thrust::make_counting_iterator<cudf::size_type>(rows),
+      [row_invalid = d_row_has_invalid_enum.data()] __device__(cudf::size_type row) {
+        return !row_invalid[row];  // valid if NOT invalid
+      },
+      stream,
+      mr);
+    struct_mask = std::move(mask);
+    struct_null_count = null_count;
+  }
+  
   return cudf::make_structs_column(
-    rows, std::move(all_children), 0, std::move(struct_mask), stream, mr);
+    rows, std::move(all_children), struct_null_count, std::move(struct_mask), stream, mr);
 }
 
 }  // namespace spark_rapids_jni

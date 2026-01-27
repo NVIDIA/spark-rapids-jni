@@ -20,6 +20,7 @@ import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.HostColumnVector.*;
 import ai.rapids.cudf.Table;
 import org.junit.jupiter.api.Disabled;
@@ -169,11 +170,30 @@ public class ProtobufTest {
     int numFields = fieldNumbers.length;
     // When decoding all fields, decodedFieldIndices is [0, 1, 2, ..., n-1]
     int[] decodedFieldIndices = new int[numFields];
+    boolean[] isRequired = new boolean[numFields];  // all false by default
     for (int i = 0; i < numFields; i++) {
       decodedFieldIndices[i] = i;
     }
     return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
-                                   fieldNumbers, typeIds, encodings, failOnErrors);
+                                   fieldNumbers, typeIds, encodings, isRequired, failOnErrors);
+  }
+
+  /**
+   * Helper method for tests with required field support.
+   */
+  private static ColumnVector decodeAllFieldsWithRequired(ColumnView binaryInput,
+                                                          int[] fieldNumbers,
+                                                          int[] typeIds,
+                                                          int[] encodings,
+                                                          boolean[] isRequired,
+                                                          boolean failOnErrors) {
+    int numFields = fieldNumbers.length;
+    int[] decodedFieldIndices = new int[numFields];
+    for (int i = 0; i < numFields; i++) {
+      decodedFieldIndices[i] = i;
+    }
+    return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
+                                   fieldNumbers, typeIds, encodings, isRequired, failOnErrors);
   }
 
   // ============================================================================
@@ -935,6 +955,666 @@ public class ProtobufTest {
   }
 
   // ============================================================================
+  // Enum Tests (enums.as.ints=true semantics)
+  // ============================================================================
+
+  @Test
+  void testEnumAsInt() {
+    // message Msg { enum Color { RED=0; GREEN=1; BLUE=2; } Color c = 1; }
+    // c = GREEN (value 1) - encoded as varint
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(1)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedInt = ColumnVector.fromBoxedInts(1);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
+         ColumnVector actualStruct = decodeAllFields(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT})) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testEnumZeroValue() {
+    // Enum with value 0 (first/default enum value)
+    // c = RED (value 0)
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(0)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedInt = ColumnVector.fromBoxedInts(0);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
+         ColumnVector actualStruct = decodeAllFields(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT})) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testEnumUnknownValue() {
+    // Protobuf allows unknown enum values - they should still be decoded as integers
+    // c = 999 (unknown value not in enum definition)
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(999)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedInt = ColumnVector.fromBoxedInts(999);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
+         ColumnVector actualStruct = decodeAllFields(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT})) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testEnumNegativeValue() {
+    // Negative enum values are valid in protobuf (stored as unsigned varint)
+    // c = -1 (represented as 0xFFFFFFFF in protobuf wire format)
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(-1L & 0xFFFFFFFFL)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedInt = ColumnVector.fromBoxedInts(-1);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
+         ColumnVector actualStruct = decodeAllFields(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT})) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testEnumMultipleFields() {
+    // message Msg { enum Status { OK=0; ERROR=1; } Status s1 = 1; int32 count = 2; Status s2 = 3; }
+    // s1 = ERROR (1), count = 42, s2 = OK (0)
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)),   // s1 = ERROR
+        box(tag(2, WT_VARINT)), box(encodeVarint(42)),  // count = 42
+        box(tag(3, WT_VARINT)), box(encodeVarint(0)));  // s2 = OK
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedS1 = ColumnVector.fromBoxedInts(1);
+         ColumnVector expectedCount = ColumnVector.fromBoxedInts(42);
+         ColumnVector expectedS2 = ColumnVector.fromBoxedInts(0);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedS1, expectedCount, expectedS2);
+         ColumnVector actualStruct = decodeAllFields(
+             input.getColumn(0),
+             new int[]{1, 2, 3},
+             new int[]{DType.INT32.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT})) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testEnumMissingField() {
+    // Enum field not present in message - should be null
+    Byte[] row = concat(box(tag(2, WT_VARINT)), box(encodeVarint(42)));  // only count field
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedEnum = ColumnVector.fromBoxedInts((Integer) null);
+         ColumnVector expectedCount = ColumnVector.fromBoxedInts(42);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedEnum, expectedCount);
+         ColumnVector actualStruct = decodeAllFields(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT32.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT})) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  // ============================================================================
+  // Required Field Tests
+  // ============================================================================
+
+  @Test
+  void testRequiredFieldPresent() {
+    // message Msg { required int64 id = 1; optional string name = 2; }
+    // Both fields present - should decode successfully
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(42)),
+        box(tag(2, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedId = ColumnVector.fromBoxedLongs(42L);
+         ColumnVector expectedName = ColumnVector.fromStrings("hello");
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedId, expectedName);
+         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{true, false},  // id is required, name is optional
+             true)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testRequiredFieldMissing_Permissive() {
+    // Required field missing in permissive mode - should return null without exception
+    // message Msg { required int64 id = 1; optional string name = 2; }
+    // Only name field present, required id is missing
+    Byte[] row = concat(
+        box(tag(2, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedId = ColumnVector.fromBoxedLongs((Long) null);
+         ColumnVector expectedName = ColumnVector.fromStrings("hello");
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedId, expectedName);
+         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{true, false},  // id is required, name is optional
+             false)) {  // permissive mode - don't fail on errors
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testRequiredFieldMissing_Failfast() {
+    // Required field missing in failfast mode - should throw exception
+    // message Msg { required int64 id = 1; optional string name = 2; }
+    // Only name field present, required id is missing
+    Byte[] row = concat(
+        box(tag(2, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+        try (ColumnVector result = decodeAllFieldsWithRequired(
+            input.getColumn(0),
+            new int[]{1, 2},
+            new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+            new boolean[]{true, false},  // id is required, name is optional
+            true)) {  // failfast mode - should throw
+        }
+      });
+    }
+  }
+
+  @Test
+  void testMultipleRequiredFields_AllPresent() {
+    // message Msg { required int32 a = 1; required int64 b = 2; required string c = 3; }
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(10)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(20)),
+        box(tag(3, WT_LEN)), box(encodeVarint(3)), box("abc".getBytes()));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedA = ColumnVector.fromBoxedInts(10);
+         ColumnVector expectedB = ColumnVector.fromBoxedLongs(20L);
+         ColumnVector expectedC = ColumnVector.fromStrings("abc");
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB, expectedC);
+         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+             input.getColumn(0),
+             new int[]{1, 2, 3},
+             new int[]{DType.INT32.getTypeId().getNativeId(),
+                       DType.INT64.getTypeId().getNativeId(),
+                       DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{true, true, true},  // all required
+             true)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testMultipleRequiredFields_SomeMissing_Failfast() {
+    // message Msg { required int32 a = 1; required int64 b = 2; required string c = 3; }
+    // Only field a is present, b and c are missing
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(10)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+        try (ColumnVector result = decodeAllFieldsWithRequired(
+            input.getColumn(0),
+            new int[]{1, 2, 3},
+            new int[]{DType.INT32.getTypeId().getNativeId(),
+                      DType.INT64.getTypeId().getNativeId(),
+                      DType.STRING.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+            new boolean[]{true, true, true},  // all required
+            true)) {
+        }
+      });
+    }
+  }
+
+  @Test
+  void testOptionalFieldsOnly_NoValidation() {
+    // All fields optional - missing fields should not cause error
+    // message Msg { optional int32 a = 1; optional int64 b = 2; }
+    Byte[] row = new Byte[0];  // empty message
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedA = ColumnVector.fromBoxedInts((Integer) null);
+         ColumnVector expectedB = ColumnVector.fromBoxedLongs((Long) null);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB);
+         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},  // all optional
+             true)) {  // even with failOnErrors=true, should succeed since all fields are optional
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testRequiredFieldWithMultipleRows() {
+    // Test required field validation across multiple rows
+    // Row 0: required field present
+    // Row 1: required field missing (should cause error in failfast mode)
+    Byte[] row0 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
+    Byte[] row1 = new Byte[0];  // empty - required field missing
+
+    try (Table input = new Table.TestBuilder().column(row0, row1).build()) {
+      assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+        try (ColumnVector result = decodeAllFieldsWithRequired(
+            input.getColumn(0),
+            new int[]{1},
+            new int[]{DType.INT64.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT},
+            new boolean[]{true},  // required
+            true)) {
+        }
+      });
+    }
+  }
+
+  // ============================================================================
+  // Default Value Tests (API accepts parameters, CUDA fill not yet implemented)
+  // ============================================================================
+
+  /**
+   * Helper method for tests with default value support.
+   */
+  private static ColumnVector decodeAllFieldsWithDefaults(ColumnView binaryInput,
+                                                          int[] fieldNumbers,
+                                                          int[] typeIds,
+                                                          int[] encodings,
+                                                          boolean[] isRequired,
+                                                          boolean[] hasDefaultValue,
+                                                          long[] defaultInts,
+                                                          double[] defaultFloats,
+                                                          boolean[] defaultBools,
+                                                          byte[][] defaultStrings,
+                                                          boolean failOnErrors) {
+    int numFields = fieldNumbers.length;
+    int[] decodedFieldIndices = new int[numFields];
+    for (int i = 0; i < numFields; i++) {
+      decodedFieldIndices[i] = i;
+    }
+    return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
+                                   fieldNumbers, typeIds, encodings, isRequired,
+                                   hasDefaultValue, defaultInts, defaultFloats,
+                                   defaultBools, defaultStrings, failOnErrors);
+  }
+
+  @Test
+  void testDefaultValueForMissingFields() {
+    // Test that missing fields with default values return the defaults
+    Byte[] row = new Byte[0];  // empty message
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         // With default values set, missing fields should return the default values
+         ColumnVector expectedA = ColumnVector.fromBoxedInts(42);
+         ColumnVector expectedB = ColumnVector.fromBoxedLongs(100L);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},  // not required
+             new boolean[]{true, true},    // has default value
+             new long[]{42, 100},          // default int values (42, 100)
+             new double[]{0.0, 0.0},       // default float values (unused for int fields)
+             new boolean[]{false, false},  // default bool values (unused)
+             new byte[][]{null, null},     // default string values (unused)
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultValueFieldPresent_OverridesDefault() {
+    // When field is present, use the actual value (not the default)
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(99)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(200)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedA = ColumnVector.fromBoxedInts(99);
+         ColumnVector expectedB = ColumnVector.fromBoxedLongs(200L);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},  // not required
+             new boolean[]{true, true},    // has default value
+             new long[]{42, 100},          // default values - NOT used since field is present
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             false)) {
+      // Actual values should be used, not defaults
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultIntValue() {
+    // optional int32 count = 1 [default = 42];
+    // Empty message should return the default value
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedInt = ColumnVector.fromBoxedInts(42);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},   // not required
+             new boolean[]{true},    // has default
+             new long[]{42},         // default = 42
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultBoolValue() {
+    // optional bool flag = 1 [default = true];
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedBool = ColumnVector.fromBoxedBooleans(true);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedBool);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.BOOL8.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},
+             new boolean[]{true},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{true},  // default = true
+             new byte[][]{null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultFloatValue() {
+    // optional double rate = 1 [default = 3.14];
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedDouble = ColumnVector.fromBoxedDoubles(3.14);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedDouble);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.FLOAT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},
+             new boolean[]{true},
+             new long[]{0},
+             new double[]{3.14},  // default = 3.14
+             new boolean[]{false},
+             new byte[][]{null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultInt64Value() {
+    // optional int64 big_num = 1 [default = 9876543210];
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedLong = ColumnVector.fromBoxedLongs(9876543210L);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedLong);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},
+             new boolean[]{true},
+             new long[]{9876543210L},  // default = 9876543210
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testMixedDefaultAndNonDefaultFields() {
+    // optional int32 a = 1 [default = 42];
+    // optional int64 b = 2; (no default)
+    // optional bool c = 3 [default = true];
+    // Empty message: a=42, b=null, c=true
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedA = ColumnVector.fromBoxedInts(42);
+         ColumnVector expectedB = ColumnVector.fromBoxedLongs((Long) null);  // no default
+         ColumnVector expectedC = ColumnVector.fromBoxedBooleans(true);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB, expectedC);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1, 2, 3},
+             new int[]{DType.INT32.getTypeId().getNativeId(),
+                       DType.INT64.getTypeId().getNativeId(),
+                       DType.BOOL8.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false, false},  // not required
+             new boolean[]{true, false, true},    // a and c have defaults, b doesn't
+             new long[]{42, 0, 0},                // default for a
+             new double[]{0.0, 0.0, 0.0},
+             new boolean[]{false, false, true},   // default for c
+             new byte[][]{null, null, null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultValueWithPartialMessage() {
+    // optional int32 a = 1 [default = 42];
+    // optional int64 b = 2 [default = 100];
+    // Message has only field b set, a should use default
+    Byte[] row = concat(
+        box(tag(2, WT_VARINT)), box(encodeVarint(999)));  // b = 999
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedA = ColumnVector.fromBoxedInts(42);  // default
+         ColumnVector expectedB = ColumnVector.fromBoxedLongs(999L);  // actual value
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},  // not required
+             new boolean[]{true, true},    // both have defaults
+             new long[]{42, 100},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultStringValue() {
+    // optional string name = 1 [default = "hello"];
+    // Empty message should return the default string
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedStr = ColumnVector.fromStrings("hello");
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},   // not required
+             new boolean[]{true},    // has default
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{"hello".getBytes(java.nio.charset.StandardCharsets.UTF_8)},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultStringValueEmpty() {
+    // optional string name = 1 [default = ""];
+    // Empty message with empty default string
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedStr = ColumnVector.fromStrings("");
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},
+             new boolean[]{true},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{new byte[0]},  // empty default string
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultStringValueWithPresent() {
+    // optional string name = 1 [default = "default"];
+    // Message has actual value, should override default
+    byte[] strBytesRaw = "actual".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(strBytesRaw.length)),
+        box(strBytesRaw));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedStr = ColumnVector.fromStrings("actual");
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},
+             new boolean[]{true},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{"default".getBytes(java.nio.charset.StandardCharsets.UTF_8)},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultStringWithMixedFields() {
+    // optional int32 count = 1 [default = 42];
+    // optional string name = 2 [default = "test"];
+    // Empty message should return both defaults
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedInt = ColumnVector.fromBoxedInts(42);
+         ColumnVector expectedStr = ColumnVector.fromStrings("test");
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt, expectedStr);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT32.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},
+             new boolean[]{true, true},
+             new long[]{42, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, "test".getBytes(java.nio.charset.StandardCharsets.UTF_8)},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testDefaultStringMultipleRows() {
+    // optional string name = 1 [default = "default"];
+    // Multiple rows: empty, has value, empty
+    Byte[] row1 = new Byte[0];  // will use default
+    byte[] strBytesRaw = "row2val".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    Byte[] row2 = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(strBytesRaw.length)),
+        box(strBytesRaw));
+    Byte[] row3 = new Byte[0];  // will use default
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row1, row2, row3}).build();
+         ColumnVector expectedStr = ColumnVector.fromStrings("default", "row2val", "default");
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
+         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},
+             new boolean[]{true},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{"default".getBytes(java.nio.charset.StandardCharsets.UTF_8)},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  // ============================================================================
   // Tests for Features Not Yet Implemented (Disabled)
   // ============================================================================
 
@@ -1168,6 +1848,178 @@ public class ProtobufTest {
                expectedBool, expectedInt, expectedLong, expectedFloat, expectedDouble, expectedString)) {
         AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
       }
+    }
+  }
+
+  // ============================================================================
+  // Enum Validation Tests
+  // ============================================================================
+
+  /**
+   * Helper method that wraps decodeToStruct with enum validation support.
+   */
+  private static ColumnVector decodeAllFieldsWithEnums(ColumnView binaryInput,
+                                                        int[] fieldNumbers,
+                                                        int[] typeIds,
+                                                        int[] encodings,
+                                                        int[][] enumValidValues,
+                                                        boolean failOnErrors) {
+    int numFields = fieldNumbers.length;
+    int[] decodedFieldIndices = new int[numFields];
+    boolean[] isRequired = new boolean[numFields];
+    boolean[] hasDefaultValue = new boolean[numFields];
+    long[] defaultInts = new long[numFields];
+    double[] defaultFloats = new double[numFields];
+    boolean[] defaultBools = new boolean[numFields];
+    byte[][] defaultStrings = new byte[numFields][];
+    for (int i = 0; i < numFields; i++) {
+      decodedFieldIndices[i] = i;
+    }
+    return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
+                                   fieldNumbers, typeIds, encodings, isRequired,
+                                   hasDefaultValue, defaultInts, defaultFloats,
+                                   defaultBools, defaultStrings, enumValidValues, failOnErrors);
+  }
+
+  @Test
+  void testEnumValidValue() {
+    // enum Color { RED=0; GREEN=1; BLUE=2; }
+    // message Msg { Color color = 1; }
+    // Test with valid enum value (GREEN = 1)
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(1)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedColor = ColumnVector.fromBoxedInts(1);  // GREEN
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedColor);
+         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new int[][]{{0, 1, 2}},  // valid enum values: RED=0, GREEN=1, BLUE=2
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testEnumUnknownValueReturnsNullRow() {
+    // enum Color { RED=0; GREEN=1; BLUE=2; }
+    // message Msg { Color color = 1; }
+    // Test with unknown enum value (999 is not defined)
+    // The entire struct row should be null (matching Spark CPU PERMISSIVE mode)
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(999)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new int[][]{{0, 1, 2}},  // valid enum values: RED=0, GREEN=1, BLUE=2
+             false);
+         HostColumnVector hostStruct = actualStruct.copyToHost()) {
+      // The struct itself should be null (not just the field)
+      assert actualStruct.getNullCount() == 1 : "Struct row should be null for unknown enum";
+      assert hostStruct.isNull(0) : "Row 0 should be null";
+    }
+  }
+
+  @Test
+  void testEnumMixedValidAndUnknown() {
+    // Test multiple rows with mix of valid and unknown enum values
+    // Rows with unknown enum values should have null struct (not just null field)
+    Byte[] row0 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(0)));    // RED (valid) -> struct valid
+    Byte[] row1 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(999)));  // unknown -> struct null
+    Byte[] row2 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(2)));    // BLUE (valid) -> struct valid
+    Byte[] row3 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(-1)));   // negative (unknown) -> struct null
+
+    try (Table input = new Table.TestBuilder().column(row0, row1, row2, row3).build();
+         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new int[][]{{0, 1, 2}},  // valid enum values
+             false);
+         HostColumnVector hostStruct = actualStruct.copyToHost()) {
+      // Check struct-level nulls
+      assert actualStruct.getNullCount() == 2 : "Should have 2 null rows (rows 1 and 3)";
+      assert !hostStruct.isNull(0) : "Row 0 should be valid";
+      assert hostStruct.isNull(1) : "Row 1 should be null (unknown enum 999)";
+      assert !hostStruct.isNull(2) : "Row 2 should be valid";
+      assert hostStruct.isNull(3) : "Row 3 should be null (unknown enum -1)";
+    }
+  }
+
+  @Test
+  void testEnumWithOtherFields_NullsEntireRow() {
+    // message Msg { Color color = 1; int32 count = 2; }
+    // Test that unknown enum value nulls the ENTIRE struct row (not just the enum field)
+    // This matches Spark CPU PERMISSIVE mode behavior
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(999)),  // unknown enum value
+        box(tag(2, WT_VARINT)), box(encodeVarint(42)));  // count = 42
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new int[][]{{0, 1, 2}, null},  // first field is enum, second is regular int (no validation)
+             false);
+         HostColumnVector hostStruct = actualStruct.copyToHost()) {
+      // The entire struct row should be null
+      assert actualStruct.getNullCount() == 1 : "Struct row should be null";
+      assert hostStruct.isNull(0) : "Row 0 should be null due to unknown enum";
+    }
+  }
+
+  @Test
+  void testEnumMissingFieldDoesNotNullRow() {
+    // Missing enum field should return null for the field, but NOT null the entire row
+    // Only unknown enum values (present but invalid) trigger row-level null
+    Byte[] row = new Byte[0];  // empty message
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedColor = ColumnVector.fromBoxedInts((Integer) null);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedColor);
+         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new int[][]{{0, 1, 2}},  // valid enum values
+             false)) {
+      // Struct row should be valid (not null), only the field is null
+      assert actualStruct.getNullCount() == 0 : "Struct row should NOT be null for missing field";
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testEnumValidWithOtherFields() {
+    // message Msg { Color color = 1; int32 count = 2; }
+    // Test that valid enum value works correctly with other fields
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)),    // GREEN (valid)
+        box(tag(2, WT_VARINT)), box(encodeVarint(42)));  // count = 42
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedColor = ColumnVector.fromBoxedInts(1);
+         ColumnVector expectedCount = ColumnVector.fromBoxedInts(42);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedColor, expectedCount);
+         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+             input.getColumn(0),
+             new int[]{1, 2},
+             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new int[][]{{0, 1, 2}, null},  // first field is enum, second is regular int
+             false)) {
+      // Struct row should be valid with correct values
+      assert actualStruct.getNullCount() == 0 : "Struct row should be valid";
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
 }
