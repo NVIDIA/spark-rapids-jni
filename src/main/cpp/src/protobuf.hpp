@@ -63,13 +63,16 @@ constexpr int ENC_ZIGZAG  = 2;
  * @param total_num_fields Total number of fields in the output struct (including null columns)
  * @param decoded_field_indices Indices into the output struct for fields that should be decoded.
  *                              Fields not in this list will be null columns in the output.
- * @param field_numbers Protobuf field numbers for decoded fields (parallel to decoded_field_indices)
+ * @param field_numbers Protobuf field numbers for decoded fields (parallel to
+ * decoded_field_indices)
  * @param all_types Output cudf data types for ALL fields in the struct (size = total_num_fields)
  * @param encodings Encoding type for each decoded field (0=default, 1=fixed, 2=zigzag)
  *                  (parallel to decoded_field_indices)
  * @param is_required Whether each decoded field is required (parallel to decoded_field_indices).
- *                    If a required field is missing and fail_on_errors is true, an exception is thrown.
- * @param has_default_value Whether each decoded field has a default value (parallel to decoded_field_indices)
+ *                    If a required field is missing and fail_on_errors is true, an exception is
+ * thrown.
+ * @param has_default_value Whether each decoded field has a default value (parallel to
+ * decoded_field_indices)
  * @param default_ints Default values for int/long/enum fields (parallel to decoded_field_indices)
  * @param default_floats Default values for float/double fields (parallel to decoded_field_indices)
  * @param default_bools Default values for bool fields (parallel to decoded_field_indices)

@@ -72,10 +72,8 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     int num_decoded_fields = n_decoded_indices.size();
 
     // Validate array sizes
-    if (n_field_numbers.size() != num_decoded_fields ||
-        n_encodings.size() != num_decoded_fields ||
-        n_is_required.size() != num_decoded_fields ||
-        n_has_default.size() != num_decoded_fields ||
+    if (n_field_numbers.size() != num_decoded_fields || n_encodings.size() != num_decoded_fields ||
+        n_is_required.size() != num_decoded_fields || n_has_default.size() != num_decoded_fields ||
         n_default_ints.size() != num_decoded_fields ||
         n_default_floats.size() != num_decoded_fields ||
         n_default_bools.size() != num_decoded_fields) {
@@ -94,7 +92,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     std::vector<int> decoded_indices(n_decoded_indices.begin(), n_decoded_indices.end());
     std::vector<int> field_nums(n_field_numbers.begin(), n_field_numbers.end());
     std::vector<int> encs(n_encodings.begin(), n_encodings.end());
-    
+
     // Convert jboolean arrays to std::vector<bool>
     std::vector<bool> required_flags;
     std::vector<bool> has_default_flags;
@@ -120,11 +118,10 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       if (byte_arr == nullptr) {
         default_string_values.emplace_back();  // empty vector for null
       } else {
-        jsize len = env->GetArrayLength(byte_arr);
+        jsize len    = env->GetArrayLength(byte_arr);
         jbyte* bytes = env->GetByteArrayElements(byte_arr, nullptr);
-        default_string_values.emplace_back(
-          reinterpret_cast<uint8_t*>(bytes),
-          reinterpret_cast<uint8_t*>(bytes) + len);
+        default_string_values.emplace_back(reinterpret_cast<uint8_t*>(bytes),
+                                           reinterpret_cast<uint8_t*>(bytes) + len);
         env->ReleaseByteArrayElements(byte_arr, bytes, JNI_ABORT);
       }
     }
@@ -138,7 +135,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       if (int_arr == nullptr) {
         enum_values.emplace_back();  // empty vector for null (not an enum field)
       } else {
-        jsize len = env->GetArrayLength(int_arr);
+        jsize len  = env->GetArrayLength(int_arr);
         jint* ints = env->GetIntArrayElements(int_arr, nullptr);
         enum_values.emplace_back(ints, ints + len);
         env->ReleaseIntArrayElements(int_arr, ints, JNI_ABORT);
@@ -153,10 +150,20 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       all_types.emplace_back(cudf::jni::make_data_type(n_all_type_ids[i], 0));
     }
 
-    auto result = spark_rapids_jni::decode_protobuf_to_struct(
-      *input, total_num_fields, decoded_indices, field_nums, all_types, encs, 
-      required_flags, has_default_flags, default_int_values, default_float_values,
-      default_bool_values, default_string_values, enum_values, fail_on_errors);
+    auto result = spark_rapids_jni::decode_protobuf_to_struct(*input,
+                                                              total_num_fields,
+                                                              decoded_indices,
+                                                              field_nums,
+                                                              all_types,
+                                                              encs,
+                                                              required_flags,
+                                                              has_default_flags,
+                                                              default_int_values,
+                                                              default_float_values,
+                                                              default_bool_values,
+                                                              default_string_values,
+                                                              enum_values,
+                                                              fail_on_errors);
     return cudf::jni::release_as_jlong(result);
   }
   JNI_CATCH(env, 0);
