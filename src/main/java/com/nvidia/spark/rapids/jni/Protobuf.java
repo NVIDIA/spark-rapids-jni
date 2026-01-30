@@ -336,4 +336,121 @@ public class Protobuf {
                                             byte[][] defaultStrings,
                                             int[][] enumValidValues,
                                             boolean failOnErrors);
+
+  // Wire type constants for nested schema
+  public static final int WT_VARINT = 0;
+  public static final int WT_64BIT  = 1;
+  public static final int WT_LEN    = 2;
+  public static final int WT_32BIT  = 5;
+
+  /**
+   * Decode protobuf messages with support for nested messages and repeated fields.
+   *
+   * This method uses a flattened schema representation where nested fields have parent indices
+   * pointing to their containing message field.
+   *
+   * @param binaryInput column of type LIST&lt;INT8/UINT8&gt; where each row is one protobuf message.
+   * @param fieldNumbers Protobuf field numbers for all fields in the flattened schema.
+   * @param parentIndices Parent field index for each field (-1 for top-level fields).
+   * @param depthLevels Nesting depth for each field (0 for top-level).
+   * @param wireTypes Expected wire type for each field (WT_VARINT, WT_64BIT, WT_LEN, WT_32BIT).
+   * @param outputTypeIds cudf native type ids for output columns.
+   * @param encodings Encoding info for each field (0=default, 1=fixed, 2=zigzag).
+   * @param isRepeated Whether each field is a repeated field (array).
+   * @param isRequired Whether each field is required (proto2).
+   * @param hasDefaultValue Whether each field has a default value.
+   * @param defaultInts Default values for int/long/enum fields.
+   * @param defaultFloats Default values for float/double fields.
+   * @param defaultBools Default values for bool fields.
+   * @param defaultStrings Default values for string/bytes fields as UTF-8 bytes.
+   * @param enumValidValues Valid enum values for each field (null if not an enum).
+   * @param failOnErrors if true, throw an exception on malformed protobuf messages.
+   * @return a cudf STRUCT column with nested structure.
+   */
+  public static ColumnVector decodeNestedToStruct(ColumnView binaryInput,
+                                                   int[] fieldNumbers,
+                                                   int[] parentIndices,
+                                                   int[] depthLevels,
+                                                   int[] wireTypes,
+                                                   int[] outputTypeIds,
+                                                   int[] encodings,
+                                                   boolean[] isRepeated,
+                                                   boolean[] isRequired,
+                                                   boolean[] hasDefaultValue,
+                                                   long[] defaultInts,
+                                                   double[] defaultFloats,
+                                                   boolean[] defaultBools,
+                                                   byte[][] defaultStrings,
+                                                   int[][] enumValidValues,
+                                                   boolean failOnErrors) {
+    // Parameter validation
+    if (fieldNumbers == null || parentIndices == null || depthLevels == null ||
+        wireTypes == null || outputTypeIds == null || encodings == null ||
+        isRepeated == null || isRequired == null || hasDefaultValue == null ||
+        defaultInts == null || defaultFloats == null || defaultBools == null ||
+        defaultStrings == null || enumValidValues == null) {
+      throw new IllegalArgumentException("Arrays must be non-null");
+    }
+
+    int numFields = fieldNumbers.length;
+    if (parentIndices.length != numFields ||
+        depthLevels.length != numFields ||
+        wireTypes.length != numFields ||
+        outputTypeIds.length != numFields ||
+        encodings.length != numFields ||
+        isRepeated.length != numFields ||
+        isRequired.length != numFields ||
+        hasDefaultValue.length != numFields ||
+        defaultInts.length != numFields ||
+        defaultFloats.length != numFields ||
+        defaultBools.length != numFields ||
+        defaultStrings.length != numFields ||
+        enumValidValues.length != numFields) {
+      throw new IllegalArgumentException("All arrays must have the same length");
+    }
+
+    // Validate field numbers are positive
+    for (int i = 0; i < fieldNumbers.length; i++) {
+      if (fieldNumbers[i] <= 0) {
+        throw new IllegalArgumentException(
+            "Invalid field number at index " + i + ": " + fieldNumbers[i] +
+            " (field numbers must be positive)");
+      }
+    }
+
+    // Validate encoding values
+    for (int i = 0; i < encodings.length; i++) {
+      int enc = encodings[i];
+      if (enc < ENC_DEFAULT || enc > ENC_ZIGZAG) {
+        throw new IllegalArgumentException(
+            "Invalid encoding value at index " + i + ": " + enc +
+            " (expected " + ENC_DEFAULT + ", " + ENC_FIXED + ", or " + ENC_ZIGZAG + ")");
+      }
+    }
+
+    long handle = decodeNestedToStruct(binaryInput.getNativeView(),
+                                        fieldNumbers, parentIndices, depthLevels,
+                                        wireTypes, outputTypeIds, encodings,
+                                        isRepeated, isRequired, hasDefaultValue,
+                                        defaultInts, defaultFloats, defaultBools,
+                                        defaultStrings, enumValidValues, failOnErrors);
+    return new ColumnVector(handle);
+  }
+
+  private static native long decodeNestedToStruct(long binaryInputView,
+                                                   int[] fieldNumbers,
+                                                   int[] parentIndices,
+                                                   int[] depthLevels,
+                                                   int[] wireTypes,
+                                                   int[] outputTypeIds,
+                                                   int[] encodings,
+                                                   boolean[] isRepeated,
+                                                   boolean[] isRequired,
+                                                   boolean[] hasDefaultValue,
+                                                   long[] defaultInts,
+                                                   double[] defaultFloats,
+                                                   boolean[] defaultBools,
+                                                   byte[][] defaultStrings,
+                                                   int[][] enumValidValues,
+                                                   boolean failOnErrors);
 }

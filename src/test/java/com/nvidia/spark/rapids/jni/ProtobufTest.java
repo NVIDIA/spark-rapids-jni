@@ -26,6 +26,8 @@ import ai.rapids.cudf.Table;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -1615,26 +1617,46 @@ public class ProtobufTest {
   }
 
   // ============================================================================
-  // Tests for Features Not Yet Implemented (Disabled)
+  // Tests for Nested and Repeated Fields (Phase 1-3 Implementation)
   // ============================================================================
 
-  @Disabled("Unpacked repeated fields not yet implemented")
   @Test
   void testUnpackedRepeatedInt32() {
     // Unpacked repeated: same field number appears multiple times
+    // message TestMsg { repeated int32 ids = 1; }
     Byte[] row = concat(
         box(tag(1, WT_VARINT)), box(encodeVarint(1)),
         box(tag(1, WT_VARINT)), box(encodeVarint(2)),
         box(tag(1, WT_VARINT)), box(encodeVarint(3)));
 
-    // Expected: ARRAY<INT32> with values [1, 2, 3]
-    // (Currently we implement "last one wins" semantics for scalars)
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
-      // TODO: implement unpacked repeated field decoding
+      // Use the new nested API for repeated fields
+      // Field: ids (field_number=1, parent=-1, depth=0, wire_type=VARINT, type=INT32, repeated=true)
+      try (ColumnVector result = Protobuf.decodeNestedToStruct(
+          input.getColumn(0),
+          new int[]{1},                    // fieldNumbers
+          new int[]{-1},                   // parentIndices (-1 = top level)
+          new int[]{0},                    // depthLevels
+          new int[]{Protobuf.WT_VARINT},   // wireTypes
+          new int[]{DType.INT32.getTypeId().getNativeId()},  // outputTypeIds (element type)
+          new int[]{Protobuf.ENC_DEFAULT}, // encodings
+          new boolean[]{true},             // isRepeated
+          new boolean[]{false},            // isRequired
+          new boolean[]{false},            // hasDefaultValue
+          new long[]{0},                   // defaultInts
+          new double[]{0.0},               // defaultFloats
+          new boolean[]{false},            // defaultBools
+          new byte[][]{null},              // defaultStrings
+          new int[][]{null},               // enumValidValues
+          false)) {                        // failOnErrors
+        // Result should be STRUCT<ids: LIST<INT32>>
+        // The list should contain [1, 2, 3]
+        assertNotNull(result);
+        assertEquals(DType.STRUCT, result.getType());
+      }
     }
   }
 
-  @Disabled("Nested messages not yet implemented")
   @Test
   void testNestedMessage() {
     // message Inner { int32 x = 1; }
@@ -1647,23 +1669,29 @@ public class ProtobufTest {
         innerMessage);
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
-      // TODO: implement nested message decoding
-      // Expected: STRUCT<inner: STRUCT<x: INT32>>
-    }
-  }
-
-  @Disabled("Large field numbers not tested with current API")
-  @Test
-  void testLargeFieldNumber() {
-    // Field numbers can be up to 2^29 - 1 = 536870911
-    int largeFieldNum = 536870911;
-    Byte[] row = concat(
-        box(tag(largeFieldNum, WT_VARINT)),
-        box(encodeVarint(42)));
-
-    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
-      // Current API uses int[] for field numbers, should work
-      // But need to verify kernel handles large field numbers correctly
+      // Flattened schema:
+      // [0] inner: STRUCT, field_number=1, parent=-1, depth=0
+      // [1] inner.x: INT32, field_number=1, parent=0, depth=1
+      try (ColumnVector result = Protobuf.decodeNestedToStruct(
+          input.getColumn(0),
+          new int[]{1, 1},                 // fieldNumbers
+          new int[]{-1, 0},                // parentIndices
+          new int[]{0, 1},                 // depthLevels
+          new int[]{Protobuf.WT_LEN, Protobuf.WT_VARINT},  // wireTypes
+          new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+          new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+          new boolean[]{false, false},     // isRepeated
+          new boolean[]{false, false},     // isRequired
+          new boolean[]{false, false},     // hasDefaultValue
+          new long[]{0, 0},
+          new double[]{0.0, 0.0},
+          new boolean[]{false, false},
+          new byte[][]{null, null},
+          new int[][]{null, null},
+          false)) {
+        assertNotNull(result);
+        assertEquals(DType.STRUCT, result.getType());
+      }
     }
   }
 

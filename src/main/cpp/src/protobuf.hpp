@@ -30,6 +30,25 @@ constexpr int ENC_DEFAULT = 0;
 constexpr int ENC_FIXED   = 1;
 constexpr int ENC_ZIGZAG  = 2;
 
+// Maximum nesting depth for nested messages
+constexpr int MAX_NESTING_DEPTH = 10;
+
+/**
+ * Descriptor for a field in a nested protobuf schema.
+ * Used to represent flattened schema with parent-child relationships.
+ */
+struct nested_field_descriptor {
+  int field_number;         // Protobuf field number
+  int parent_idx;           // Index of parent field in schema (-1 for top-level)
+  int depth;                // Nesting depth (0 for top-level)
+  int wire_type;            // Expected wire type
+  cudf::type_id output_type;  // Output cudf type
+  int encoding;             // Encoding type (ENC_DEFAULT, ENC_FIXED, ENC_ZIGZAG)
+  bool is_repeated;         // Whether this field is repeated (array)
+  bool is_required;         // Whether this field is required (proto2)
+  bool has_default_value;   // Whether this field has a default value
+};
+
 /**
  * Decode protobuf messages (one message per row) from a LIST<INT8/UINT8> column into a STRUCT
  * column.
@@ -95,6 +114,37 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   std::vector<int> const& encodings,
   std::vector<bool> const& is_required,
   std::vector<bool> const& has_default_value,
+  std::vector<int64_t> const& default_ints,
+  std::vector<double> const& default_floats,
+  std::vector<bool> const& default_bools,
+  std::vector<std::vector<uint8_t>> const& default_strings,
+  std::vector<std::vector<int32_t>> const& enum_valid_values,
+  bool fail_on_errors);
+
+/**
+ * Decode protobuf messages with support for nested messages and repeated fields.
+ *
+ * This uses a multi-pass approach:
+ * - Pass 1: Scan all messages, count nested elements and repeated field occurrences
+ * - Pass 2: Prefix sum to compute output offsets for arrays and nested structs
+ * - Pass 3: Extract data using pre-computed offsets
+ * - Pass 4: Build nested column structure
+ *
+ * @param binary_input LIST<INT8/UINT8> column, each row is one protobuf message
+ * @param schema Flattened schema with parent-child relationships
+ * @param schema_output_types Output types for each field in schema (cudf types)
+ * @param default_ints Default values for int/long/enum fields
+ * @param default_floats Default values for float/double fields
+ * @param default_bools Default values for bool fields
+ * @param default_strings Default values for string/bytes fields
+ * @param enum_valid_values Valid enum values for each field (empty if not enum)
+ * @param fail_on_errors Whether to throw on malformed data
+ * @return STRUCT column with nested structure
+ */
+std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
+  cudf::column_view const& binary_input,
+  std::vector<nested_field_descriptor> const& schema,
+  std::vector<cudf::data_type> const& schema_output_types,
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
