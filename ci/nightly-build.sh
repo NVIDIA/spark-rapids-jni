@@ -47,8 +47,6 @@ fi
 if [ "${CUDA_VER}" == "cuda13" ]; then
   BUILD_FAULTINJ="OFF"
   BUILD_PROFILER="OFF"
-  # Disable sanitizer https://github.com/NVIDIA/spark-rapids-jni/issues/4127
-  USE_SANITIZER="OFF"
 fi
 
 ${MVN} clean package ${MVN_MIRROR}  \

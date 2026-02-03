@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2023-2026, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,10 +15,14 @@
 # limitations under the License.
 #
 
-# This special Java executable is specified to the "jvm" configuration of the
-# the surefire plugin to intercept forking the processes for tests. Then
-# the tests will run with the compute-sanitizer tool.
+# Java wrapper script for Maven Surefire plugin's "jvm" configuration.
+# Intercepts test process forking to run tests with NVIDIA Compute Sanitizer
+# for memory error detection and analysis.
+
+# Workaround for known issue: https://github.com/NVIDIA/spark-rapids-jni/issues/4127
+# Disabling stream-ordered race detection (--track-stream-ordered-races no)
 exec compute-sanitizer --tool memcheck \
+    --track-stream-ordered-races no \
     --launch-timeout 600 \
     --error-exitcode -2 \
     --log-file "./sanitizer_for_pid_%p.log" \
