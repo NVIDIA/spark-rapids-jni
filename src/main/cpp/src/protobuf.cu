@@ -1494,7 +1494,64 @@ __global__ void extract_repeated_msg_child_fixed_kernel(
 }
 
 /**
+ * Kernel to extract string data from repeated message child fields.
+ * Copies all strings in parallel on the GPU instead of per-string host copies.
+ */
+__global__ void extract_repeated_msg_child_strings_kernel(
+  uint8_t const* message_data,
+  int32_t const* msg_row_offsets,
+  field_location const* msg_locs,
+  field_location const* child_locs,
+  int child_idx,
+  int num_child_fields,
+  int32_t const* string_offsets,  // Output offsets (exclusive scan of lengths)
+  char* output_chars,
+  bool* valid,
+  int total_count)
+{
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= total_count) return;
+
+  auto const& field_loc = child_locs[idx * num_child_fields + child_idx];
+  
+  if (field_loc.offset < 0 || field_loc.length == 0) {
+    valid[idx] = false;
+    return;
+  }
+  
+  valid[idx] = true;
+  
+  int32_t row_offset = msg_row_offsets[idx];
+  int32_t msg_offset = msg_locs[idx].offset;
+  uint8_t const* str_src = message_data + row_offset + msg_offset + field_loc.offset;
+  char* str_dst = output_chars + string_offsets[idx];
+  
+  // Copy string data
+  for (int i = 0; i < field_loc.length; i++) {
+    str_dst[i] = static_cast<char>(str_src[i]);
+  }
+}
+
+/**
+ * Kernel to compute string lengths from child field locations.
+ */
+__global__ void compute_string_lengths_kernel(
+  field_location const* child_locs,
+  int child_idx,
+  int num_child_fields,
+  int32_t* lengths,
+  int total_count)
+{
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= total_count) return;
+
+  auto const& loc = child_locs[idx * num_child_fields + child_idx];
+  lengths[idx] = (loc.offset >= 0) ? loc.length : 0;
+}
+
+/**
  * Helper to build string column for repeated message child fields.
+ * Uses GPU kernels for parallel string extraction (critical performance fix!).
  */
 inline std::unique_ptr<cudf::column> build_repeated_msg_child_string_column(
   uint8_t const* message_data,
@@ -1512,85 +1569,147 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_string_column(
     return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
   }
 
-  // Get string lengths from child_locs
-  std::vector<field_location> h_child_locs(total_count * num_child_fields);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(h_child_locs.data(), d_child_locs.data(),
-                                h_child_locs.size() * sizeof(field_location),
-                                cudaMemcpyDeviceToHost, stream.value()));
-  stream.synchronize();
+  auto const threads = 256;
+  auto const blocks = (total_count + threads - 1) / threads;
 
-  std::vector<int32_t> h_lengths(total_count);
+  // Compute string lengths on GPU
+  rmm::device_uvector<int32_t> d_lengths(total_count, stream, mr);
+  compute_string_lengths_kernel<<<blocks, threads, 0, stream.value()>>>(
+    d_child_locs.data(), child_idx, num_child_fields, d_lengths.data(), total_count);
+
+  // Compute offsets via exclusive scan
+  rmm::device_uvector<int32_t> d_str_offsets(total_count + 1, stream, mr);
+  thrust::exclusive_scan(rmm::exec_policy(stream), 
+                         d_lengths.begin(), d_lengths.end(), 
+                         d_str_offsets.begin(), 0);
+  
+  // Get total chars count
   int32_t total_chars = 0;
-  for (int i = 0; i < total_count; i++) {
-    auto const& loc = h_child_locs[i * num_child_fields + child_idx];
-    if (loc.offset >= 0) {
-      h_lengths[i] = loc.length;
-      total_chars += loc.length;
-    } else {
-      h_lengths[i] = 0;
-    }
-  }
+  int32_t last_len = 0;
+  CUDF_CUDA_TRY(cudaMemcpyAsync(&total_chars, d_str_offsets.data() + total_count - 1,
+                                sizeof(int32_t), cudaMemcpyDeviceToHost, stream.value()));
+  CUDF_CUDA_TRY(cudaMemcpyAsync(&last_len, d_lengths.data() + total_count - 1,
+                                sizeof(int32_t), cudaMemcpyDeviceToHost, stream.value()));
+  stream.synchronize();
+  total_chars += last_len;
+  
+  // Set final offset
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_str_offsets.data() + total_count, &total_chars,
+                                sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
 
-  // Build string offsets
-  rmm::device_uvector<int32_t> str_offsets(total_count + 1, stream, mr);
-  std::vector<int32_t> h_offsets(total_count + 1);
-  h_offsets[0] = 0;
-  for (int i = 0; i < total_count; i++) {
-    h_offsets[i + 1] = h_offsets[i] + h_lengths[i];
-  }
-  CUDF_CUDA_TRY(cudaMemcpyAsync(str_offsets.data(), h_offsets.data(),
-                                (total_count + 1) * sizeof(int32_t),
-                                cudaMemcpyHostToDevice, stream.value()));
+  // Allocate output chars and validity
+  rmm::device_uvector<char> d_chars(total_chars, stream, mr);
+  rmm::device_uvector<bool> d_valid(total_count, stream, mr);
 
-  // Copy string data
-  rmm::device_uvector<char> chars(total_chars, stream, mr);
+  // Extract all strings in parallel on GPU (critical performance fix!)
   if (total_chars > 0) {
-    std::vector<field_location> h_msg_locs(total_count);
-    std::vector<int32_t> h_row_offsets(total_count);
-    CUDF_CUDA_TRY(cudaMemcpyAsync(h_msg_locs.data(), d_msg_locs.data(),
-                                  total_count * sizeof(field_location),
-                                  cudaMemcpyDeviceToHost, stream.value()));
-    CUDF_CUDA_TRY(cudaMemcpyAsync(h_row_offsets.data(), d_msg_row_offsets.data(),
-                                  total_count * sizeof(int32_t),
-                                  cudaMemcpyDeviceToHost, stream.value()));
-    stream.synchronize();
-
-    // Copy each string on host (not ideal but works)
-    std::vector<char> h_chars(total_chars);
-    int char_idx = 0;
-    for (int i = 0; i < total_count; i++) {
-      auto const& field_loc = h_child_locs[i * num_child_fields + child_idx];
-      if (field_loc.offset >= 0 && field_loc.length > 0) {
-        int32_t row_offset = h_row_offsets[i];
-        int32_t msg_offset = h_msg_locs[i].offset;
-        uint8_t const* str_ptr = message_data + row_offset + msg_offset + field_loc.offset;
-        // Need to copy from device - use cudaMemcpy
-        CUDF_CUDA_TRY(cudaMemcpy(h_chars.data() + char_idx, str_ptr,
-                                 field_loc.length, cudaMemcpyDeviceToHost));
-        char_idx += field_loc.length;
-      }
-    }
-    CUDF_CUDA_TRY(cudaMemcpyAsync(chars.data(), h_chars.data(),
-                                  total_chars, cudaMemcpyHostToDevice, stream.value()));
+    extract_repeated_msg_child_strings_kernel<<<blocks, threads, 0, stream.value()>>>(
+      message_data, d_msg_row_offsets.data(), d_msg_locs.data(),
+      d_child_locs.data(), child_idx, num_child_fields,
+      d_str_offsets.data(), d_chars.data(), d_valid.data(), total_count);
+  } else {
+    // No strings, just set validity
+    thrust::transform(rmm::exec_policy(stream),
+                      thrust::make_counting_iterator(0),
+                      thrust::make_counting_iterator(total_count),
+                      d_valid.begin(),
+                      [child_locs = d_child_locs.data(), ci = child_idx, ncf = num_child_fields] __device__(int idx) {
+                        return child_locs[idx * ncf + ci].offset >= 0;
+                      });
   }
 
-  // Build validity mask
-  rmm::device_uvector<bool> valid(total_count, stream, mr);
-  std::vector<uint8_t> h_valid(total_count);
-  for (int i = 0; i < total_count; i++) {
-    h_valid[i] = (h_child_locs[i * num_child_fields + child_idx].offset >= 0) ? 1 : 0;
-  }
-  rmm::device_uvector<uint8_t> d_valid_u8(total_count, stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_u8.data(), h_valid.data(),
-                                total_count * sizeof(uint8_t),
-                                cudaMemcpyHostToDevice, stream.value()));
-
-  auto [mask, null_count] = make_null_mask_from_valid(d_valid_u8, stream, mr);
+  auto [mask, null_count] = make_null_mask_from_valid(d_valid, stream, mr);
 
   auto str_offsets_col = std::make_unique<cudf::column>(
-    cudf::data_type{cudf::type_id::INT32}, total_count + 1, str_offsets.release(), rmm::device_buffer{}, 0);
-  return cudf::make_strings_column(total_count, std::move(str_offsets_col), chars.release(), null_count, std::move(mask));
+    cudf::data_type{cudf::type_id::INT32}, total_count + 1, d_str_offsets.release(), rmm::device_buffer{}, 0);
+  return cudf::make_strings_column(total_count, std::move(str_offsets_col), d_chars.release(), null_count, std::move(mask));
 }
+
+/**
+ * Kernel to compute nested struct locations from child field locations.
+ * Replaces host-side loop that was copying data D->H, processing, then H->D.
+ * This is a critical performance optimization.
+ */
+__global__ void compute_nested_struct_locations_kernel(
+  field_location const* child_locs,     // Child field locations from parent scan
+  field_location const* msg_locs,       // Parent message locations
+  int32_t const* msg_row_offsets,       // Parent message row offsets
+  int child_idx,                        // Which child field is the nested struct
+  int num_child_fields,                 // Total number of child fields per occurrence
+  field_location* nested_locs,          // Output: nested struct locations
+  int32_t* nested_row_offsets,          // Output: nested struct row offsets
+  int total_count)
+{
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= total_count) return;
+  
+  // Get the nested struct location from child_locs
+  nested_locs[idx] = child_locs[idx * num_child_fields + child_idx];
+  // Compute absolute row offset = msg_row_offset + msg_offset
+  nested_row_offsets[idx] = msg_row_offsets[idx] + msg_locs[idx].offset;
+}
+
+/**
+ * Kernel to compute absolute grandchild parent locations from parent and child locations.
+ * Computes: gc_parent_abs[i] = parent[i].offset + child[i * ncf + ci].offset
+ * This replaces host-side loop with D->H->D copy pattern.
+ */
+__global__ void compute_grandchild_parent_locations_kernel(
+  field_location const* parent_locs,     // Parent locations (row count)
+  field_location const* child_locs,      // Child locations (row * num_child_fields)
+  int child_idx,                         // Which child field
+  int num_child_fields,                  // Total child fields per row
+  field_location* gc_parent_abs,         // Output: absolute grandchild parent locations
+  int num_rows)
+{
+  int row = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row >= num_rows) return;
+  
+  auto const& parent_loc = parent_locs[row];
+  auto const& child_loc = child_locs[row * num_child_fields + child_idx];
+  
+  if (parent_loc.offset >= 0 && child_loc.offset >= 0) {
+    // Absolute offset = parent offset + child's relative offset
+    gc_parent_abs[row].offset = parent_loc.offset + child_loc.offset;
+    gc_parent_abs[row].length = child_loc.length;
+  } else {
+    gc_parent_abs[row] = {-1, 0};
+  }
+}
+
+/**
+ * Kernel to compute message locations and row offsets from repeated occurrences.
+ * Replaces host-side loop that processed occurrences.
+ */
+__global__ void compute_msg_locations_from_occurrences_kernel(
+  repeated_occurrence const* occurrences,  // Repeated field occurrences
+  cudf::size_type const* list_offsets,     // List offsets for rows
+  cudf::size_type base_offset,             // Base offset to subtract
+  field_location* msg_locs,                // Output: message locations
+  int32_t* msg_row_offsets,                // Output: message row offsets
+  int total_count)
+{
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= total_count) return;
+  
+  auto const& occ = occurrences[idx];
+  msg_row_offsets[idx] = static_cast<int32_t>(list_offsets[occ.row_idx] - base_offset);
+  msg_locs[idx] = {occ.offset, occ.length};
+}
+
+/**
+ * Functor to extract count from repeated_field_info with strided access.
+ * Used for extracting counts for a specific repeated field from 2D array.
+ */
+struct extract_strided_count {
+  repeated_field_info const* info;
+  int field_idx;
+  int num_fields;
+  
+  __device__ int32_t operator()(int row) const {
+    return info[row * num_fields + field_idx].count;
+  }
+};
 
 /**
  * Extract varint from nested message locations.
@@ -2898,26 +3017,25 @@ std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                 cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
 
-  // Build list offsets from counts
-  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
-  std::vector<int32_t> h_counts(num_rows);
-  for (int i = 0; i < num_rows; i++) {
-    h_counts[i] = h_repeated_info[i].count;
-  }
-  CUDF_CUDA_TRY(cudaMemcpyAsync(counts.data(), h_counts.data(), num_rows * sizeof(int32_t),
+  // Build list offsets from counts entirely on GPU (performance fix!)
+  // Copy h_repeated_info to device and use thrust::transform to extract counts
+  rmm::device_uvector<repeated_field_info> d_rep_info(num_rows, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_rep_info.data(), h_repeated_info.data(),
+                                num_rows * sizeof(repeated_field_info),
                                 cudaMemcpyHostToDevice, stream.value()));
+  
+  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
+  thrust::transform(rmm::exec_policy(stream),
+                    d_rep_info.begin(), d_rep_info.end(),
+                    counts.begin(),
+                    [] __device__(repeated_field_info const& info) { return info.count; });
 
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(rmm::exec_policy(stream), counts.begin(), counts.end(), list_offs.begin(), 0);
   
-  int32_t last_offset_h = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(&last_offset_h, list_offs.data() + num_rows - 1, sizeof(int32_t),
-                                cudaMemcpyDeviceToHost, stream.value()));
-  int32_t last_count_h = h_counts[num_rows - 1];
-  stream.synchronize();
-  last_offset_h += last_count_h;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows, &last_offset_h, sizeof(int32_t),
-                                cudaMemcpyHostToDevice, stream.value()));
+  // Set last offset = total_count
+  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows, &total_count,
+                                sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
 
   // Extract values
   rmm::device_uvector<T> values(total_count, stream, mr);
@@ -3018,26 +3136,25 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
                                 cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
 
-  // Build list offsets from counts
-  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
-  std::vector<int32_t> h_counts(num_rows);
-  for (int i = 0; i < num_rows; i++) {
-    h_counts[i] = h_repeated_info[i].count;
-  }
-  CUDF_CUDA_TRY(cudaMemcpyAsync(counts.data(), h_counts.data(), num_rows * sizeof(int32_t),
+  // Build list offsets from counts entirely on GPU (performance fix!)
+  // Copy h_repeated_info to device and use thrust::transform to extract counts
+  rmm::device_uvector<repeated_field_info> d_rep_info(num_rows, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_rep_info.data(), h_repeated_info.data(),
+                                num_rows * sizeof(repeated_field_info),
                                 cudaMemcpyHostToDevice, stream.value()));
+  
+  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
+  thrust::transform(rmm::exec_policy(stream),
+                    d_rep_info.begin(), d_rep_info.end(),
+                    counts.begin(),
+                    [] __device__(repeated_field_info const& info) { return info.count; });
 
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(rmm::exec_policy(stream), counts.begin(), counts.end(), list_offs.begin(), 0);
-
-  int32_t last_offset_h = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(&last_offset_h, list_offs.data() + num_rows - 1, sizeof(int32_t),
-                                cudaMemcpyDeviceToHost, stream.value()));
-  int32_t last_count_h = h_counts[num_rows - 1];
-  stream.synchronize();
-  last_offset_h += last_count_h;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows, &last_offset_h, sizeof(int32_t),
-                                cudaMemcpyHostToDevice, stream.value()));
+  
+  // Set last offset = total_count
+  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows, &total_count,
+                                sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
 
   // Extract string lengths from occurrences
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, mr);
@@ -3168,32 +3285,25 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                 cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
 
-  // Build list offsets from counts (for the outer LIST column)
-  rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
-  std::vector<int32_t> h_counts(num_rows);
-  for (int i = 0; i < num_rows; i++) {
-    h_counts[i] = h_repeated_info[i].count;
-  }
-  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(counts.data(), h_counts.data(), num_rows * sizeof(int32_t),
+  // Build list offsets from counts entirely on GPU (performance fix!)
+  // Copy repeated_info to device and use thrust::transform to extract counts
+  rmm::device_uvector<repeated_field_info> d_rep_info(num_rows, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_rep_info.data(), h_repeated_info.data(),
+                                num_rows * sizeof(repeated_field_info),
                                 cudaMemcpyHostToDevice, stream.value()));
+  
+  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
+  thrust::transform(rmm::exec_policy(stream),
+                    d_rep_info.begin(), d_rep_info.end(),
+                    counts.begin(),
+                    [] __device__(repeated_field_info const& info) { return info.count; });
+  
+  rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(rmm::exec_policy(stream), counts.begin(), counts.end(), list_offs.begin(), 0);
   
-  int32_t last_offset_h = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(&last_offset_h, list_offs.data() + num_rows - 1, sizeof(int32_t),
-                                cudaMemcpyDeviceToHost, stream.value()));
-  int32_t last_count_h = h_counts[num_rows - 1];
-  stream.synchronize();
-  last_offset_h += last_count_h;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows, &last_offset_h, sizeof(int32_t),
-                                cudaMemcpyHostToDevice, stream.value()));
-
-  // Copy occurrences to host for processing
-  std::vector<repeated_occurrence> h_occurrences(total_count);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(h_occurrences.data(), d_occurrences.data(),
-                                total_count * sizeof(repeated_occurrence),
-                                cudaMemcpyDeviceToHost, stream.value()));
-  stream.synchronize();
+  // Set last offset = total_count (already computed on caller side)
+  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows, &total_count,
+                                sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
 
   // Build child field descriptors for scanning within each message occurrence
   std::vector<field_descriptor> h_child_descs(num_child_fields);
@@ -3208,29 +3318,17 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                 cudaMemcpyHostToDevice, stream.value()));
 
   // For each occurrence, we need to scan for child fields
-  // Create "virtual" parent locations from the occurrences
-  // Each occurrence becomes a "parent" message for child field scanning
-  std::vector<field_location> h_msg_locs(total_count);
-  std::vector<int32_t> h_msg_row_offsets(total_count);
-  for (int i = 0; i < total_count; i++) {
-    auto const& occ = h_occurrences[i];
-    // Get the row's start offset in the binary column
-    cudf::size_type row_offset;
-    CUDF_CUDA_TRY(cudaMemcpyAsync(&row_offset, list_offsets + occ.row_idx, sizeof(cudf::size_type),
-                                  cudaMemcpyDeviceToHost, stream.value()));
-    stream.synchronize();
-    h_msg_row_offsets[i] = static_cast<int32_t>(row_offset - base_offset);
-    h_msg_locs[i] = {occ.offset, occ.length};
-  }
-
+  // Create "virtual" parent locations from the occurrences using GPU kernel
+  // This replaces the host-side loop with D->H->D copy pattern (critical performance fix!)
   rmm::device_uvector<field_location> d_msg_locs(total_count, stream, mr);
   rmm::device_uvector<int32_t> d_msg_row_offsets(total_count, stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_msg_locs.data(), h_msg_locs.data(),
-                                total_count * sizeof(field_location),
-                                cudaMemcpyHostToDevice, stream.value()));
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_msg_row_offsets.data(), h_msg_row_offsets.data(),
-                                total_count * sizeof(int32_t),
-                                cudaMemcpyHostToDevice, stream.value()));
+  {
+    auto const occ_threads = 256;
+    auto const occ_blocks = (total_count + occ_threads - 1) / occ_threads;
+    compute_msg_locations_from_occurrences_kernel<<<occ_blocks, occ_threads, 0, stream.value()>>>(
+      d_occurrences.data(), list_offsets, base_offset,
+      d_msg_locs.data(), d_msg_row_offsets.data(), total_count);
+  }
 
   // Scan for child fields within each message occurrence
   rmm::device_uvector<field_location> d_child_locs(total_count * num_child_fields, stream, mr);
@@ -3246,12 +3344,10 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     message_data, d_msg_row_offsets.data(), d_msg_locs.data(), total_count,
     d_child_descs.data(), num_child_fields, d_child_locs.data(), d_error.data());
 
-  // Copy child locations to host
-  std::vector<field_location> h_child_locs(total_count * num_child_fields);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(h_child_locs.data(), d_child_locs.data(),
-                                h_child_locs.size() * sizeof(field_location),
-                                cudaMemcpyDeviceToHost, stream.value()));
-  stream.synchronize();
+  // Note: We no longer need to copy child_locs to host because:
+  // 1. All scalar extraction kernels access d_child_locs directly on device
+  // 2. String extraction uses GPU kernels
+  // 3. Nested struct locations are computed on GPU via compute_nested_struct_locations_kernel
 
   // Extract child field values - build one column per child field
   std::vector<std::unique_ptr<cudf::column>> struct_children;
@@ -3386,25 +3482,13 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                         num_grandchildren * sizeof(field_descriptor),
                                         cudaMemcpyHostToDevice, stream.value()));
           
-          // Create nested struct locations from child_locs
-          // Each occurrence's nested struct is at child_locs[occ * num_child_fields + ci]
-          std::vector<field_location> h_nested_locs(total_count);
-          std::vector<int32_t> h_nested_row_offsets(total_count);
-          for (int occ = 0; occ < total_count; occ++) {
-            auto const& nested_loc = h_child_locs[occ * num_child_fields + ci];
-            auto const& msg_loc = h_msg_locs[occ];
-            h_nested_row_offsets[occ] = h_msg_row_offsets[occ] + msg_loc.offset;
-            h_nested_locs[occ] = nested_loc;
-          }
-          
+          // Create nested struct locations from child_locs using GPU kernel
+          // This eliminates the D->H->D copy pattern (critical performance optimization)
           rmm::device_uvector<field_location> d_nested_locs(total_count, stream, mr);
           rmm::device_uvector<int32_t> d_nested_row_offsets(total_count, stream, mr);
-          CUDF_CUDA_TRY(cudaMemcpyAsync(d_nested_locs.data(), h_nested_locs.data(),
-                                        total_count * sizeof(field_location),
-                                        cudaMemcpyHostToDevice, stream.value()));
-          CUDF_CUDA_TRY(cudaMemcpyAsync(d_nested_row_offsets.data(), h_nested_row_offsets.data(),
-                                        total_count * sizeof(int32_t),
-                                        cudaMemcpyHostToDevice, stream.value()));
+          compute_nested_struct_locations_kernel<<<blocks, threads, 0, stream.value()>>>(
+            d_child_locs.data(), d_msg_locs.data(), d_msg_row_offsets.data(),
+            ci, num_child_fields, d_nested_locs.data(), d_nested_row_offsets.data(), total_count);
           
           // Scan for grandchild fields
           rmm::device_uvector<field_location> d_gc_locs(total_count * num_grandchildren, stream, mr);
@@ -3849,25 +3933,32 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
       int schema_idx = repeated_field_indices[ri];
       auto element_type = schema_output_types[schema_idx];
 
-      // Get per-row info for this repeated field
+      // Get per-row counts for this repeated field entirely on GPU (performance fix!)
+      rmm::device_uvector<int32_t> d_field_counts(num_rows, stream, mr);
+      thrust::transform(rmm::exec_policy(stream),
+                        thrust::make_counting_iterator(0),
+                        thrust::make_counting_iterator(num_rows),
+                        d_field_counts.begin(),
+                        extract_strided_count{d_repeated_info.data(), ri, num_repeated});
+      
+      int total_count = thrust::reduce(rmm::exec_policy(stream),
+                                       d_field_counts.begin(), d_field_counts.end(), 0);
+
+      // Still need host-side field_info for build_repeated_scalar_column
       std::vector<repeated_field_info> field_info(num_rows);
-      int total_count = 0;
       for (int row = 0; row < num_rows; row++) {
         field_info[row] = h_repeated_info[row * num_repeated + ri];
-        total_count += field_info[row].count;
       }
 
       if (total_count > 0) {
-        // Build offsets for occurrence scanning
+        // Build offsets for occurrence scanning on GPU (performance fix!)
         rmm::device_uvector<int32_t> d_occ_offsets(num_rows + 1, stream, mr);
-        std::vector<int32_t> h_occ_offsets(num_rows + 1);
-        h_occ_offsets[0] = 0;
-        for (int row = 0; row < num_rows; row++) {
-          h_occ_offsets[row + 1] = h_occ_offsets[row] + field_info[row].count;
-        }
-        CUDF_CUDA_TRY(cudaMemcpyAsync(d_occ_offsets.data(), h_occ_offsets.data(),
-                                      (num_rows + 1) * sizeof(int32_t),
-                                      cudaMemcpyHostToDevice, stream.value()));
+        thrust::exclusive_scan(rmm::exec_policy(stream),
+                               d_field_counts.begin(), d_field_counts.end(),
+                               d_occ_offsets.begin(), 0);
+        // Set last element
+        CUDF_CUDA_TRY(cudaMemcpyAsync(d_occ_offsets.data() + num_rows, &total_count,
+                                      sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
 
         // Scan for all occurrences
         rmm::device_uvector<repeated_occurrence> d_occurrences(total_count, stream, mr);
@@ -4075,15 +4166,16 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
             message_data, list_offsets, base_offset, d_parent_locs.data(), num_rows,
             d_rep_schema.data(), 1, d_rep_info.data(), 1, d_rep_indices.data(), d_error.data());
           
-          std::vector<repeated_field_info> h_rep_info(num_rows);
-          CUDF_CUDA_TRY(cudaMemcpyAsync(h_rep_info.data(), d_rep_info.data(),
-            num_rows * sizeof(repeated_field_info), cudaMemcpyDeviceToHost, stream.value()));
-          stream.synchronize();
+          // Compute total_rep_count on GPU using thrust::reduce (performance fix!)
+          // Extract counts from repeated_field_info on device
+          rmm::device_uvector<int32_t> d_rep_counts(num_rows, stream, mr);
+          thrust::transform(rmm::exec_policy(stream),
+                            d_rep_info.begin(), d_rep_info.end(),
+                            d_rep_counts.begin(),
+                            [] __device__(repeated_field_info const& info) { return info.count; });
           
-          int total_rep_count = 0;
-          for (int row = 0; row < num_rows; row++) {
-            total_rep_count += h_rep_info[row].count;
-          }
+          int total_rep_count = thrust::reduce(rmm::exec_policy(stream),
+                                               d_rep_counts.begin(), d_rep_counts.end(), 0);
           
           if (total_rep_count == 0) {
             rmm::device_uvector<int32_t> list_offsets_vec(num_rows + 1, stream, mr);
@@ -4100,14 +4192,14 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
               d_rep_schema.data(), 1, d_rep_info.data(), 1, d_rep_indices.data(),
               d_rep_occs.data(), d_error.data());
             
+            // Compute list offsets on GPU using exclusive_scan (performance fix!)
             rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
-            std::vector<int32_t> h_list_offs(num_rows + 1);
-            h_list_offs[0] = 0;
-            for (int row = 0; row < num_rows; row++) {
-              h_list_offs[row + 1] = h_list_offs[row] + h_rep_info[row].count;
-            }
-            CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data(), h_list_offs.data(),
-              (num_rows + 1) * sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
+            thrust::exclusive_scan(rmm::exec_policy(stream),
+                                   d_rep_counts.begin(), d_rep_counts.end(),
+                                   list_offs.begin(), 0);
+            // Set last element
+            CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows, &total_rep_count,
+              sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
             
             std::unique_ptr<cudf::column> child_values;
             if (elem_type_id == cudf::type_id::INT32) {
@@ -4125,22 +4217,25 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
               child_values = std::make_unique<cudf::column>(
                 cudf::data_type{cudf::type_id::INT64}, total_rep_count, values.release(), rmm::device_buffer{}, 0);
             } else if (elem_type_id == cudf::type_id::STRING) {
-              std::vector<repeated_occurrence> h_rep_occs(total_rep_count);
-              CUDF_CUDA_TRY(cudaMemcpyAsync(h_rep_occs.data(), d_rep_occs.data(),
-                total_rep_count * sizeof(repeated_occurrence), cudaMemcpyDeviceToHost, stream.value()));
-              stream.synchronize();
+              // Compute string offsets on GPU using thrust (performance fix!)
+              // Extract lengths from occurrences on device
+              rmm::device_uvector<int32_t> d_str_lengths(total_rep_count, stream, mr);
+              thrust::transform(rmm::exec_policy(stream),
+                                d_rep_occs.begin(), d_rep_occs.end(),
+                                d_str_lengths.begin(),
+                                [] __device__(repeated_occurrence const& occ) { return occ.length; });
               
-              int32_t total_chars = 0;
-              std::vector<int32_t> h_str_offs(total_rep_count + 1);
-              h_str_offs[0] = 0;
-              for (int i = 0; i < total_rep_count; i++) {
-                h_str_offs[i + 1] = h_str_offs[i] + h_rep_occs[i].length;
-                total_chars += h_rep_occs[i].length;
-              }
+              // Compute total chars and offsets
+              int32_t total_chars = thrust::reduce(rmm::exec_policy(stream),
+                                                   d_str_lengths.begin(), d_str_lengths.end(), 0);
               
               rmm::device_uvector<int32_t> str_offs(total_rep_count + 1, stream, mr);
-              CUDF_CUDA_TRY(cudaMemcpyAsync(str_offs.data(), h_str_offs.data(),
-                (total_rep_count + 1) * sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
+              thrust::exclusive_scan(rmm::exec_policy(stream),
+                                     d_str_lengths.begin(), d_str_lengths.end(),
+                                     str_offs.begin(), 0);
+              // Set last element
+              CUDF_CUDA_TRY(cudaMemcpyAsync(str_offs.data() + total_rep_count, &total_chars,
+                sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
               
               rmm::device_uvector<char> chars(total_chars, stream, mr);
               if (total_chars > 0) {
@@ -4322,36 +4417,15 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
             }
             int num_gc = static_cast<int>(gc_indices.size());
 
-            // Get child struct locations for grandchild scanning
+            // Get child struct locations for grandchild scanning using GPU kernel
             // IMPORTANT: Need to compute ABSOLUTE offsets (relative to row start)
             // d_child_locations contains offsets relative to parent message (Middle)
             // We need: child_offset_in_row = parent_offset_in_row + child_offset_in_parent
-            std::vector<field_location> h_parent_locs(num_rows);
-            std::vector<field_location> h_child_locs_rel(num_rows);
-            CUDF_CUDA_TRY(cudaMemcpyAsync(h_parent_locs.data(), d_parent_locs.data(),
-              num_rows * sizeof(field_location), cudaMemcpyDeviceToHost, stream.value()));
-            for (int row = 0; row < num_rows; row++) {
-              CUDF_CUDA_TRY(cudaMemcpyAsync(&h_child_locs_rel[row],
-                d_child_locations.data() + row * num_child_fields + ci,
-                sizeof(field_location), cudaMemcpyDeviceToHost, stream.value()));
-            }
-            stream.synchronize();
-            
-            // Compute absolute offsets
-            std::vector<field_location> h_gc_parent_abs(num_rows);
-            for (int row = 0; row < num_rows; row++) {
-              if (h_parent_locs[row].offset >= 0 && h_child_locs_rel[row].offset >= 0) {
-                // Absolute offset = parent offset + child's relative offset
-                h_gc_parent_abs[row].offset = h_parent_locs[row].offset + h_child_locs_rel[row].offset;
-                h_gc_parent_abs[row].length = h_child_locs_rel[row].length;
-              } else {
-                h_gc_parent_abs[row] = {-1, 0};
-              }
-            }
-            
+            // This is computed entirely on GPU to avoid D->H->D copy pattern (performance fix!)
             rmm::device_uvector<field_location> d_gc_parent(num_rows, stream, mr);
-            CUDF_CUDA_TRY(cudaMemcpyAsync(d_gc_parent.data(), h_gc_parent_abs.data(),
-              num_rows * sizeof(field_location), cudaMemcpyHostToDevice, stream.value()));
+            compute_grandchild_parent_locations_kernel<<<blocks, threads, 0, stream.value()>>>(
+              d_parent_locs.data(), d_child_locations.data(), ci, num_child_fields,
+              d_gc_parent.data(), num_rows);
 
             // Build grandchild field descriptors
             std::vector<field_descriptor> h_gc_descs(num_gc);
