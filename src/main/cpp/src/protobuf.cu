@@ -32,12 +32,20 @@
 
 #include <cuda/std/cstdint>
 #include <cuda/std/utility>
+#include <thrust/binary_search.h>
+#include <thrust/fill.h>
+#include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
+#include <thrust/reduce.h>
 #include <thrust/scan.h>
+#include <thrust/transform.h>
+#include <thrust/transform_reduce.h>
 
-#include <map>
-#include <iostream>
+#include <algorithm>
 #include <cstdlib>
+#include <functional>
+#include <iostream>
+#include <map>
 #include <type_traits>
 
 namespace {
@@ -99,6 +107,61 @@ struct device_nested_field_descriptor {
   bool is_repeated;
   bool is_required;
   bool has_default_value;
+};
+
+// ============================================================================
+// Single-pass decoder data structures
+// ============================================================================
+
+/// Maximum nesting depth for single-pass decoder
+constexpr int SP_MAX_DEPTH = 10;
+
+/// Maximum number of counted columns (repeated fields at all depths)
+constexpr int SP_MAX_COUNTED = 128;
+
+/// Maximum number of output columns
+constexpr int SP_MAX_OUTPUT_COLS = 512;
+
+/// Message type descriptor: groups fields belonging to the same protobuf message
+struct sp_msg_type {
+  int first_field_idx;          // Start index in the global sp_field_entry array
+  int num_fields;               // Number of direct child fields
+  int lookup_offset;            // Offset into d_field_lookup table (-1 if not using lookup)
+  int max_field_number;         // Max field number + 1 (size of lookup region)
+};
+
+/// Field entry for single-pass decoder (device-side, sorted by field_number per msg type)
+struct sp_field_entry {
+  int field_number;             // Protobuf field number
+  int wire_type;                // Expected wire type
+  int output_type_id;           // cudf type_id cast to int (-1 for struct containers)
+  int encoding;                 // ENC_DEFAULT / ENC_FIXED / ENC_ZIGZAG
+  int child_msg_type;           // For nested messages: index into sp_msg_type (-1 otherwise)
+  int col_idx;                  // Index into output column descriptors (-1 for containers)
+  int count_idx;                // For repeated fields: index into per-row count array (-1 if not)
+  bool is_repeated;             // Whether this field is repeated
+  bool has_default;             // Whether this field has a default value
+  int64_t default_int;          // Default value for int/long/bool
+  double default_float;         // Default value for float/double
+};
+
+/// Stack entry for nested message parsing within a kernel thread
+struct sp_stack_entry {
+  int parent_end_offset;        // End offset of parent message (relative to row start)
+  int msg_type_idx;             // Saved message type index
+  int write_base;               // Saved write base for non-repeated children
+};
+
+/// Output column descriptor (device-side, used during Pass 2)
+struct sp_col_desc {
+  void* data;                   // Typed data buffer (or string_index_pair* for strings)
+  bool* validity;               // Validity buffer (one bool per element)
+};
+
+/// Pair for zero-copy string references (device-side)
+struct sp_string_pair {
+  char const* ptr;              // Pointer into message data (null if not found)
+  int32_t length;               // String length in bytes (0 if not found)
 };
 
 // ============================================================================
@@ -3590,6 +3653,1298 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   return cudf::make_lists_column(num_rows, std::move(offsets_col), std::move(struct_col), 0, rmm::device_buffer{}, stream, mr);
 }
 
+// ============================================================================
+// Single-Pass Decoder Implementation
+// ============================================================================
+
+/**
+ * O(1) field lookup using direct-mapped table.
+ * d_field_lookup[msg_type.lookup_offset + field_number] = field_entry index, or -1.
+ */
+__device__ inline int sp_lookup_field(
+  sp_msg_type const* msg_types,
+  sp_field_entry const* /*field_entries*/,
+  int const* d_field_lookup,
+  int msg_type_idx,
+  int field_number)
+{
+  auto const& mt = msg_types[msg_type_idx];
+  if (field_number < 0 || field_number >= mt.max_field_number) return -1;
+  return d_field_lookup[mt.lookup_offset + field_number];
+}
+
+/**
+ * Write an extracted scalar value to the output column.
+ * cur is advanced past the consumed bytes.
+ */
+__device__ inline void sp_write_scalar(
+  uint8_t const*& cur,
+  uint8_t const* end,
+  sp_field_entry const& fe,
+  sp_col_desc* col_descs,
+  int write_pos)
+{
+  if (fe.col_idx < 0) return;
+  auto& cd = col_descs[fe.col_idx];
+
+  if (fe.wire_type == WT_VARINT) {
+    uint64_t val; int vb;
+    if (!read_varint(cur, end, val, vb)) return;
+    cur += vb;
+    if (fe.encoding == spark_rapids_jni::ENC_ZIGZAG) {
+      val = (val >> 1) ^ (-(val & 1));
+    }
+    int tid = fe.output_type_id;
+    if (tid == static_cast<int>(cudf::type_id::BOOL8))
+      reinterpret_cast<uint8_t*>(cd.data)[write_pos] = val ? 1 : 0;
+    else if (tid == static_cast<int>(cudf::type_id::INT32))
+      reinterpret_cast<int32_t*>(cd.data)[write_pos] = static_cast<int32_t>(val);
+    else if (tid == static_cast<int>(cudf::type_id::UINT32))
+      reinterpret_cast<uint32_t*>(cd.data)[write_pos] = static_cast<uint32_t>(val);
+    else if (tid == static_cast<int>(cudf::type_id::INT64))
+      reinterpret_cast<int64_t*>(cd.data)[write_pos] = static_cast<int64_t>(val);
+    else if (tid == static_cast<int>(cudf::type_id::UINT64))
+      reinterpret_cast<uint64_t*>(cd.data)[write_pos] = val;
+    cd.validity[write_pos] = true;
+
+  } else if (fe.wire_type == WT_32BIT) {
+    if (end - cur < 4) return;
+    uint32_t raw = load_le<uint32_t>(cur);
+    cur += 4;
+    int tid = fe.output_type_id;
+    if (tid == static_cast<int>(cudf::type_id::FLOAT32)) {
+      float f; memcpy(&f, &raw, 4);
+      reinterpret_cast<float*>(cd.data)[write_pos] = f;
+    } else {
+      reinterpret_cast<int32_t*>(cd.data)[write_pos] = static_cast<int32_t>(raw);
+    }
+    cd.validity[write_pos] = true;
+
+  } else if (fe.wire_type == WT_64BIT) {
+    if (end - cur < 8) return;
+    uint64_t raw = load_le<uint64_t>(cur);
+    cur += 8;
+    int tid = fe.output_type_id;
+    if (tid == static_cast<int>(cudf::type_id::FLOAT64)) {
+      double d; memcpy(&d, &raw, 8);
+      reinterpret_cast<double*>(cd.data)[write_pos] = d;
+    } else {
+      reinterpret_cast<int64_t*>(cd.data)[write_pos] = static_cast<int64_t>(raw);
+    }
+    cd.validity[write_pos] = true;
+
+  } else if (fe.wire_type == WT_LEN) {
+    // String / bytes
+    uint64_t len; int lb;
+    if (!read_varint(cur, end, len, lb)) return;
+    auto* pairs = reinterpret_cast<sp_string_pair*>(cd.data);
+    pairs[write_pos].ptr = reinterpret_cast<char const*>(cur + lb);
+    pairs[write_pos].length = static_cast<int32_t>(len);
+    cd.validity[write_pos] = true;
+    cur += lb + static_cast<int>(len);
+  }
+}
+
+/**
+ * Count the number of packed elements in a length-delimited blob for a given element wire type.
+ */
+__device__ inline int sp_count_packed(
+  uint8_t const* data, int data_len, int elem_wire_type)
+{
+  if (elem_wire_type == WT_VARINT) {
+    int count = 0;
+    uint8_t const* p = data;
+    uint8_t const* pe = data + data_len;
+    while (p < pe) {
+      while (p < pe && (*p & 0x80u)) p++;
+      if (p < pe) { p++; count++; }
+    }
+    return count;
+  } else if (elem_wire_type == WT_32BIT) {
+    return data_len / 4;
+  } else if (elem_wire_type == WT_64BIT) {
+    return data_len / 8;
+  }
+  return 0;
+}
+
+// ============================================================================
+// Pass 1: Unified Count Kernel
+// Walks each message once, counting all repeated fields at all depths.
+// ============================================================================
+
+__global__ void sp_unified_count_kernel(
+  cudf::column_device_view const d_in,
+  sp_msg_type const* msg_types,
+  sp_field_entry const* fields,
+  int const* d_field_lookup,
+  int32_t* d_counts,            // [num_rows * num_count_cols]
+  int num_count_cols,
+  int* error_flag)
+{
+  auto row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (row >= d_in.size()) return;
+
+  auto const in = cudf::detail::lists_column_device_view(d_in);
+  auto const& child = in.child();
+  auto const base = in.offsets().element<cudf::size_type>(in.offset());
+  auto const start = in.offset_at(row) - base;
+  auto const stop  = in.offset_at(row + 1) - base;
+  auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
+
+  // Local counters for each counted column (repeated fields)
+  int32_t local_counts[SP_MAX_COUNTED];
+  for (int i = 0; i < num_count_cols && i < SP_MAX_COUNTED; i++) local_counts[i] = 0;
+
+  // Stack for nested message parsing
+  sp_stack_entry stack[SP_MAX_DEPTH];
+  int depth = 0;
+  int msg_type = 0;  // Root message type
+
+  uint8_t const* cur = bytes + start;
+  uint8_t const* end_ptr = bytes + stop;
+
+  while (cur < end_ptr || depth > 0) {
+    if (cur >= end_ptr) {
+      if (depth <= 0) break;
+      depth--;
+      cur = end_ptr;
+      end_ptr = bytes + start + stack[depth].parent_end_offset;
+      msg_type = stack[depth].msg_type_idx;
+      continue;
+    }
+
+    // Read tag
+    uint64_t key; int kb;
+    if (!read_varint(cur, end_ptr, key, kb)) { atomicExch(error_flag, 1); break; }
+    cur += kb;
+    int fn = static_cast<int>(key >> 3);
+    int wt = static_cast<int>(key & 0x7);
+
+    int fi = sp_lookup_field(msg_types, fields, d_field_lookup, msg_type, fn);
+
+    if (fi < 0) {
+      // Unknown field - skip
+      uint8_t const* next;
+      if (!skip_field(cur, end_ptr, wt, next)) { atomicExch(error_flag, 1); break; }
+      cur = next;
+      continue;
+    }
+
+    auto const& fe = fields[fi];
+
+    // Check for packed encoding (repeated + WT_LEN but element is not LEN)
+    if (fe.is_repeated && wt == WT_LEN && fe.wire_type != WT_LEN && fe.count_idx >= 0) {
+      uint64_t len; int lb;
+      if (!read_varint(cur, end_ptr, len, lb)) { atomicExch(error_flag, 1); break; }
+      int packed_len = static_cast<int>(len);
+      local_counts[fe.count_idx] += sp_count_packed(cur + lb, packed_len, fe.wire_type);
+      cur += lb + packed_len;
+      continue;
+    }
+
+    // Wire type mismatch - skip
+    if (wt != fe.wire_type) {
+      uint8_t const* next;
+      if (!skip_field(cur, end_ptr, wt, next)) { atomicExch(error_flag, 1); break; }
+      cur = next;
+      continue;
+    }
+
+    // Nested message field
+    if (fe.child_msg_type >= 0 && wt == WT_LEN) {
+      uint64_t len; int lb;
+      if (!read_varint(cur, end_ptr, len, lb)) { atomicExch(error_flag, 1); break; }
+      cur += lb;
+      int sub_end = static_cast<int>((cur + static_cast<int>(len)) - (bytes + start));
+
+      if (fe.is_repeated && fe.count_idx >= 0) {
+        local_counts[fe.count_idx]++;
+      }
+
+      if (depth < SP_MAX_DEPTH) {
+        stack[depth] = {static_cast<int>(end_ptr - (bytes + start)), msg_type, 0};
+        depth++;
+        end_ptr = bytes + start + sub_end;
+        msg_type = fe.child_msg_type;
+      } else {
+        // Max depth exceeded - skip sub-message
+        cur += static_cast<int>(len);
+      }
+      continue;
+    }
+
+    // Repeated non-message field
+    if (fe.is_repeated && fe.count_idx >= 0) {
+      local_counts[fe.count_idx]++;
+    }
+
+    // Skip field value
+    uint8_t const* next;
+    if (!skip_field(cur, end_ptr, wt, next)) { atomicExch(error_flag, 1); break; }
+    cur = next;
+  }
+
+  // Write counts to global memory
+  for (int i = 0; i < num_count_cols && i < SP_MAX_COUNTED; i++) {
+    d_counts[static_cast<size_t>(row) * num_count_cols + i] = local_counts[i];
+  }
+}
+
+// ============================================================================
+// Pass 2: Unified Extract Kernel
+// Walks each message once, extracting all field values at all depths.
+// ============================================================================
+
+__global__ void sp_unified_extract_kernel(
+  cudf::column_device_view const d_in,
+  sp_msg_type const* msg_types,
+  sp_field_entry const* fields,
+  int const* d_field_lookup,
+  sp_col_desc* col_descs,
+  int32_t const* d_row_offsets,   // [num_rows * num_count_cols] - per-row write offsets
+  int32_t* const* d_parent_bufs,  // [num_count_cols] - parent index buffers (null if not inner)
+  int num_count_cols,
+  int* error_flag)
+{
+  auto row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (row >= d_in.size()) return;
+
+  auto const in = cudf::detail::lists_column_device_view(d_in);
+  auto const& child = in.child();
+  auto const base = in.offsets().element<cudf::size_type>(in.offset());
+  auto const start = in.offset_at(row) - base;
+  auto const stop  = in.offset_at(row + 1) - base;
+  auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
+
+  // Local write counters (initialized from row offsets)
+  int32_t local_counter[SP_MAX_COUNTED];
+  for (int i = 0; i < num_count_cols && i < SP_MAX_COUNTED; i++) {
+    local_counter[i] = d_row_offsets[static_cast<size_t>(row) * num_count_cols + i];
+  }
+
+  sp_stack_entry stack[SP_MAX_DEPTH];
+  int depth = 0;
+  int msg_type = 0;
+  int write_base = row;   // Write position for non-repeated children
+
+  uint8_t const* cur = bytes + start;
+  uint8_t const* end_ptr = bytes + stop;
+
+  while (cur < end_ptr || depth > 0) {
+    if (cur >= end_ptr) {
+      if (depth <= 0) break;
+      depth--;
+      cur = end_ptr;
+      end_ptr = bytes + start + stack[depth].parent_end_offset;
+      msg_type = stack[depth].msg_type_idx;
+      write_base = stack[depth].write_base;
+      continue;
+    }
+
+    // Read tag
+    uint64_t key; int kb;
+    if (!read_varint(cur, end_ptr, key, kb)) { atomicExch(error_flag, 1); break; }
+    cur += kb;
+    int fn = static_cast<int>(key >> 3);
+    int wt = static_cast<int>(key & 0x7);
+
+    int fi = sp_lookup_field(msg_types, fields, d_field_lookup, msg_type, fn);
+
+    if (fi < 0) {
+      uint8_t const* next;
+      if (!skip_field(cur, end_ptr, wt, next)) { atomicExch(error_flag, 1); break; }
+      cur = next;
+      continue;
+    }
+
+    auto const& fe = fields[fi];
+
+    // Packed encoding for repeated scalars
+    if (fe.is_repeated && wt == WT_LEN && fe.wire_type != WT_LEN && fe.count_idx >= 0) {
+      uint64_t len; int lb;
+      if (!read_varint(cur, end_ptr, len, lb)) { atomicExch(error_flag, 1); break; }
+      uint8_t const* pstart = cur + lb;
+      uint8_t const* pend = pstart + static_cast<int>(len);
+      uint8_t const* p = pstart;
+
+      while (p < pend) {
+        int pos = local_counter[fe.count_idx]++;
+        if (d_parent_bufs && d_parent_bufs[fe.count_idx]) {
+          d_parent_bufs[fe.count_idx][pos] = write_base;
+        }
+        if (fe.col_idx >= 0) {
+          auto& cd = col_descs[fe.col_idx];
+          if (fe.wire_type == WT_VARINT) {
+            uint64_t val; int vb;
+            if (!read_varint(p, pend, val, vb)) break;
+            p += vb;
+            if (fe.encoding == spark_rapids_jni::ENC_ZIGZAG) val = (val >> 1) ^ (-(val & 1));
+            int tid = fe.output_type_id;
+            if (tid == static_cast<int>(cudf::type_id::BOOL8))
+              reinterpret_cast<uint8_t*>(cd.data)[pos] = val ? 1 : 0;
+            else if (tid == static_cast<int>(cudf::type_id::INT32))
+              reinterpret_cast<int32_t*>(cd.data)[pos] = static_cast<int32_t>(val);
+            else if (tid == static_cast<int>(cudf::type_id::UINT32))
+              reinterpret_cast<uint32_t*>(cd.data)[pos] = static_cast<uint32_t>(val);
+            else if (tid == static_cast<int>(cudf::type_id::INT64))
+              reinterpret_cast<int64_t*>(cd.data)[pos] = static_cast<int64_t>(val);
+            else if (tid == static_cast<int>(cudf::type_id::UINT64))
+              reinterpret_cast<uint64_t*>(cd.data)[pos] = val;
+            cd.validity[pos] = true;
+          } else if (fe.wire_type == WT_32BIT) {
+            if (pend - p < 4) break;
+            uint32_t raw = load_le<uint32_t>(p); p += 4;
+            if (fe.output_type_id == static_cast<int>(cudf::type_id::FLOAT32)) {
+              float f; memcpy(&f, &raw, 4);
+              reinterpret_cast<float*>(cd.data)[pos] = f;
+            } else {
+              reinterpret_cast<int32_t*>(cd.data)[pos] = static_cast<int32_t>(raw);
+            }
+            cd.validity[pos] = true;
+          } else if (fe.wire_type == WT_64BIT) {
+            if (pend - p < 8) break;
+            uint64_t raw = load_le<uint64_t>(p); p += 8;
+            if (fe.output_type_id == static_cast<int>(cudf::type_id::FLOAT64)) {
+              double d; memcpy(&d, &raw, 8);
+              reinterpret_cast<double*>(cd.data)[pos] = d;
+            } else {
+              reinterpret_cast<int64_t*>(cd.data)[pos] = static_cast<int64_t>(raw);
+            }
+            cd.validity[pos] = true;
+          }
+        }
+      }
+      cur = pend;
+      continue;
+    }
+
+    // Wire type mismatch - skip
+    if (wt != fe.wire_type) {
+      uint8_t const* next;
+      if (!skip_field(cur, end_ptr, wt, next)) { atomicExch(error_flag, 1); break; }
+      cur = next;
+      continue;
+    }
+
+    // Nested message
+    if (fe.child_msg_type >= 0 && wt == WT_LEN) {
+      uint64_t len; int lb;
+      if (!read_varint(cur, end_ptr, len, lb)) { atomicExch(error_flag, 1); break; }
+      cur += lb;
+      int sub_end = static_cast<int>((cur + static_cast<int>(len)) - (bytes + start));
+
+      int new_write_base = write_base;
+      if (fe.is_repeated && fe.count_idx >= 0) {
+        int p_pos = local_counter[fe.count_idx]++;
+        if (d_parent_bufs && d_parent_bufs[fe.count_idx]) {
+          d_parent_bufs[fe.count_idx][p_pos] = write_base;
+        }
+        new_write_base = p_pos;
+      }
+      // Set struct validity if we have a col_idx
+      if (fe.col_idx >= 0) {
+        col_descs[fe.col_idx].validity[new_write_base] = true;
+      }
+
+      if (depth < SP_MAX_DEPTH) {
+        stack[depth] = {static_cast<int>(end_ptr - (bytes + start)), msg_type, write_base};
+        depth++;
+        end_ptr = bytes + start + sub_end;
+        msg_type = fe.child_msg_type;
+        write_base = new_write_base;
+      } else {
+        cur += static_cast<int>(len);
+      }
+      continue;
+    }
+
+    // Non-message field: extract value
+    if (fe.is_repeated && fe.count_idx >= 0) {
+      int pos = local_counter[fe.count_idx]++;
+      if (d_parent_bufs && d_parent_bufs[fe.count_idx]) {
+        d_parent_bufs[fe.count_idx][pos] = write_base;
+      }
+      sp_write_scalar(cur, end_ptr, fe, col_descs, pos);
+    } else {
+      // Non-repeated: write at write_base (last one wins on overwrite)
+      sp_write_scalar(cur, end_ptr, fe, col_descs, write_base);
+    }
+  }
+}
+
+// ============================================================================
+// Fused prefix sum + list offsets kernels (replaces per-column thrust loops)
+// ============================================================================
+
+/**
+ * Compute exclusive prefix sums for ALL count columns in a single kernel launch.
+ * One thread per count column - each thread serially scans its column.
+ * Also writes the per-column totals and builds list offsets (num_rows+1).
+ */
+__global__ void sp_compute_offsets_kernel(
+  int32_t const* d_counts,       // [num_rows × num_count_cols] row-major
+  int32_t* d_row_offsets,        // [num_rows × num_count_cols] row-major output
+  int32_t* d_totals,             // [num_count_cols] output
+  int32_t** d_list_offs_ptrs,    // [num_count_cols] pointers to list offset buffers (num_rows+1 each)
+  int num_rows,
+  int num_count_cols)
+{
+  int c = blockIdx.x * blockDim.x + threadIdx.x;
+  if (c >= num_count_cols) return;
+
+  int32_t* list_offs = d_list_offs_ptrs[c];
+  int32_t sum = 0;
+  for (int r = 0; r < num_rows; r++) {
+    auto idx = static_cast<size_t>(r) * num_count_cols + c;
+    int32_t val = d_counts[idx];
+    d_row_offsets[idx] = sum;
+    if (list_offs) list_offs[r] = sum;
+    sum += val;
+  }
+  d_totals[c] = sum;
+  if (list_offs) list_offs[num_rows] = sum;
+}
+
+// ============================================================================
+// Host-side helpers for single-pass decoder
+// ============================================================================
+
+/// Host-side column info for assembly
+struct sp_host_col_info {
+  int schema_idx;
+  int col_idx;             // col_idx in sp_col_desc (-1 for repeated struct containers)
+  int count_idx;           // For repeated fields (-1 otherwise)
+  int parent_count_idx;    // count_idx of nearest repeated ancestor (-1 for top-level)
+  cudf::type_id type_id;
+  bool is_repeated;
+  bool is_string;
+  int parent_schema_idx;   // -1 for top-level
+};
+
+/**
+ * Build single-pass schema from nested_field_descriptor arrays.
+ * Produces message type tables, field entries, and column info.
+ */
+void build_single_pass_schema(
+  std::vector<nested_field_descriptor> const& schema,
+  std::vector<cudf::data_type> const& schema_output_types,
+  std::vector<int64_t> const& default_ints,
+  std::vector<double> const& default_floats,
+  std::vector<bool> const& default_bools,
+  // Outputs:
+  std::vector<sp_msg_type>& msg_types,
+  std::vector<sp_field_entry>& field_entries,
+  std::vector<sp_host_col_info>& col_infos,
+  std::vector<int>& field_lookup_table,
+  int& num_count_cols,
+  int& num_output_cols)
+{
+  int num_fields = static_cast<int>(schema.size());
+
+  // Group children by parent_idx
+  std::map<int, std::vector<int>> parent_to_children;
+  for (int i = 0; i < num_fields; i++) {
+    parent_to_children[schema[i].parent_idx].push_back(i);
+  }
+
+  // Assign message type indices: root first, then each struct parent
+  std::map<int, int> parent_to_msg_type;
+  int msg_type_counter = 0;
+  parent_to_msg_type[-1] = msg_type_counter++;
+
+  for (int i = 0; i < num_fields; i++) {
+    auto type_id = schema_output_types[i].id();
+    if (type_id == cudf::type_id::STRUCT && parent_to_children.count(i) > 0) {
+      parent_to_msg_type[i] = msg_type_counter++;
+    }
+  }
+
+  // Assign col_idx and count_idx via DFS
+  int col_counter = 0;
+  int count_counter = 0;
+  std::map<int, int> schema_to_col_idx;
+  std::map<int, int> schema_to_count_idx;
+
+  std::function<void(int, int)> assign_indices = [&](int parent_idx, int parent_count_idx) {
+    auto it = parent_to_children.find(parent_idx);
+    if (it == parent_to_children.end()) return;
+
+    for (int si : it->second) {
+      auto type_id = schema_output_types[si].id();
+      bool is_repeated = schema[si].is_repeated;
+      bool is_struct = (type_id == cudf::type_id::STRUCT);
+      // STRING and LIST (bytes) are both length-delimited and stored as sp_string_pair
+      bool is_string = (type_id == cudf::type_id::STRING || type_id == cudf::type_id::LIST);
+
+      int my_count_idx = -1;
+      if (is_repeated) {
+        my_count_idx = count_counter++;
+        schema_to_count_idx[si] = my_count_idx;
+      }
+
+      int my_col_idx = -1;
+      // All non-repeated-struct fields get a col_idx for data writing.
+      // Non-repeated struct containers also get one for validity tracking.
+      if (is_struct && !is_repeated) {
+        my_col_idx = col_counter++;
+        schema_to_col_idx[si] = my_col_idx;
+      } else if (!is_struct) {
+        my_col_idx = col_counter++;
+        schema_to_col_idx[si] = my_col_idx;
+      }
+      // Repeated structs: no col_idx (list offsets from count, struct from children)
+
+      sp_host_col_info info{};
+      info.schema_idx = si;
+      info.col_idx = my_col_idx;
+      info.count_idx = my_count_idx;
+      info.parent_count_idx = parent_count_idx;
+      info.type_id = type_id;
+      info.is_repeated = is_repeated;
+      info.is_string = is_string;
+      info.parent_schema_idx = parent_idx;
+      col_infos.push_back(info);
+
+      if (is_struct) {
+        int child_parent_count = is_repeated ? my_count_idx : parent_count_idx;
+        assign_indices(si, child_parent_count);
+      }
+    }
+  };
+
+  assign_indices(-1, -1);
+  num_count_cols = count_counter;
+  num_output_cols = col_counter;
+
+  // Build sp_msg_type and sp_field_entry arrays
+  msg_types.resize(msg_type_counter);
+  for (auto& [pidx, mt_idx] : parent_to_msg_type) {
+    auto it = parent_to_children.find(pidx);
+    if (it == parent_to_children.end()) {
+      msg_types[mt_idx] = {static_cast<int>(field_entries.size()), 0, -1, 0};
+      continue;
+    }
+    auto children = it->second;
+    std::sort(children.begin(), children.end(), [&](int a, int b) {
+      return schema[a].field_number < schema[b].field_number;
+    });
+
+    int first_idx = static_cast<int>(field_entries.size());
+    for (int si : children) {
+      sp_field_entry e{};
+      e.field_number = schema[si].field_number;
+      e.wire_type = schema[si].wire_type;
+      e.output_type_id = static_cast<int>(schema_output_types[si].id());
+      e.encoding = schema[si].encoding;
+      e.is_repeated = schema[si].is_repeated;
+      e.has_default = schema[si].has_default_value;
+      e.default_int = e.has_default ? default_ints[si] : 0;
+      e.default_float = e.has_default ? default_floats[si] : 0.0;
+
+      auto type_id = schema_output_types[si].id();
+      if (type_id == cudf::type_id::STRUCT) {
+        auto mt_it = parent_to_msg_type.find(si);
+        e.child_msg_type = (mt_it != parent_to_msg_type.end()) ? mt_it->second : -1;
+      } else {
+        e.child_msg_type = -1;
+      }
+
+      auto col_it = schema_to_col_idx.find(si);
+      e.col_idx = (col_it != schema_to_col_idx.end()) ? col_it->second : -1;
+      auto cnt_it = schema_to_count_idx.find(si);
+      e.count_idx = (cnt_it != schema_to_count_idx.end()) ? cnt_it->second : -1;
+
+      field_entries.push_back(e);
+    }
+    msg_types[mt_idx] = {first_idx, static_cast<int>(children.size()), -1, 0};
+  }
+
+  // Build direct-mapped field lookup table for O(1) field lookup
+  // For each message type, allocate a region of [0..max_field_number) in the table.
+  // table[offset + field_number] = index into field_entries, or -1 if not found.
+  int lookup_offset = 0;
+  for (int mt = 0; mt < msg_type_counter; mt++) {
+    auto& mtype = msg_types[mt];
+    if (mtype.num_fields == 0) {
+      mtype.lookup_offset = lookup_offset;
+      mtype.max_field_number = 1;  // at least 1 to avoid zero-size
+      field_lookup_table.push_back(-1);
+      lookup_offset += 1;
+      continue;
+    }
+    // Find max field number in this message type
+    int max_fn = 0;
+    for (int f = mtype.first_field_idx; f < mtype.first_field_idx + mtype.num_fields; f++) {
+      max_fn = std::max(max_fn, field_entries[f].field_number);
+    }
+    int table_size = max_fn + 1;
+    mtype.lookup_offset = lookup_offset;
+    mtype.max_field_number = table_size;
+
+    // Fill with -1 (not found)
+    int base = static_cast<int>(field_lookup_table.size());
+    field_lookup_table.resize(base + table_size, -1);
+    // Set entries for known fields
+    for (int f = mtype.first_field_idx; f < mtype.first_field_idx + mtype.num_fields; f++) {
+      field_lookup_table[base + field_entries[f].field_number] = f;
+    }
+    lookup_offset += table_size;
+  }
+}
+
+/**
+ * Recursively build a cudf column for a field in the schema.
+ * Returns the assembled column.
+ */
+std::unique_ptr<cudf::column> sp_build_column_recursive(
+  std::vector<nested_field_descriptor> const& schema,
+  std::vector<cudf::data_type> const& schema_output_types,
+  std::vector<sp_host_col_info> const& col_infos,
+  std::map<int, sp_host_col_info const*> const& schema_idx_to_info,
+  // Buffers (bulk-allocated):
+  std::vector<uint8_t*>& col_data_ptrs,                        // col_idx -> data pointer in bulk buffer
+  std::vector<bool*>& col_validity_ptrs,                        // col_idx -> validity pointer in bulk buffer
+  std::vector<rmm::device_uvector<int32_t>>& list_offsets_bufs, // count_idx -> offsets (top-level)
+  std::vector<int32_t*>& inner_offs_ptrs,                       // count_idx -> inner offsets pointer (or null)
+  std::vector<int>& inner_buf_sizes,                            // count_idx -> inner offsets size (0 if not inner)
+  std::vector<int32_t>& col_sizes,                             // col_idx -> element count
+  std::vector<int32_t>& count_totals,                          // count_idx -> total count
+  std::vector<size_t>& col_elem_bytes,                         // col_idx -> element byte size
+  int schema_idx,
+  int num_fields,
+  int num_rows,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto it = schema_idx_to_info.find(schema_idx);
+  if (it == schema_idx_to_info.end()) {
+    return make_null_column(schema_output_types[schema_idx], num_rows, stream, mr);
+  }
+  auto const& info = *(it->second);
+  auto type_id = info.type_id;
+  bool is_repeated = info.is_repeated;
+  bool is_string = info.is_string;
+
+  // Determine element count for this column
+  int elem_count = num_rows;
+  if (info.parent_count_idx >= 0) {
+    elem_count = count_totals[info.parent_count_idx];
+  }
+
+  if (type_id == cudf::type_id::STRUCT) {
+    // Find children of this struct
+    std::vector<int> child_schema_indices;
+    for (int i = 0; i < num_fields; i++) {
+      if (schema[i].parent_idx == schema_idx) child_schema_indices.push_back(i);
+    }
+
+    if (is_repeated) {
+      // LIST<STRUCT>: build struct children, then wrap in list
+      int total = count_totals[info.count_idx];
+      std::vector<std::unique_ptr<cudf::column>> struct_children;
+      for (int child_si : child_schema_indices) {
+        struct_children.push_back(sp_build_column_recursive(
+          schema, schema_output_types, col_infos, schema_idx_to_info,
+          col_data_ptrs, col_validity_ptrs, list_offsets_bufs, inner_offs_ptrs, inner_buf_sizes,
+          col_sizes, count_totals, col_elem_bytes, child_si, num_fields, num_rows, stream, mr));
+      }
+      auto struct_col = cudf::make_structs_column(
+        total, std::move(struct_children), 0, rmm::device_buffer{}, stream, mr);
+
+      // List offsets: use inner offsets for nested repeated fields, top-level offsets otherwise
+      std::unique_ptr<cudf::column> offsets_col;
+      if (inner_offs_ptrs[info.count_idx] != nullptr) {
+        int sz = inner_buf_sizes[info.count_idx];
+        auto buf = rmm::device_buffer(sz * sizeof(int32_t), stream, mr);
+        CUDF_CUDA_TRY(cudaMemcpyAsync(buf.data(), inner_offs_ptrs[info.count_idx],
+          sz * sizeof(int32_t), cudaMemcpyDeviceToDevice, stream.value()));
+        offsets_col = std::make_unique<cudf::column>(
+          cudf::data_type{cudf::type_id::INT32}, sz, std::move(buf), rmm::device_buffer{}, 0);
+      } else {
+        auto& offs = list_offsets_bufs[info.count_idx];
+        auto const offs_size = static_cast<cudf::size_type>(offs.size());
+        offsets_col = std::make_unique<cudf::column>(
+          cudf::data_type{cudf::type_id::INT32}, offs_size, offs.release(), rmm::device_buffer{}, 0);
+      }
+
+      return cudf::make_lists_column(
+        elem_count, std::move(offsets_col), std::move(struct_col),
+        0, rmm::device_buffer{}, stream, mr);
+    } else {
+      // Non-repeated struct
+      std::vector<std::unique_ptr<cudf::column>> struct_children;
+      for (int child_si : child_schema_indices) {
+        struct_children.push_back(sp_build_column_recursive(
+          schema, schema_output_types, col_infos, schema_idx_to_info,
+          col_data_ptrs, col_validity_ptrs, list_offsets_bufs, inner_offs_ptrs, inner_buf_sizes,
+          col_sizes, count_totals, col_elem_bytes, child_si, num_fields, num_rows, stream, mr));
+      }
+      // Struct validity from col_idx
+      int ci = info.col_idx;
+      if (ci >= 0 && col_validity_ptrs[ci] != nullptr && col_sizes[ci] > 0) {
+        auto [mask, null_count] = cudf::detail::valid_if(
+          thrust::make_counting_iterator<cudf::size_type>(0),
+          thrust::make_counting_iterator<cudf::size_type>(elem_count),
+          [vld = col_validity_ptrs[ci]] __device__ (cudf::size_type i) { return vld[i]; },
+          stream, mr);
+        return cudf::make_structs_column(
+          elem_count, std::move(struct_children), null_count, std::move(mask), stream, mr);
+      }
+      return cudf::make_structs_column(
+        elem_count, std::move(struct_children), 0, rmm::device_buffer{}, stream, mr);
+    }
+  }
+
+  // Leaf field (scalar or string)
+  int ci = info.col_idx;
+  if (ci < 0) {
+    return make_null_column(schema_output_types[schema_idx], elem_count, stream, mr);
+  }
+
+  // Helper lambda: build a STRING column from sp_string_pair data
+  auto build_string_col = [&](int col_idx, int count, bool use_validity) -> std::unique_ptr<cudf::column> {
+    auto* pairs = reinterpret_cast<sp_string_pair*>(col_data_ptrs[col_idx]);
+    rmm::device_uvector<cudf::strings::detail::string_index_pair> str_pairs(count, stream, mr);
+    if (use_validity) {
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0), thrust::make_counting_iterator(count),
+        str_pairs.begin(),
+        [pairs, vld = col_validity_ptrs[col_idx]] __device__ (int i) -> cudf::strings::detail::string_index_pair {
+          if (vld[i]) return {pairs[i].ptr, pairs[i].length};
+          return {nullptr, 0};
+        });
+    } else {
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0), thrust::make_counting_iterator(count),
+        str_pairs.begin(),
+        [pairs] __device__ (int i) -> cudf::strings::detail::string_index_pair {
+          return {pairs[i].ptr, pairs[i].length};
+        });
+    }
+    return cudf::strings::detail::make_strings_column(
+      str_pairs.begin(), str_pairs.end(), stream, mr);
+  };
+
+  // Helper lambda: build a LIST<UINT8> (bytes/binary) column from sp_string_pair data
+  auto build_bytes_col = [&](int col_idx, int count) -> std::unique_ptr<cudf::column> {
+    auto* pairs = reinterpret_cast<sp_string_pair*>(col_data_ptrs[col_idx]);
+    auto* vld = col_validity_ptrs[col_idx];
+    // Compute lengths and prefix sum -> offsets (inclusive scan then shift)
+    rmm::device_uvector<int32_t> byte_offs(count + 1, stream, mr);
+    if (count > 0) {
+      // Compute lengths directly into offsets[1..count], then exclusive_scan
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0), thrust::make_counting_iterator(count),
+        byte_offs.begin(),  // write to [0..count-1]
+        [pairs, vld] __device__ (int i) -> int32_t { return vld[i] ? pairs[i].length : 0; });
+      thrust::exclusive_scan(rmm::exec_policy(stream),
+        byte_offs.begin(), byte_offs.begin() + count, byte_offs.begin(), 0);
+      // Total bytes via transform_reduce (avoids D->H sync for last_off + last_len)
+      int32_t total_bytes = thrust::transform_reduce(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0), thrust::make_counting_iterator(count),
+        [pairs, vld] __device__ (int i) -> int32_t {
+          return vld[i] ? pairs[i].length : 0;
+        }, 0, cuda::std::plus<int32_t>{});
+      CUDF_CUDA_TRY(cudaMemcpyAsync(byte_offs.data() + count, &total_bytes,
+        sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
+      // Copy binary data
+      rmm::device_uvector<uint8_t> child_data(total_bytes > 0 ? total_bytes : 0, stream, mr);
+      if (total_bytes > 0) {
+        thrust::for_each(rmm::exec_policy(stream),
+          thrust::make_counting_iterator(0), thrust::make_counting_iterator(count),
+          [pairs, offs = byte_offs.data(), out = child_data.data(), vld] __device__ (int i) {
+            if (vld[i] && pairs[i].ptr && pairs[i].length > 0) {
+              memcpy(out + offs[i], pairs[i].ptr, pairs[i].length);
+            }
+          });
+      }
+      auto off_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32}, count + 1, byte_offs.release(), rmm::device_buffer{}, 0);
+      auto ch_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::UINT8}, total_bytes, child_data.release(), rmm::device_buffer{}, 0);
+      auto [mask, null_count] = cudf::detail::valid_if(
+        thrust::make_counting_iterator<cudf::size_type>(0),
+        thrust::make_counting_iterator<cudf::size_type>(count),
+        [v = vld] __device__ (cudf::size_type i) { return v[i]; }, stream, mr);
+      return cudf::make_lists_column(count, std::move(off_col), std::move(ch_col), null_count, std::move(mask), stream, mr);
+    } else {
+      // Empty bytes column
+      thrust::fill(rmm::exec_policy(stream), byte_offs.begin(), byte_offs.end(), 0);
+      auto off_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32}, count + 1, byte_offs.release(), rmm::device_buffer{}, 0);
+      auto ch_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::UINT8}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
+      return cudf::make_lists_column(count, std::move(off_col), std::move(ch_col), 0, rmm::device_buffer{}, stream, mr);
+    }
+  };
+
+  bool is_bytes = (type_id == cudf::type_id::LIST);
+
+  if (is_repeated) {
+    // LIST<scalar/string/bytes>: build child column then wrap in list
+    int total = count_totals[info.count_idx];
+    std::unique_ptr<cudf::column> child_col;
+
+    if (is_bytes) {
+      // repeated bytes -> LIST<LIST<UINT8>>: build inner LIST<UINT8> then wrap in outer list
+      child_col = build_bytes_col(ci, total);
+    } else if (is_string) {
+      child_col = build_string_col(ci, total, false);
+    } else {
+      auto dt = schema_output_types[schema_idx];
+      auto [mask, null_count] = cudf::detail::valid_if(
+        thrust::make_counting_iterator<cudf::size_type>(0),
+        thrust::make_counting_iterator<cudf::size_type>(total),
+        [v = col_validity_ptrs[ci]] __device__ (cudf::size_type i) { return v[i]; }, stream, mr);
+      // Copy data from bulk buffer into a new device_buffer for cudf::column ownership
+      auto data_buf = rmm::device_buffer(total * col_elem_bytes[ci], stream, mr);
+      CUDF_CUDA_TRY(cudaMemcpyAsync(data_buf.data(), col_data_ptrs[ci],
+        total * col_elem_bytes[ci], cudaMemcpyDeviceToDevice, stream.value()));
+      child_col = std::make_unique<cudf::column>(
+        dt, total, std::move(data_buf), std::move(mask), null_count);
+    }
+
+    // Use inner offsets if available, else use top-level list offsets
+    std::unique_ptr<cudf::column> offsets_col;
+    if (inner_offs_ptrs[info.count_idx] != nullptr) {
+      int sz = inner_buf_sizes[info.count_idx];
+      auto buf = rmm::device_buffer(sz * sizeof(int32_t), stream, mr);
+      CUDF_CUDA_TRY(cudaMemcpyAsync(buf.data(), inner_offs_ptrs[info.count_idx],
+        sz * sizeof(int32_t), cudaMemcpyDeviceToDevice, stream.value()));
+      offsets_col = std::make_unique<cudf::column>(
+        cudf::data_type{cudf::type_id::INT32}, sz, std::move(buf), rmm::device_buffer{}, 0);
+    } else {
+      auto& offs = list_offsets_bufs[info.count_idx];
+      auto const offs_size = static_cast<cudf::size_type>(offs.size());
+      offsets_col = std::make_unique<cudf::column>(
+        cudf::data_type{cudf::type_id::INT32}, offs_size, offs.release(), rmm::device_buffer{}, 0);
+    }
+
+    return cudf::make_lists_column(
+      elem_count, std::move(offsets_col), std::move(child_col),
+      0, rmm::device_buffer{}, stream, mr);
+  }
+
+  // Non-repeated leaf
+  if (is_bytes) {
+    return build_bytes_col(ci, elem_count);
+  }
+  if (is_string) {
+    return build_string_col(ci, elem_count, true);
+  }
+
+  // Non-repeated non-string scalar
+  auto dt = schema_output_types[schema_idx];
+  auto [mask, null_count] = cudf::detail::valid_if(
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(elem_count),
+    [v = col_validity_ptrs[ci]] __device__ (cudf::size_type i) { return v[i]; }, stream, mr);
+  // Copy data from bulk buffer into a new device_buffer for cudf::column ownership
+  auto data_buf = rmm::device_buffer(elem_count * col_elem_bytes[ci], stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(data_buf.data(), col_data_ptrs[ci],
+    elem_count * col_elem_bytes[ci], cudaMemcpyDeviceToDevice, stream.value()));
+  return std::make_unique<cudf::column>(
+    dt, elem_count, std::move(data_buf), std::move(mask), null_count);
+}
+
+/**
+ * Main single-pass decoder orchestration.
+ */
+std::unique_ptr<cudf::column> decode_nested_protobuf_single_pass(
+  cudf::column_view const& binary_input,
+  std::vector<nested_field_descriptor> const& schema,
+  std::vector<cudf::data_type> const& schema_output_types,
+  std::vector<int64_t> const& default_ints,
+  std::vector<double> const& default_floats,
+  std::vector<bool> const& default_bools,
+  std::vector<std::vector<uint8_t>> const& default_strings,
+  bool fail_on_errors)
+{
+  auto const stream = cudf::get_default_stream();
+  auto mr = cudf::get_current_device_resource_ref();
+  auto num_rows = binary_input.size();
+  auto num_fields = static_cast<int>(schema.size());
+
+  // Timing instrumentation (enabled by PROTOBUF_SP_TIMING=1)
+  static bool sp_timing_enabled = (std::getenv("PROTOBUF_SP_TIMING") != nullptr &&
+                                    std::string(std::getenv("PROTOBUF_SP_TIMING")) == "1");
+  static int sp_call_count = 0;
+  static double sp_phase_totals[8] = {};  // accumulate across calls
+  cudaEvent_t t_start, t1, t2, t3, t4, t5, t6, t7;
+  if (sp_timing_enabled) {
+    cudaEventCreate(&t_start); cudaEventCreate(&t1); cudaEventCreate(&t2);
+    cudaEventCreate(&t3); cudaEventCreate(&t4); cudaEventCreate(&t5);
+    cudaEventCreate(&t6); cudaEventCreate(&t7);
+    cudaEventRecord(t_start, stream.value());
+  }
+
+  // === Phase 1: Schema Preprocessing ===
+  std::vector<sp_msg_type> h_msg_types;
+  std::vector<sp_field_entry> h_field_entries;
+  std::vector<sp_host_col_info> col_infos;
+  std::vector<int> h_field_lookup;
+  int num_count_cols = 0;
+  int num_output_cols = 0;
+
+  build_single_pass_schema(schema, schema_output_types,
+    default_ints, default_floats, default_bools,
+    h_msg_types, h_field_entries, col_infos, h_field_lookup,
+    num_count_cols, num_output_cols);
+
+  // Check limits
+  if (num_count_cols > SP_MAX_COUNTED || num_output_cols > SP_MAX_OUTPUT_COLS) {
+    return nullptr;  // Signal caller to fall back to old decoder
+  }
+
+  // Copy schema to device
+  rmm::device_uvector<sp_msg_type> d_msg_types(h_msg_types.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_msg_types.data(), h_msg_types.data(),
+    h_msg_types.size() * sizeof(sp_msg_type), cudaMemcpyHostToDevice, stream.value()));
+
+  rmm::device_uvector<sp_field_entry> d_field_entries(h_field_entries.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_field_entries.data(), h_field_entries.data(),
+    h_field_entries.size() * sizeof(sp_field_entry), cudaMemcpyHostToDevice, stream.value()));
+
+  // Copy O(1) field lookup table to device
+  rmm::device_uvector<int> d_field_lookup(h_field_lookup.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_field_lookup.data(), h_field_lookup.data(),
+    h_field_lookup.size() * sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+
+  auto d_in = cudf::column_device_view::create(binary_input, stream);
+
+  rmm::device_uvector<int> d_error(1, stream, mr);
+  CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
+
+  int const threads = 256;
+  int const blocks = (num_rows + threads - 1) / threads;
+
+  if (sp_timing_enabled) cudaEventRecord(t1, stream.value());  // end schema prep + alloc
+
+  // === Phase 2: Pass 1 - Count ===
+  rmm::device_uvector<int32_t> d_counts(
+    num_count_cols > 0 ? static_cast<size_t>(num_rows) * num_count_cols : 1, stream, mr);
+  if (num_count_cols > 0) {
+    CUDF_CUDA_TRY(cudaMemsetAsync(d_counts.data(), 0,
+      static_cast<size_t>(num_rows) * num_count_cols * sizeof(int32_t), stream.value()));
+  }
+
+  sp_unified_count_kernel<<<blocks, threads, 0, stream.value()>>>(
+    *d_in, d_msg_types.data(), d_field_entries.data(), d_field_lookup.data(),
+    d_counts.data(), num_count_cols, d_error.data());
+
+  if (sp_timing_enabled) cudaEventRecord(t2, stream.value());  // end count kernel
+
+  // === Phase 3: Compute Offsets and Allocate Buffers ===
+  // Fused: compute all prefix sums + list offsets in a SINGLE kernel launch.
+  // Replaces ~50 syncs + ~200 kernel launches with 1 kernel + 1 sync.
+  rmm::device_uvector<int32_t> d_row_offsets(
+    num_count_cols > 0 ? static_cast<size_t>(num_rows) * num_count_cols : 1, stream, mr);
+
+  std::vector<int32_t> count_totals(num_count_cols, 0);
+  std::vector<rmm::device_uvector<int32_t>> list_offsets_bufs;
+  list_offsets_bufs.reserve(num_count_cols);
+
+  // Pre-allocate all list offset buffers and collect device pointers
+  std::vector<int32_t*> h_list_offs_ptrs(num_count_cols, nullptr);
+  for (int c = 0; c < num_count_cols; c++) {
+    list_offsets_bufs.emplace_back(num_rows + 1, stream, mr);
+    h_list_offs_ptrs[c] = list_offsets_bufs.back().data();
+  }
+
+  if (num_count_cols > 0) {
+    // Copy list offset pointers to device
+    rmm::device_uvector<int32_t*> d_list_offs_ptrs(num_count_cols, stream, mr);
+    CUDF_CUDA_TRY(cudaMemcpyAsync(d_list_offs_ptrs.data(), h_list_offs_ptrs.data(),
+      num_count_cols * sizeof(int32_t*), cudaMemcpyHostToDevice, stream.value()));
+
+    // Device buffer for totals
+    rmm::device_uvector<int32_t> d_totals(num_count_cols, stream, mr);
+
+    // Single fused kernel: prefix sums + totals + list offsets for all columns
+    int const off_threads = std::min(num_count_cols, 256);
+    int const off_blocks = (num_count_cols + off_threads - 1) / off_threads;
+    sp_compute_offsets_kernel<<<off_blocks, off_threads, 0, stream.value()>>>(
+      d_counts.data(), d_row_offsets.data(), d_totals.data(),
+      d_list_offs_ptrs.data(), num_rows, num_count_cols);
+
+    // Single D->H copy for all totals + single sync
+    CUDF_CUDA_TRY(cudaMemcpyAsync(count_totals.data(), d_totals.data(),
+      num_count_cols * sizeof(int32_t), cudaMemcpyDeviceToHost, stream.value()));
+    stream.synchronize();
+  }
+
+  // Build schema_idx -> col_info lookup
+  std::map<int, sp_host_col_info const*> schema_idx_to_info;
+  for (auto const& ci : col_infos) {
+    schema_idx_to_info[ci.schema_idx] = &ci;
+  }
+
+  // Determine buffer sizes for each col_idx
+  std::vector<int32_t> col_sizes(num_output_cols, 0);
+  for (auto const& ci : col_infos) {
+    if (ci.col_idx < 0) continue;
+    if (ci.is_repeated && ci.count_idx >= 0) {
+      col_sizes[ci.col_idx] = count_totals[ci.count_idx];
+    } else if (ci.parent_count_idx >= 0) {
+      col_sizes[ci.col_idx] = count_totals[ci.parent_count_idx];
+    } else {
+      col_sizes[ci.col_idx] = num_rows;
+    }
+  }
+
+  // Build col_idx -> col_info lookup (avoids O(N^2) inner loop)
+  std::vector<sp_host_col_info const*> col_idx_to_info(num_output_cols, nullptr);
+  for (auto const& c : col_infos) {
+    if (c.col_idx >= 0) col_idx_to_info[c.col_idx] = &c;
+  }
+
+  // Compute per-column element sizes and total buffer sizes for BULK allocation.
+  // Replaces ~992 individual RMM allocations + ~992 memsets with 2 allocs + 2 memsets.
+  std::vector<size_t> col_elem_bytes(num_output_cols, 0);
+  std::vector<size_t> col_data_offsets(num_output_cols, 0);
+  std::vector<size_t> col_validity_offsets(num_output_cols, 0);
+  size_t total_data_bytes = 0;
+  size_t total_validity_elems = 0;
+
+  for (int ci_idx = 0; ci_idx < num_output_cols; ci_idx++) {
+    auto const* cinfo = col_idx_to_info[ci_idx];
+    size_t eb = 0;
+    if (cinfo) {
+      auto tid = cinfo->type_id;
+      if (tid == cudf::type_id::STRING || tid == cudf::type_id::LIST) {
+        eb = sizeof(sp_string_pair);
+      } else if (tid == cudf::type_id::STRUCT) {
+        eb = 0;
+      } else {
+        eb = cudf::size_of(cudf::data_type{tid});
+      }
+    }
+    col_elem_bytes[ci_idx] = eb;
+    int32_t sz = col_sizes[ci_idx];
+    // Align data offset to 16 bytes for coalesced GPU access
+    col_data_offsets[ci_idx] = total_data_bytes;
+    total_data_bytes += (sz > 0 ? sz * eb : 0);
+    total_data_bytes = (total_data_bytes + 15) & ~size_t{15};  // 16-byte align
+
+    col_validity_offsets[ci_idx] = total_validity_elems;
+    total_validity_elems += (sz > 0 ? sz : 0);
+  }
+
+  // TWO bulk allocations instead of ~992 individual ones
+  rmm::device_uvector<uint8_t> bulk_data(total_data_bytes > 0 ? total_data_bytes : 1, stream, mr);
+  rmm::device_uvector<bool> bulk_validity(total_validity_elems > 0 ? total_validity_elems : 1, stream, mr);
+
+  // TWO bulk memsets instead of ~992 individual ones
+  if (total_data_bytes > 0) {
+    CUDF_CUDA_TRY(cudaMemsetAsync(bulk_data.data(), 0, total_data_bytes, stream.value()));
+  }
+  if (total_validity_elems > 0) {
+    CUDF_CUDA_TRY(cudaMemsetAsync(bulk_validity.data(), 0, total_validity_elems * sizeof(bool), stream.value()));
+  }
+
+  // Per-column pointers into the bulk buffers
+  std::vector<uint8_t*> col_data_ptrs(num_output_cols, nullptr);
+  std::vector<bool*> col_validity_ptrs(num_output_cols, nullptr);
+
+  for (int ci_idx = 0; ci_idx < num_output_cols; ci_idx++) {
+    int32_t sz = col_sizes[ci_idx];
+    if (sz > 0) {
+      col_data_ptrs[ci_idx] = bulk_data.data() + col_data_offsets[ci_idx];
+      col_validity_ptrs[ci_idx] = bulk_validity.data() + col_validity_offsets[ci_idx];
+    }
+  }
+
+  // Fill non-zero defaults (rare - proto3 defaults are all 0)
+  for (int ci_idx = 0; ci_idx < num_output_cols; ci_idx++) {
+    auto const* cinfo = col_idx_to_info[ci_idx];
+    int32_t sz = col_sizes[ci_idx];
+    if (!cinfo || sz <= 0) continue;
+    if (cinfo->type_id == cudf::type_id::STRING ||
+        cinfo->type_id == cudf::type_id::LIST ||
+        cinfo->type_id == cudf::type_id::STRUCT) continue;
+    int si = cinfo->schema_idx;
+    if (!schema[si].has_default_value) continue;
+
+    auto tid = cinfo->type_id;
+    bool non_zero = false;
+    if (tid == cudf::type_id::BOOL8) non_zero = default_bools[si];
+    else if (tid == cudf::type_id::FLOAT32 || tid == cudf::type_id::FLOAT64)
+      non_zero = (default_floats[si] != 0.0);
+    else non_zero = (default_ints[si] != 0);
+
+    if (non_zero) {
+      thrust::fill_n(rmm::exec_policy(stream), col_validity_ptrs[ci_idx], sz, true);
+      auto* dp = col_data_ptrs[ci_idx];
+      if (tid == cudf::type_id::BOOL8)
+        thrust::fill_n(rmm::exec_policy(stream), dp, sz, static_cast<uint8_t>(1));
+      else if (tid == cudf::type_id::INT32 || tid == cudf::type_id::UINT32)
+        thrust::fill_n(rmm::exec_policy(stream), reinterpret_cast<int32_t*>(dp), sz, static_cast<int32_t>(default_ints[si]));
+      else if (tid == cudf::type_id::INT64 || tid == cudf::type_id::UINT64)
+        thrust::fill_n(rmm::exec_policy(stream), reinterpret_cast<int64_t*>(dp), sz, default_ints[si]);
+      else if (tid == cudf::type_id::FLOAT32)
+        thrust::fill_n(rmm::exec_policy(stream), reinterpret_cast<float*>(dp), sz, static_cast<float>(default_floats[si]));
+      else if (tid == cudf::type_id::FLOAT64)
+        thrust::fill_n(rmm::exec_policy(stream), reinterpret_cast<double*>(dp), sz, default_floats[si]);
+    }
+  }
+
+  // Build device-side column descriptors (using bulk buffer pointers)
+  std::vector<sp_col_desc> h_col_descs(num_output_cols);
+  for (int i = 0; i < num_output_cols; i++) {
+    h_col_descs[i].data = col_data_ptrs[i];
+    h_col_descs[i].validity = col_validity_ptrs[i];
+  }
+  rmm::device_uvector<sp_col_desc> d_col_descs(num_output_cols, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_col_descs.data(), h_col_descs.data(),
+    num_output_cols * sizeof(sp_col_desc), cudaMemcpyHostToDevice, stream.value()));
+
+  // Allocate parent index buffers for inner repeated fields
+  std::vector<rmm::device_uvector<int32_t>> parent_idx_storage;
+  std::vector<int32_t*> h_parent_bufs(num_count_cols, nullptr);
+  parent_idx_storage.reserve(num_count_cols);
+
+  for (auto const& ci : col_infos) {
+    if (ci.count_idx >= 0 && ci.parent_count_idx >= 0) {
+      // Inner repeated field: needs parent index buffer
+      int total = count_totals[ci.count_idx];
+      parent_idx_storage.emplace_back(total > 0 ? total : 0, stream, mr);
+      h_parent_bufs[ci.count_idx] = parent_idx_storage.back().data();
+    }
+  }
+
+  rmm::device_uvector<int32_t*> d_parent_bufs_arr(num_count_cols, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_parent_bufs_arr.data(), h_parent_bufs.data(),
+    num_count_cols * sizeof(int32_t*), cudaMemcpyHostToDevice, stream.value()));
+
+  if (sp_timing_enabled) cudaEventRecord(t3, stream.value());  // end offsets + buffer alloc
+
+  // === Phase 4: Pass 2 - Extract ===
+  sp_unified_extract_kernel<<<blocks, threads, 0, stream.value()>>>(
+    *d_in, d_msg_types.data(), d_field_entries.data(), d_field_lookup.data(),
+    d_col_descs.data(), d_row_offsets.data(),
+    d_parent_bufs_arr.data(), num_count_cols, d_error.data());
+
+  if (sp_timing_enabled) cudaEventRecord(t4, stream.value());  // end extract kernel
+
+  // === Phase 5: Compute Inner List Offsets ===
+  // Pre-compute which count columns are inner (parent_count_idx >= 0) and their sizes.
+  // Bulk-allocate a single buffer for all inner offsets to avoid memory pool fragmentation.
+  struct inner_info_t { int count_idx; int parent_count_idx; int total_child; int total_parent; };
+  std::vector<inner_info_t> inner_infos;
+  size_t total_inner_elems = 0;
+  std::vector<int> inner_buf_offsets(num_count_cols, -1);  // offset into bulk inner buffer
+  std::vector<int> inner_buf_sizes(num_count_cols, 0);
+
+  for (int c = 0; c < num_count_cols; c++) {
+    sp_host_col_info const* cinfo_ptr = nullptr;
+    for (auto const& ci : col_infos) {
+      if (ci.count_idx == c) { cinfo_ptr = &ci; break; }
+    }
+    if (cinfo_ptr && cinfo_ptr->parent_count_idx >= 0) {
+      int total_child = count_totals[c];
+      int total_parent = count_totals[cinfo_ptr->parent_count_idx];
+      int sz = total_parent + 1;
+      inner_buf_offsets[c] = static_cast<int>(total_inner_elems);
+      inner_buf_sizes[c] = sz;
+      total_inner_elems += sz;
+      inner_infos.push_back({c, cinfo_ptr->parent_count_idx, total_child, total_parent});
+    }
+  }
+
+  // Single bulk allocation for all inner offsets
+  rmm::device_uvector<int32_t> bulk_inner_offsets(
+    total_inner_elems > 0 ? total_inner_elems : 1, stream, mr);
+  if (total_inner_elems > 0) {
+    CUDF_CUDA_TRY(cudaMemsetAsync(bulk_inner_offsets.data(), 0,
+      total_inner_elems * sizeof(int32_t), stream.value()));
+  }
+
+  // Compute inner offsets via lower_bound (only for non-empty inner fields)
+  for (auto const& ii : inner_infos) {
+    int c = ii.count_idx;
+    int32_t* out = bulk_inner_offsets.data() + inner_buf_offsets[c];
+    if (ii.total_child > 0 && ii.total_parent > 0 && h_parent_bufs[c] != nullptr) {
+      thrust::lower_bound(rmm::exec_policy(stream),
+        h_parent_bufs[c], h_parent_bufs[c] + ii.total_child,
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(ii.total_parent + 1),
+        out);
+    }
+    // else: already zeroed by memset
+  }
+
+  // Build inner offset pointer array (points into bulk buffer, no per-column allocation)
+  std::vector<int32_t*> inner_offs_ptrs(num_count_cols, nullptr);
+  for (int c = 0; c < num_count_cols; c++) {
+    if (inner_buf_offsets[c] >= 0) {
+      inner_offs_ptrs[c] = bulk_inner_offsets.data() + inner_buf_offsets[c];
+    }
+  }
+
+  if (sp_timing_enabled) cudaEventRecord(t5, stream.value());  // end inner offsets
+
+  // === Phase 6: Column Assembly ===
+  // Check for errors
+  CUDF_CUDA_TRY(cudaPeekAtLastError());
+  int h_error = 0;
+  CUDF_CUDA_TRY(cudaMemcpyAsync(&h_error, d_error.data(), sizeof(int),
+    cudaMemcpyDeviceToHost, stream.value()));
+  stream.synchronize();
+  if (fail_on_errors) {
+    CUDF_EXPECTS(h_error == 0, "Malformed protobuf message or unsupported wire type");
+  }
+
+  // Build top-level struct column
+  std::vector<std::unique_ptr<cudf::column>> top_children;
+  for (int i = 0; i < num_fields; i++) {
+    if (schema[i].parent_idx == -1) {
+      top_children.push_back(sp_build_column_recursive(
+        schema, schema_output_types, col_infos, schema_idx_to_info,
+        col_data_ptrs, col_validity_ptrs, list_offsets_bufs, inner_offs_ptrs, inner_buf_sizes,
+        col_sizes, count_totals, col_elem_bytes, i, num_fields, num_rows, stream, mr));
+    }
+  }
+
+  auto result = cudf::make_structs_column(
+    num_rows, std::move(top_children), 0, rmm::device_buffer{}, stream, mr);
+
+  // Print timing results
+  if (sp_timing_enabled) {
+    cudaEventRecord(t6, stream.value());  // end column assembly
+    cudaEventSynchronize(t6);
+
+    float ms[7];
+    cudaEventElapsedTime(&ms[0], t_start, t1);  // schema prep + device copy
+    cudaEventElapsedTime(&ms[1], t1, t2);        // count kernel
+    cudaEventElapsedTime(&ms[2], t2, t3);        // offsets + buffer alloc
+    cudaEventElapsedTime(&ms[3], t3, t4);        // extract kernel
+    cudaEventElapsedTime(&ms[4], t4, t5);        // inner offsets
+    cudaEventElapsedTime(&ms[5], t5, t6);        // column assembly
+    cudaEventElapsedTime(&ms[6], t_start, t6);   // total
+
+    sp_call_count++;
+    sp_phase_totals[0] += ms[0]; sp_phase_totals[1] += ms[1];
+    sp_phase_totals[2] += ms[2]; sp_phase_totals[3] += ms[3];
+    sp_phase_totals[4] += ms[4]; sp_phase_totals[5] += ms[5];
+    sp_phase_totals[6] += ms[6];
+
+    if (sp_call_count % 50 == 0) {
+      fprintf(stderr,
+        "[SP-TIMING] call#%d rows=%d fields=%d count_cols=%d out_cols=%d | "
+        "THIS: prep=%.1f count=%.1f offsets=%.1f extract=%.1f inner=%.1f assembly=%.1f TOTAL=%.1f ms | "
+        "CUMUL: prep=%.0f count=%.0f offsets=%.0f extract=%.0f inner=%.0f assembly=%.0f TOTAL=%.0f ms\n",
+        sp_call_count, num_rows, num_fields, num_count_cols, num_output_cols,
+        ms[0], ms[1], ms[2], ms[3], ms[4], ms[5], ms[6],
+        sp_phase_totals[0], sp_phase_totals[1], sp_phase_totals[2],
+        sp_phase_totals[3], sp_phase_totals[4], sp_phase_totals[5],
+        sp_phase_totals[6]);
+    }
+
+    cudaEventDestroy(t_start); cudaEventDestroy(t1); cudaEventDestroy(t2);
+    cudaEventDestroy(t3); cudaEventDestroy(t4); cudaEventDestroy(t5);
+    cudaEventDestroy(t6); cudaEventDestroy(t7);
+  }
+
+  return result;
+}
+
 }  // anonymous namespace
 
 std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
@@ -3642,6 +4997,26 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
       }
     }
     return cudf::make_structs_column(0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
+  }
+
+  // Try single-pass decoder (faster for complex nested schemas)
+  // Can be disabled by setting PROTOBUF_NO_SINGLE_PASS=1
+  {
+    char const* no_sp = std::getenv("PROTOBUF_NO_SINGLE_PASS");
+    bool use_single_pass = !(no_sp && std::string(no_sp) == "1");
+    if (use_single_pass) {
+      auto result = decode_nested_protobuf_single_pass(
+        binary_input, schema, schema_output_types,
+        default_ints, default_floats, default_bools, default_strings,
+        fail_on_errors);
+      CUDF_EXPECTS(result != nullptr,
+        "Single-pass protobuf decoder failed: schema exceeds limits "
+        "(SP_MAX_COUNTED=" + std::to_string(SP_MAX_COUNTED) +
+        " or SP_MAX_OUTPUT_COLS=" + std::to_string(SP_MAX_OUTPUT_COLS) +
+        ", actual num_count_cols or num_output_cols too large). "
+        "Set PROTOBUF_NO_SINGLE_PASS=1 to use the old decoder.");
+      return result;
+    }
   }
 
   // Copy schema to device
