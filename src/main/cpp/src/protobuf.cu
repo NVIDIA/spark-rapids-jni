@@ -4562,19 +4562,6 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_single_pass(
   auto num_rows = binary_input.size();
   auto num_fields = static_cast<int>(schema.size());
 
-  // Timing instrumentation (enabled by PROTOBUF_SP_TIMING=1)
-  static bool sp_timing_enabled = (std::getenv("PROTOBUF_SP_TIMING") != nullptr &&
-                                    std::string(std::getenv("PROTOBUF_SP_TIMING")) == "1");
-  static int sp_call_count = 0;
-  static double sp_phase_totals[8] = {};  // accumulate across calls
-  cudaEvent_t t_start, t1, t2, t3, t4, t5, t6, t7;
-  if (sp_timing_enabled) {
-    cudaEventCreate(&t_start); cudaEventCreate(&t1); cudaEventCreate(&t2);
-    cudaEventCreate(&t3); cudaEventCreate(&t4); cudaEventCreate(&t5);
-    cudaEventCreate(&t6); cudaEventCreate(&t7);
-    cudaEventRecord(t_start, stream.value());
-  }
-
   // === Phase 1: Schema Preprocessing ===
   std::vector<sp_msg_type> h_msg_types;
   std::vector<sp_field_entry> h_field_entries;
@@ -4615,8 +4602,6 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_single_pass(
   int const threads = 256;
   int const blocks = (num_rows + threads - 1) / threads;
 
-  if (sp_timing_enabled) cudaEventRecord(t1, stream.value());  // end schema prep + alloc
-
   // === Phase 2: Pass 1 - Count ===
   rmm::device_uvector<int32_t> d_counts(
     num_count_cols > 0 ? static_cast<size_t>(num_rows) * num_count_cols : 1, stream, mr);
@@ -4628,8 +4613,6 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_single_pass(
   sp_unified_count_kernel<<<blocks, threads, 0, stream.value()>>>(
     *d_in, d_msg_types.data(), d_field_entries.data(), d_field_lookup.data(),
     d_counts.data(), num_count_cols, d_error.data());
-
-  if (sp_timing_enabled) cudaEventRecord(t2, stream.value());  // end count kernel
 
   // === Phase 3: Compute Offsets and Allocate Buffers ===
   // Fused: compute all prefix sums + list offsets in a SINGLE kernel launch.
@@ -4813,15 +4796,11 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_single_pass(
   CUDF_CUDA_TRY(cudaMemcpyAsync(d_parent_bufs_arr.data(), h_parent_bufs.data(),
     num_count_cols * sizeof(int32_t*), cudaMemcpyHostToDevice, stream.value()));
 
-  if (sp_timing_enabled) cudaEventRecord(t3, stream.value());  // end offsets + buffer alloc
-
   // === Phase 4: Pass 2 - Extract ===
   sp_unified_extract_kernel<<<blocks, threads, 0, stream.value()>>>(
     *d_in, d_msg_types.data(), d_field_entries.data(), d_field_lookup.data(),
     d_col_descs.data(), d_row_offsets.data(),
     d_parent_bufs_arr.data(), num_count_cols, d_error.data());
-
-  if (sp_timing_enabled) cudaEventRecord(t4, stream.value());  // end extract kernel
 
   // === Phase 5: Compute Inner List Offsets ===
   // Pre-compute which count columns are inner (parent_count_idx >= 0) and their sizes.
@@ -4878,8 +4857,6 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_single_pass(
     }
   }
 
-  if (sp_timing_enabled) cudaEventRecord(t5, stream.value());  // end inner offsets
-
   // === Phase 6: Column Assembly ===
   // Check for errors
   CUDF_CUDA_TRY(cudaPeekAtLastError());
@@ -4902,47 +4879,8 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_single_pass(
     }
   }
 
-  auto result = cudf::make_structs_column(
+  return cudf::make_structs_column(
     num_rows, std::move(top_children), 0, rmm::device_buffer{}, stream, mr);
-
-  // Print timing results
-  if (sp_timing_enabled) {
-    cudaEventRecord(t6, stream.value());  // end column assembly
-    cudaEventSynchronize(t6);
-
-    float ms[7];
-    cudaEventElapsedTime(&ms[0], t_start, t1);  // schema prep + device copy
-    cudaEventElapsedTime(&ms[1], t1, t2);        // count kernel
-    cudaEventElapsedTime(&ms[2], t2, t3);        // offsets + buffer alloc
-    cudaEventElapsedTime(&ms[3], t3, t4);        // extract kernel
-    cudaEventElapsedTime(&ms[4], t4, t5);        // inner offsets
-    cudaEventElapsedTime(&ms[5], t5, t6);        // column assembly
-    cudaEventElapsedTime(&ms[6], t_start, t6);   // total
-
-    sp_call_count++;
-    sp_phase_totals[0] += ms[0]; sp_phase_totals[1] += ms[1];
-    sp_phase_totals[2] += ms[2]; sp_phase_totals[3] += ms[3];
-    sp_phase_totals[4] += ms[4]; sp_phase_totals[5] += ms[5];
-    sp_phase_totals[6] += ms[6];
-
-    if (sp_call_count % 50 == 0) {
-      fprintf(stderr,
-        "[SP-TIMING] call#%d rows=%d fields=%d count_cols=%d out_cols=%d | "
-        "THIS: prep=%.1f count=%.1f offsets=%.1f extract=%.1f inner=%.1f assembly=%.1f TOTAL=%.1f ms | "
-        "CUMUL: prep=%.0f count=%.0f offsets=%.0f extract=%.0f inner=%.0f assembly=%.0f TOTAL=%.0f ms\n",
-        sp_call_count, num_rows, num_fields, num_count_cols, num_output_cols,
-        ms[0], ms[1], ms[2], ms[3], ms[4], ms[5], ms[6],
-        sp_phase_totals[0], sp_phase_totals[1], sp_phase_totals[2],
-        sp_phase_totals[3], sp_phase_totals[4], sp_phase_totals[5],
-        sp_phase_totals[6]);
-    }
-
-    cudaEventDestroy(t_start); cudaEventDestroy(t1); cudaEventDestroy(t2);
-    cudaEventDestroy(t3); cudaEventDestroy(t4); cudaEventDestroy(t5);
-    cudaEventDestroy(t6); cudaEventDestroy(t7);
-  }
-
-  return result;
 }
 
 }  // anonymous namespace
