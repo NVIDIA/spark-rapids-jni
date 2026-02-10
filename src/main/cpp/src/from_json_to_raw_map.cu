@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 #include "json_utils.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/utilities/algorithm.cuh>
+#include <cudf/detail/algorithms/copy_if.cuh>
 #include <cudf/detail/utilities/cuda_memcpy.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/io/detail/json.hpp>
@@ -163,12 +163,12 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(std::size_t num_nodes,
                          token_levels.begin());
 
   auto node_levels    = rmm::device_uvector<TreeDepthT>(num_nodes, stream);
-  auto const copy_end = cudf::detail::copy_if_safe(token_levels.begin(),
-                                                   token_levels.end(),
-                                                   tokens.begin(),
-                                                   node_levels.begin(),
-                                                   is_node{},
-                                                   stream);
+  auto const copy_end = cudf::detail::copy_if(token_levels.begin(),
+                                              token_levels.end(),
+                                              tokens.begin(),
+                                              node_levels.begin(),
+                                              is_node{},
+                                              stream);
   CUDF_EXPECTS(cuda::std::distance(node_levels.begin(), copy_end) == num_nodes,
                "Node level count mismatch.");
 
@@ -184,12 +184,12 @@ rmm::device_uvector<NodeIndexT> compute_node_to_token_index_map(
 {
   auto node_token_ids   = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
-  auto const copy_end   = cudf::detail::copy_if_safe(node_id_it,
-                                                   node_id_it + tokens.size(),
-                                                   tokens.begin(),
-                                                   node_token_ids.begin(),
-                                                   is_node{},
-                                                   stream);
+  auto const copy_end   = cudf::detail::copy_if(node_id_it,
+                                                node_id_it + tokens.size(),
+                                                tokens.begin(),
+                                                node_token_ids.begin(),
+                                                is_node{},
+                                                stream);
   CUDF_EXPECTS(cuda::std::distance(node_token_ids.begin(), copy_end) == num_nodes,
                "Invalid computation for node-to-token-index map.");
 
@@ -501,12 +501,12 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
 
   auto extracted_ranges =
     rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(node_ranges.size(), stream, mr);
-  auto const range_end   = cudf::detail::copy_if_safe(node_ranges.begin(),
-                                                    node_ranges.end(),
-                                                    thrust::make_counting_iterator(0),
-                                                    extracted_ranges.begin(),
-                                                    is_key_or_value,
-                                                    stream);
+  auto const range_end   = cudf::detail::copy_if(node_ranges.begin(),
+                                                 node_ranges.end(),
+                                                 thrust::make_counting_iterator(0),
+                                                 extracted_ranges.begin(),
+                                                 is_key_or_value,
+                                                 stream);
   auto const num_extract = cuda::std::distance(extracted_ranges.begin(), range_end);
   if (num_extract == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
