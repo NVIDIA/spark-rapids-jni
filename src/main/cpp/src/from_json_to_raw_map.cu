@@ -141,7 +141,6 @@ OutputIterator copy_if(InputIterator begin,
   return output + num_selected.value(stream);
 }
 
-
 std::unique_ptr<cudf::column> make_empty_map(rmm::cuda_stream_view stream,
                                              rmm::device_async_resource_ref mr)
 {
@@ -271,11 +270,11 @@ rmm::device_uvector<NodeIndexT> compute_node_to_token_index_map(
   auto node_token_ids   = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
   auto const copy_end   = copy_if(node_id_it,
-                                  node_id_it + tokens.size(),
-                                  tokens.begin(),
-                                  node_token_ids.begin(),
-                                  is_node{},
-                                  stream);
+                                node_id_it + tokens.size(),
+                                tokens.begin(),
+                                node_token_ids.begin(),
+                                is_node{},
+                                stream);
   CUDF_EXPECTS(cuda::std::distance(node_token_ids.begin(), copy_end) == num_nodes,
                "Invalid computation for node-to-token-index map.");
 
@@ -588,11 +587,11 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
   auto extracted_ranges =
     rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(node_ranges.size(), stream, mr);
   auto const range_end   = copy_if(node_ranges.begin(),
-                                   node_ranges.end(),
-                                   thrust::make_counting_iterator(0),
-                                   extracted_ranges.begin(),
-                                   is_key_or_value,
-                                   stream);
+                                 node_ranges.end(),
+                                 thrust::make_counting_iterator(0),
+                                 extracted_ranges.begin(),
+                                 is_key_or_value,
+                                 stream);
   auto const num_extract = cuda::std::distance(extracted_ranges.begin(), range_end);
   if (num_extract == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
@@ -741,12 +740,11 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
     // Build a list of StructBegin tokens that start a line.
     // We must have such list having size equal to the number of original input JSON strings.
     rmm::device_uvector<NodeIndexT> line_begin_indices(num_nodes, stream);
-    auto const line_begin_copy_end =
-      copy_if(node_id_it,
-              node_id_it + node_token_ids.size(),
-              line_begin_indices.begin(),
-              is_line_begin{tokens, node_token_ids, parent_node_ids},
-              stream);
+    auto const line_begin_copy_end = copy_if(node_id_it,
+                                             node_id_it + node_token_ids.size(),
+                                             line_begin_indices.begin(),
+                                             is_line_begin{tokens, node_token_ids, parent_node_ids},
+                                             stream);
     auto const num_line_begin =
       cuda::std::distance(line_begin_indices.begin(), line_begin_copy_end);
     CUDF_EXPECTS(num_line_begin == num_rows, "Incorrect count of JSON objects.");
