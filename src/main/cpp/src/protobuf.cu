@@ -4869,13 +4869,26 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_single_pass(
   }
 
   // Build top-level struct column
+  // For top-level repeated (LIST) columns, propagate input binary null mask.
+  // In protobuf: absent repeated field = [] (empty array), but null input row = null LIST.
+  // The old decoder did this via cudf::copy_bitmask(binary_input). We do the same here.
+  auto const input_null_count = binary_input.null_count();
+
   std::vector<std::unique_ptr<cudf::column>> top_children;
   for (int i = 0; i < num_fields; i++) {
     if (schema[i].parent_idx == -1) {
-      top_children.push_back(sp_build_column_recursive(
+      auto col = sp_build_column_recursive(
         schema, schema_output_types, col_infos, schema_idx_to_info,
         col_data_ptrs, col_validity_ptrs, list_offsets_bufs, inner_offs_ptrs, inner_buf_sizes,
-        col_sizes, count_totals, col_elem_bytes, i, num_fields, num_rows, stream, mr));
+        col_sizes, count_totals, col_elem_bytes, i, num_fields, num_rows, stream, mr);
+
+      // Apply input null mask to top-level LIST columns (repeated fields)
+      if (input_null_count > 0 && schema[i].is_repeated) {
+        auto null_mask = cudf::copy_bitmask(binary_input, stream, mr);
+        col->set_null_mask(std::move(null_mask), input_null_count);
+      }
+
+      top_children.push_back(std::move(col));
     }
   }
 
@@ -4937,23 +4950,35 @@ std::unique_ptr<cudf::column> decode_nested_protobuf_to_struct(
     return cudf::make_structs_column(0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
   }
 
-  // Try single-pass decoder (faster for complex nested schemas)
-  // Can be disabled by setting PROTOBUF_NO_SINGLE_PASS=1
+  // Choose decoder based on schema complexity.
+  // Single-pass decoder: fewer kernel launches but expensive column assembly.
+  // Old per-field decoder: more kernel launches but simpler assembly.
+  // For large schemas (>100 output cols), the old decoder is faster because
+  // single-pass assembly creates hundreds of cudf columns in one batch.
+  // Can override with PROTOBUF_SINGLE_PASS=1 (force single-pass) or =0 (force old).
   {
-    char const* no_sp = std::getenv("PROTOBUF_NO_SINGLE_PASS");
-    bool use_single_pass = !(no_sp && std::string(no_sp) == "1");
+    char const* sp_env = std::getenv("PROTOBUF_SINGLE_PASS");
+    bool force_sp = (sp_env && std::string(sp_env) == "1");
+    bool force_old = (sp_env && std::string(sp_env) == "0");
+
+    // Count output columns (non-repeated leaf fields + struct containers)
+    int output_col_count = 0;
+    for (int i = 0; i < num_fields; i++) {
+      if (schema_output_types[i].id() != cudf::type_id::STRUCT || !schema[i].is_repeated) {
+        output_col_count++;
+      }
+    }
+
+    // Auto-select: use single-pass for small schemas, old decoder for large ones
+    bool use_single_pass = force_sp || (!force_old && output_col_count <= 100);
+
     if (use_single_pass) {
       auto result = decode_nested_protobuf_single_pass(
         binary_input, schema, schema_output_types,
         default_ints, default_floats, default_bools, default_strings,
         fail_on_errors);
-      CUDF_EXPECTS(result != nullptr,
-        "Single-pass protobuf decoder failed: schema exceeds limits "
-        "(SP_MAX_COUNTED=" + std::to_string(SP_MAX_COUNTED) +
-        " or SP_MAX_OUTPUT_COLS=" + std::to_string(SP_MAX_OUTPUT_COLS) +
-        ", actual num_count_cols or num_output_cols too large). "
-        "Set PROTOBUF_NO_SINGLE_PASS=1 to use the old decoder.");
-      return result;
+      if (result) return result;
+      // Fall through to old decoder if single-pass returns null (exceeds limits)
     }
   }
 
