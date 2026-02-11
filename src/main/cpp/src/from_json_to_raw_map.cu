@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@
 #include "json_utils.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/utilities/algorithm.cuh>
 #include <cudf/detail/utilities/cuda_memcpy.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/io/detail/json.hpp>
@@ -34,6 +33,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cub/device/device_radix_sort.cuh>
+#include <cub/device/device_select.cuh>
 #include <cuda/functional>
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
@@ -55,6 +55,91 @@ namespace spark_rapids_jni {
 using namespace cudf::io::json;
 
 namespace {
+
+template <typename InputIterator,
+          typename StencilIterator,
+          typename OutputIterator,
+          typename Predicate>
+OutputIterator copy_if(InputIterator begin,
+                       InputIterator end,
+                       StencilIterator stencil,
+                       OutputIterator result,
+                       Predicate predicate,
+                       rmm::cuda_stream_view stream)
+{
+  auto const num_items = cuda::std::distance(begin, end);
+
+  auto num_selected =
+    cudf::detail::device_scalar<cuda::std::size_t>(stream, cudf::get_current_device_resource_ref());
+
+  auto temp_storage_bytes = std::size_t{0};
+  CUDF_CUDA_TRY(cub::DeviceSelect::FlaggedIf(nullptr,
+                                             temp_storage_bytes,
+                                             begin,
+                                             stencil,
+                                             result,
+                                             num_selected.data(),
+                                             num_items,
+                                             predicate,
+                                             stream.value()));
+
+  auto d_temp_storage =
+    rmm::device_buffer(temp_storage_bytes, stream, cudf::get_current_device_resource_ref());
+
+  CUDF_CUDA_TRY(cub::DeviceSelect::FlaggedIf(d_temp_storage.data(),
+                                             temp_storage_bytes,
+                                             begin,
+                                             stencil,
+                                             result,
+                                             num_selected.data(),
+                                             num_items,
+                                             predicate,
+                                             stream.value()));
+
+  return result + num_selected.value(stream);
+}
+
+template <typename Predicate, typename InputIterator, typename OutputIterator>
+OutputIterator copy_if(InputIterator begin,
+                       InputIterator end,
+                       OutputIterator output,
+                       Predicate predicate,
+                       rmm::cuda_stream_view stream)
+{
+  auto const num_items = cuda::std::distance(begin, end);
+
+  // Device scalar to store the number of selected elements
+  auto num_selected =
+    cudf::detail::device_scalar<cuda::std::size_t>(stream, cudf::get_current_device_resource_ref());
+
+  // First call to get temporary storage size
+  size_t temp_storage_bytes = 0;
+  CUDF_CUDA_TRY(cub::DeviceSelect::If(nullptr,
+                                      temp_storage_bytes,
+                                      begin,
+                                      output,
+                                      num_selected.data(),
+                                      num_items,
+                                      predicate,
+                                      stream.value()));
+
+  // Allocate temporary storage
+  rmm::device_buffer d_temp_storage(
+    temp_storage_bytes, stream, cudf::get_current_device_resource_ref());
+
+  // Run copy_if
+  CUDF_CUDA_TRY(cub::DeviceSelect::If(d_temp_storage.data(),
+                                      temp_storage_bytes,
+                                      begin,
+                                      output,
+                                      num_selected.data(),
+                                      num_items,
+                                      predicate,
+                                      stream.value()));
+
+  // Copy number of selected elements back to host via pinned memory
+  return output + num_selected.value(stream);
+}
 
 std::unique_ptr<cudf::column> make_empty_map(rmm::cuda_stream_view stream,
                                              rmm::device_async_resource_ref mr)
@@ -163,12 +248,12 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(std::size_t num_nodes,
                          token_levels.begin());
 
   auto node_levels    = rmm::device_uvector<TreeDepthT>(num_nodes, stream);
-  auto const copy_end = cudf::detail::copy_if_safe(token_levels.begin(),
-                                                   token_levels.end(),
-                                                   tokens.begin(),
-                                                   node_levels.begin(),
-                                                   is_node{},
-                                                   stream);
+  auto const copy_end = copy_if(token_levels.begin(),
+                                token_levels.end(),
+                                tokens.begin(),
+                                node_levels.begin(),
+                                is_node{},
+                                stream);
   CUDF_EXPECTS(cuda::std::distance(node_levels.begin(), copy_end) == num_nodes,
                "Node level count mismatch.");
 
@@ -184,12 +269,12 @@ rmm::device_uvector<NodeIndexT> compute_node_to_token_index_map(
 {
   auto node_token_ids   = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
-  auto const copy_end   = cudf::detail::copy_if_safe(node_id_it,
-                                                   node_id_it + tokens.size(),
-                                                   tokens.begin(),
-                                                   node_token_ids.begin(),
-                                                   is_node{},
-                                                   stream);
+  auto const copy_end   = copy_if(node_id_it,
+                                node_id_it + tokens.size(),
+                                tokens.begin(),
+                                node_token_ids.begin(),
+                                is_node{},
+                                stream);
   CUDF_EXPECTS(cuda::std::distance(node_token_ids.begin(), copy_end) == num_nodes,
                "Invalid computation for node-to-token-index map.");
 
@@ -501,12 +586,12 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
 
   auto extracted_ranges =
     rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(node_ranges.size(), stream, mr);
-  auto const range_end   = cudf::detail::copy_if_safe(node_ranges.begin(),
-                                                    node_ranges.end(),
-                                                    thrust::make_counting_iterator(0),
-                                                    extracted_ranges.begin(),
-                                                    is_key_or_value,
-                                                    stream);
+  auto const range_end   = copy_if(node_ranges.begin(),
+                                 node_ranges.end(),
+                                 thrust::make_counting_iterator(0),
+                                 extracted_ranges.begin(),
+                                 is_key_or_value,
+                                 stream);
   auto const num_extract = cuda::std::distance(extracted_ranges.begin(), range_end);
   if (num_extract == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
@@ -562,7 +647,7 @@ std::unique_ptr<cudf::column> compute_list_offsets(
 #endif
 
   auto list_offsets   = rmm::device_uvector<cudf::size_type>(n_lists + 1, stream, mr);
-  auto const copy_end = cudf::detail::copy_if(
+  auto const copy_end = copy_if(
     node_child_counts.begin(),
     node_child_counts.end(),
     list_offsets.begin(),
@@ -636,11 +721,11 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
 
   auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
   auto const invalid_copy_end =
-    cudf::detail::copy_if(node_id_it,
-                          node_id_it + node_token_ids.size(),
-                          invalid_indices.begin(),
-                          is_invalid_struct_begin{tokens, node_token_ids, token_positions},
-                          stream);
+    copy_if(node_id_it,
+            node_id_it + node_token_ids.size(),
+            invalid_indices.begin(),
+            is_invalid_struct_begin{tokens, node_token_ids, token_positions},
+            stream);
   auto const num_invalid = cuda::std::distance(invalid_indices.begin(), invalid_copy_end);
 #ifdef DEBUG_FROM_JSON
   print_debug(invalid_indices,
@@ -655,12 +740,11 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
     // Build a list of StructBegin tokens that start a line.
     // We must have such list having size equal to the number of original input JSON strings.
     rmm::device_uvector<NodeIndexT> line_begin_indices(num_nodes, stream);
-    auto const line_begin_copy_end =
-      cudf::detail::copy_if(node_id_it,
-                            node_id_it + node_token_ids.size(),
-                            line_begin_indices.begin(),
-                            is_line_begin{tokens, node_token_ids, parent_node_ids},
-                            stream);
+    auto const line_begin_copy_end = copy_if(node_id_it,
+                                             node_id_it + node_token_ids.size(),
+                                             line_begin_indices.begin(),
+                                             is_line_begin{tokens, node_token_ids, parent_node_ids},
+                                             stream);
     auto const num_line_begin =
       cuda::std::distance(line_begin_indices.begin(), line_begin_copy_end);
     CUDF_EXPECTS(num_line_begin == num_rows, "Incorrect count of JSON objects.");
