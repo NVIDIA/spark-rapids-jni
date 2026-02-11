@@ -309,12 +309,12 @@ class device_row_hasher {
     auto result = _seed;
     auto itr    = _table.begin();
 
-    auto op = [row_index, nulls = _check_nulls](auto hash, auto column) -> hash_value_type {
+    auto op = [row_index, nulls = _check_nulls](auto hash, auto& column) -> hash_value_type {
       return cudf::type_dispatcher(
         column.type(), element_hasher_adapter{}, column, row_index, nulls, hash);
     };
     for (; itr != _table.end(); ++itr) {
-      result = op(std::move(result), *itr);
+      result = op(result, *itr);
     }
     return result;
   }
@@ -494,7 +494,7 @@ class device_row_hasher {
               curr_col.type(), element_hasher{_check_nulls, hash}, curr_col, element_index);
           };
           for (auto i = 0; i < curr_col.size(); ++i) {
-            ret = op(std::move(ret), i);
+            ret = op(ret, i);
           }
           --stack_size;
         }
