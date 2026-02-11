@@ -29,6 +29,7 @@ namespace spark_rapids_jni {
 constexpr int ENC_DEFAULT = 0;
 constexpr int ENC_FIXED   = 1;
 constexpr int ENC_ZIGZAG  = 2;
+constexpr int ENC_ENUM_STRING = 3;
 
 // Maximum nesting depth for nested messages
 constexpr int MAX_NESTING_DEPTH = 10;
@@ -81,6 +82,8 @@ struct nested_field_descriptor {
  * @param default_bools Default values for bool fields
  * @param default_strings Default values for string/bytes fields
  * @param enum_valid_values Valid enum values for each field (empty if not enum)
+ * @param enum_names Enum names for enum-as-string fields (empty if not enum-as-string),
+ *                   ordered in parallel with enum_valid_values
  * @param fail_on_errors Whether to throw on malformed data
  * @return STRUCT column with nested structure
  */
@@ -93,6 +96,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
   std::vector<bool> const& default_bools,
   std::vector<std::vector<uint8_t>> const& default_strings,
   std::vector<std::vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
   bool fail_on_errors);
 
 }  // namespace spark_rapids_jni

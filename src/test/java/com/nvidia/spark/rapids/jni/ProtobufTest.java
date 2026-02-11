@@ -297,7 +297,7 @@ public class ProtobufTest {
          ColumnVector expectedS64 = ColumnVector.fromBoxedLongs(-1234567890123L);
          ColumnVector expectedF32 = ColumnVector.fromBoxedInts(12345);
          ColumnVector expectedB = ColumnVector.fromLists(
-             new ListType(true, new BasicType(true, DType.INT8)),
+            new ListType(true, new BasicType(true, DType.UINT8)),
              Arrays.asList((byte) 1, (byte) 2, (byte) 3));
          ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
@@ -1725,6 +1725,58 @@ public class ProtobufTest {
     }
   }
 
+  @Test
+  void testDeepNestedMessageDepth3() {
+    // message Inner  { int32 a = 1; string b = 2; bool c = 3; }
+    // message Middle { Inner inner = 1; int64 m = 2; }
+    // message Outer  { Middle middle = 1; float score = 2; }
+    Byte[] innerMessage = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+        box(tag(2, WT_LEN)), box(encodeVarint(3)), box("abc".getBytes()),
+        box(tag(3, WT_VARINT)), new Byte[]{0x01});
+    Byte[] middleMessage = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(innerMessage.length)), innerMessage,
+        box(tag(2, WT_VARINT)), box(encodeVarint(123L)));
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(middleMessage.length)), middleMessage,
+        box(tag(2, WT_32BIT)), box(encodeFloat(1.25f)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedA = ColumnVector.fromBoxedInts(7);
+         ColumnVector expectedB = ColumnVector.fromStrings("abc");
+         ColumnVector expectedC = ColumnVector.fromBoxedBooleans(true);
+         ColumnVector expectedInner = ColumnVector.makeStruct(expectedA, expectedB, expectedC);
+         ColumnVector expectedM = ColumnVector.fromBoxedLongs(123L);
+         ColumnVector expectedMiddle = ColumnVector.makeStruct(expectedInner, expectedM);
+         ColumnVector expectedScore = ColumnVector.fromBoxedFloats(1.25f);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedMiddle, expectedScore);
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1, 1, 1, 2, 3, 2, 2},  // fieldNumbers
+             new int[]{-1, 0, 1, 1, 1, 0, -1},  // parentIndices
+             new int[]{0, 1, 2, 2, 2, 1, 0},  // depthLevels
+             new int[]{Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_VARINT, Protobuf.WT_LEN,
+                 Protobuf.WT_VARINT, Protobuf.WT_VARINT, Protobuf.WT_32BIT},  // wireTypes
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.STRUCT.getTypeId().getNativeId(),
+                 DType.INT32.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId(),
+                 DType.BOOL8.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId(),
+                 DType.FLOAT32.getTypeId().getNativeId()},  // outputTypeIds
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
+                 Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
+                 Protobuf.ENC_DEFAULT},  // encodings
+             new boolean[]{false, false, false, false, false, false, false},  // isRepeated
+             new boolean[]{false, false, false, false, false, false, false},  // isRequired
+             new boolean[]{false, false, false, false, false, false, false},  // hasDefaultValue
+             new long[]{0, 0, 0, 0, 0, 0, 0},
+             new double[]{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+             new boolean[]{false, false, false, false, false, false, false},
+             new byte[][]{null, null, null, null, null, null, null},
+             new int[][]{null, null, null, null, null, null, null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
   // ============================================================================
   // FAILFAST Mode Tests (failOnErrors = true)
   // ============================================================================
@@ -1929,6 +1981,125 @@ public class ProtobufTest {
         enumValidValues, failOnErrors);
   }
 
+  /**
+   * Helper that enables enum-as-string decoding by passing enum name mappings.
+   */
+  private static ColumnVector decodeAllFieldsWithEnumStrings(ColumnView binaryInput,
+                                                             int[] fieldNumbers,
+                                                             int[][] enumValidValues,
+                                                             byte[][][] enumNames,
+                                                             boolean failOnErrors) {
+    int numFields = fieldNumbers.length;
+    int[] typeIds = new int[numFields];
+    int[] encodings = new int[numFields];
+    for (int i = 0; i < numFields; i++) {
+      typeIds[i] = DType.STRING.getTypeId().getNativeId();
+      encodings[i] = Protobuf.ENC_ENUM_STRING;
+    }
+    int[] parentIndices = new int[numFields];
+    int[] depthLevels = new int[numFields];
+    int[] wireTypes = new int[numFields];
+    boolean[] isRepeated = new boolean[numFields];
+    java.util.Arrays.fill(parentIndices, -1);
+    java.util.Arrays.fill(wireTypes, Protobuf.WT_VARINT);
+    return Protobuf.decodeToStruct(
+        binaryInput,
+        fieldNumbers,
+        parentIndices,
+        depthLevels,
+        wireTypes,
+        typeIds,
+        encodings,
+        isRepeated,
+        new boolean[numFields],
+        new boolean[numFields],
+        new long[numFields],
+        new double[numFields],
+        new boolean[numFields],
+        new byte[numFields][],
+        enumValidValues,
+        enumNames,
+        failOnErrors);
+  }
+
+  @Test
+  void testEnumAsStringValidValue() {
+    // enum Color { RED=0; GREEN=1; BLUE=2; }
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(1)));  // GREEN
+
+    byte[][][] enumNames = new byte[][][] {
+        new byte[][] {
+            "RED".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "GREEN".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "BLUE".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        }
+    };
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedField = ColumnVector.fromStrings("GREEN");
+         ColumnVector expected = ColumnVector.makeStruct(expectedField);
+         ColumnVector actual = decodeAllFieldsWithEnumStrings(
+             input.getColumn(0),
+             new int[]{1},
+             new int[][]{{0, 1, 2}},
+             enumNames,
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void testEnumAsStringUnknownValueReturnsNullRow() {
+    // Unknown enum value should null the entire struct row (PERMISSIVE behavior).
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(999)));
+
+    byte[][][] enumNames = new byte[][][] {
+        new byte[][] {
+            "RED".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "GREEN".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "BLUE".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        }
+    };
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector actual = decodeAllFieldsWithEnumStrings(
+             input.getColumn(0),
+             new int[]{1},
+             new int[][]{{0, 1, 2}},
+             enumNames,
+             false);
+         HostColumnVector hostStruct = actual.copyToHost()) {
+      assert actual.getNullCount() == 1 : "Struct row should be null for unknown enum value";
+      assert hostStruct.isNull(0) : "Row 0 should be null";
+    }
+  }
+
+  @Test
+  void testEnumAsStringMixedValidAndUnknown() {
+    Byte[] row0 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(0)));    // RED
+    Byte[] row1 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(999)));  // unknown
+    Byte[] row2 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(2)));    // BLUE
+
+    byte[][][] enumNames = new byte[][][] {
+        new byte[][] {
+            "RED".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "GREEN".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "BLUE".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        }
+    };
+    try (Table input = new Table.TestBuilder().column(row0, row1, row2).build();
+         ColumnVector actual = decodeAllFieldsWithEnumStrings(
+             input.getColumn(0),
+             new int[]{1},
+             new int[][]{{0, 1, 2}},
+             enumNames,
+             false);
+         HostColumnVector hostStruct = actual.copyToHost()) {
+      assert actual.getNullCount() == 1 : "Only the unknown enum row should be null";
+      assert !hostStruct.isNull(0) : "Row 0 should be valid";
+      assert hostStruct.isNull(1) : "Row 1 should be null";
+      assert !hostStruct.isNull(2) : "Row 2 should be valid";
+    }
+  }
+
   @Test
   void testEnumValidValue() {
     // enum Color { RED=0; GREEN=1; BLUE=2; }
@@ -2068,6 +2239,52 @@ public class ProtobufTest {
       // Struct row should be valid with correct values
       assert actualStruct.getNullCount() == 0 : "Struct row should be valid";
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  // ============================================================================
+  // Repeated Enum-as-String Tests
+  // ============================================================================
+
+  @Test
+  void testRepeatedEnumAsString() {
+    // repeated Color colors = 1; with Color { RED=0; GREEN=1; BLUE=2; }
+    // Row with three occurrences: RED, BLUE, GREEN
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(0)),   // RED
+        box(tag(1, WT_VARINT)), box(encodeVarint(2)),   // BLUE
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)));  // GREEN
+
+    byte[][][] enumNames = new byte[][][] {
+        new byte[][] {
+            "RED".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "GREEN".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "BLUE".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        }
+    };
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector actual = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{Protobuf.WT_VARINT},
+             new int[]{DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_ENUM_STRING},
+             new boolean[]{true},   // isRepeated
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{{0, 1, 2}},
+             enumNames,
+             false)) {
+      assertNotNull(actual);
+      assertEquals(DType.STRUCT, actual.getType());
+      // The struct has 1 child: a LIST<STRING> column with ["RED", "BLUE", "GREEN"]
+      assertEquals(1, actual.getNumChildren());
     }
   }
 }

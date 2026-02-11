@@ -53,6 +53,7 @@ public class Protobuf {
   public static final int ENC_DEFAULT = 0;
   public static final int ENC_FIXED   = 1;
   public static final int ENC_ZIGZAG  = 2;
+  public static final int ENC_ENUM_STRING = 3;
 
   // Wire type constants
   public static final int WT_VARINT = 0;
@@ -73,7 +74,8 @@ public class Protobuf {
    * @param depthLevels Nesting depth for each field (0 for top-level).
    * @param wireTypes Expected wire type for each field (WT_VARINT, WT_64BIT, WT_LEN, WT_32BIT).
    * @param outputTypeIds cudf native type ids for output columns.
-   * @param encodings Encoding info for each field (0=default, 1=fixed, 2=zigzag).
+   * @param encodings Encoding info for each field (0=default, 1=fixed, 2=zigzag,
+   *                  3=enum-as-string).
    * @param isRepeated Whether each field is a repeated field (array).
    * @param isRequired Whether each field is required (proto2).
    * @param hasDefaultValue Whether each field has a default value.
@@ -82,6 +84,9 @@ public class Protobuf {
    * @param defaultBools Default values for bool fields.
    * @param defaultStrings Default values for string/bytes fields as UTF-8 bytes.
    * @param enumValidValues Valid enum values for each field (null if not an enum).
+   * @param enumNames Enum value names for enum-as-string fields (null if not enum-as-string).
+   *                  For each field, this is a byte[][] containing UTF-8 enum names ordered by
+   *                  the same sorted order as enumValidValues for that field.
    * @param failOnErrors if true, throw an exception on malformed protobuf messages.
    * @return a cudf STRUCT column with nested structure.
    */
@@ -100,13 +105,14 @@ public class Protobuf {
                                             boolean[] defaultBools,
                                             byte[][] defaultStrings,
                                             int[][] enumValidValues,
+                                            byte[][][] enumNames,
                                             boolean failOnErrors) {
     // Parameter validation
     if (fieldNumbers == null || parentIndices == null || depthLevels == null ||
         wireTypes == null || outputTypeIds == null || encodings == null ||
         isRepeated == null || isRequired == null || hasDefaultValue == null ||
         defaultInts == null || defaultFloats == null || defaultBools == null ||
-        defaultStrings == null || enumValidValues == null) {
+        defaultStrings == null || enumValidValues == null || enumNames == null) {
       throw new IllegalArgumentException("Arrays must be non-null");
     }
 
@@ -123,7 +129,8 @@ public class Protobuf {
         defaultFloats.length != numFields ||
         defaultBools.length != numFields ||
         defaultStrings.length != numFields ||
-        enumValidValues.length != numFields) {
+        enumValidValues.length != numFields ||
+        enumNames.length != numFields) {
       throw new IllegalArgumentException("All arrays must have the same length");
     }
 
@@ -139,10 +146,11 @@ public class Protobuf {
     // Validate encoding values
     for (int i = 0; i < encodings.length; i++) {
       int enc = encodings[i];
-      if (enc < ENC_DEFAULT || enc > ENC_ZIGZAG) {
+      if (enc < ENC_DEFAULT || enc > ENC_ENUM_STRING) {
         throw new IllegalArgumentException(
             "Invalid encoding value at index " + i + ": " + enc +
-            " (expected " + ENC_DEFAULT + ", " + ENC_FIXED + ", or " + ENC_ZIGZAG + ")");
+            " (expected " + ENC_DEFAULT + ", " + ENC_FIXED + ", " + ENC_ZIGZAG +
+            ", or " + ENC_ENUM_STRING + ")");
       }
     }
 
@@ -151,8 +159,34 @@ public class Protobuf {
                                  wireTypes, outputTypeIds, encodings,
                                  isRepeated, isRequired, hasDefaultValue,
                                  defaultInts, defaultFloats, defaultBools,
-                                 defaultStrings, enumValidValues, failOnErrors);
+                                 defaultStrings, enumValidValues, enumNames, failOnErrors);
     return new ColumnVector(handle);
+  }
+
+  /**
+   * Backward-compatible overload for callers that don't provide enum name mappings.
+   * This keeps existing JNI tests and call-sites source-compatible.
+   */
+  public static ColumnVector decodeToStruct(ColumnView binaryInput,
+                                            int[] fieldNumbers,
+                                            int[] parentIndices,
+                                            int[] depthLevels,
+                                            int[] wireTypes,
+                                            int[] outputTypeIds,
+                                            int[] encodings,
+                                            boolean[] isRepeated,
+                                            boolean[] isRequired,
+                                            boolean[] hasDefaultValue,
+                                            long[] defaultInts,
+                                            double[] defaultFloats,
+                                            boolean[] defaultBools,
+                                            byte[][] defaultStrings,
+                                            int[][] enumValidValues,
+                                            boolean failOnErrors) {
+    return decodeToStruct(binaryInput, fieldNumbers, parentIndices, depthLevels, wireTypes,
+        outputTypeIds, encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
+        defaultFloats, defaultBools, defaultStrings, enumValidValues,
+        new byte[fieldNumbers.length][][], failOnErrors);
   }
 
   private static native long decodeToStruct(long binaryInputView,
@@ -170,5 +204,6 @@ public class Protobuf {
                                             boolean[] defaultBools,
                                             byte[][] defaultStrings,
                                             int[][] enumValidValues,
+                                            byte[][][] enumNames,
                                             boolean failOnErrors);
 }

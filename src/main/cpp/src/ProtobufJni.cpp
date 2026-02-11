@@ -41,6 +41,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                                                                 jbooleanArray default_bools,
                                                                 jobjectArray default_strings,
                                                                 jobjectArray enum_valid_values,
+                                                                jobjectArray enum_names,
                                                                 jboolean fail_on_errors)
 {
   JNI_NULL_CHECK(env, binary_input_view, "binary_input_view is null", 0);
@@ -58,6 +59,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
   JNI_NULL_CHECK(env, default_bools, "default_bools is null", 0);
   JNI_NULL_CHECK(env, default_strings, "default_strings is null", 0);
   JNI_NULL_CHECK(env, enum_valid_values, "enum_valid_values is null", 0);
+  JNI_NULL_CHECK(env, enum_names, "enum_names is null", 0);
 
   JNI_TRY
   {
@@ -163,6 +165,35 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       }
     }
 
+    // Convert enum names (byte[][][]). For each field:
+    // - null => not an enum-as-string field
+    // - byte[][] where each byte[] is UTF-8 enum name, ordered with enum_values[field]
+    std::vector<std::vector<std::vector<uint8_t>>> enum_name_values;
+    enum_name_values.reserve(num_fields);
+    for (int i = 0; i < num_fields; ++i) {
+      jobjectArray names_arr = static_cast<jobjectArray>(env->GetObjectArrayElement(enum_names, i));
+      if (names_arr == nullptr) {
+        enum_name_values.emplace_back();
+      } else {
+        jsize num_names = env->GetArrayLength(names_arr);
+        std::vector<std::vector<uint8_t>> names_for_field;
+        names_for_field.reserve(num_names);
+        for (jsize j = 0; j < num_names; ++j) {
+          jbyteArray name_bytes = static_cast<jbyteArray>(env->GetObjectArrayElement(names_arr, j));
+          if (name_bytes == nullptr) {
+            names_for_field.emplace_back();
+          } else {
+            jsize len = env->GetArrayLength(name_bytes);
+            jbyte* bytes = env->GetByteArrayElements(name_bytes, nullptr);
+            names_for_field.emplace_back(reinterpret_cast<uint8_t*>(bytes),
+                                         reinterpret_cast<uint8_t*>(bytes) + len);
+            env->ReleaseByteArrayElements(name_bytes, bytes, JNI_ABORT);
+          }
+        }
+        enum_name_values.push_back(std::move(names_for_field));
+      }
+    }
+
     auto result = spark_rapids_jni::decode_protobuf_to_struct(
       *input,
       schema,
@@ -172,6 +203,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       default_bool_values,
       default_string_values,
       enum_values,
+      enum_name_values,
       fail_on_errors);
 
     return cudf::jni::release_as_jlong(result);
