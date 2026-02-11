@@ -146,12 +146,63 @@ public class ProtobufTest {
   }
 
   // ============================================================================
-  // Helper methods for calling the new API
+  // Helper methods for calling the unified API
   // ============================================================================
 
   /**
-   * Helper method that wraps the new API for tests that decode all fields.
-   * This simulates the old API behavior where all fields are decoded.
+   * Derive protobuf wire type from cudf type ID and encoding.
+   * This is only used by test helpers for scalar fields.
+   */
+  private static int getWireType(int cudfTypeId, int encoding) {
+    if (cudfTypeId == DType.FLOAT32.getTypeId().getNativeId()) return Protobuf.WT_32BIT;
+    if (cudfTypeId == DType.FLOAT64.getTypeId().getNativeId()) return Protobuf.WT_64BIT;
+    if (cudfTypeId == DType.STRING.getTypeId().getNativeId()) return Protobuf.WT_LEN;
+    if (cudfTypeId == DType.LIST.getTypeId().getNativeId()) return Protobuf.WT_LEN;  // bytes
+    if (cudfTypeId == DType.STRUCT.getTypeId().getNativeId()) return Protobuf.WT_LEN;
+    // INT32, INT64, BOOL8 - varint or fixed
+    if (encoding == Protobuf.ENC_FIXED) {
+      if (cudfTypeId == DType.INT64.getTypeId().getNativeId()) return Protobuf.WT_64BIT;
+      return Protobuf.WT_32BIT;
+    }
+    return Protobuf.WT_VARINT;
+  }
+
+  /**
+   * Helper to decode all scalar fields using the unified API.
+   * Builds a flat schema (parentIndices=-1, depth=0, isRepeated=false for all fields).
+   */
+  private static ColumnVector decodeScalarFields(ColumnView binaryInput,
+                                                 int[] fieldNumbers,
+                                                 int[] typeIds,
+                                                 int[] encodings,
+                                                 boolean[] isRequired,
+                                                 boolean[] hasDefaultValue,
+                                                 long[] defaultInts,
+                                                 double[] defaultFloats,
+                                                 boolean[] defaultBools,
+                                                 byte[][] defaultStrings,
+                                                 int[][] enumValidValues,
+                                                 boolean failOnErrors) {
+    int numFields = fieldNumbers.length;
+    int[] parentIndices = new int[numFields];
+    int[] depthLevels = new int[numFields];
+    int[] wireTypes = new int[numFields];
+    boolean[] isRepeated = new boolean[numFields];
+
+    java.util.Arrays.fill(parentIndices, -1);
+    // depthLevels already initialized to 0
+    // isRepeated already initialized to false
+    for (int i = 0; i < numFields; i++) {
+      wireTypes[i] = getWireType(typeIds[i], encodings[i]);
+    }
+
+    return Protobuf.decodeToStruct(binaryInput, fieldNumbers, parentIndices, depthLevels,
+        wireTypes, typeIds, encodings, isRepeated, isRequired, hasDefaultValue,
+        defaultInts, defaultFloats, defaultBools, defaultStrings, enumValidValues, failOnErrors);
+  }
+
+  /**
+   * Helper method that wraps the unified API for tests that decode all scalar fields.
    */
   private static ColumnVector decodeAllFields(ColumnView binaryInput,
                                               int[] fieldNumbers,
@@ -161,8 +212,7 @@ public class ProtobufTest {
   }
 
   /**
-   * Helper method that wraps the new API for tests that decode all fields.
-   * This simulates the old API behavior where all fields are decoded.
+   * Helper method that wraps the unified API for tests that decode all scalar fields.
    */
   private static ColumnVector decodeAllFields(ColumnView binaryInput,
                                               int[] fieldNumbers,
@@ -170,14 +220,10 @@ public class ProtobufTest {
                                               int[] encodings,
                                               boolean failOnErrors) {
     int numFields = fieldNumbers.length;
-    // When decoding all fields, decodedFieldIndices is [0, 1, 2, ..., n-1]
-    int[] decodedFieldIndices = new int[numFields];
-    boolean[] isRequired = new boolean[numFields];  // all false by default
-    for (int i = 0; i < numFields; i++) {
-      decodedFieldIndices[i] = i;
-    }
-    return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
-                                   fieldNumbers, typeIds, encodings, isRequired, failOnErrors);
+    return decodeScalarFields(binaryInput, fieldNumbers, typeIds, encodings,
+        new boolean[numFields], new boolean[numFields], new long[numFields],
+        new double[numFields], new boolean[numFields], new byte[numFields][],
+        new int[numFields][], failOnErrors);
   }
 
   /**
@@ -190,12 +236,10 @@ public class ProtobufTest {
                                                           boolean[] isRequired,
                                                           boolean failOnErrors) {
     int numFields = fieldNumbers.length;
-    int[] decodedFieldIndices = new int[numFields];
-    for (int i = 0; i < numFields; i++) {
-      decodedFieldIndices[i] = i;
-    }
-    return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
-                                   fieldNumbers, typeIds, encodings, isRequired, failOnErrors);
+    return decodeScalarFields(binaryInput, fieldNumbers, typeIds, encodings,
+        isRequired, new boolean[numFields], new long[numFields],
+        new double[numFields], new boolean[numFields], new byte[numFields][],
+        new int[numFields][], failOnErrors);
   }
 
   // ============================================================================
@@ -320,22 +364,18 @@ public class ProtobufTest {
         box(tag(3, WT_VARINT)), box(encodeVarint(42)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row0}).build();
-         // Expected: f1=100, f2=null (not decoded), f3=42
+         // Expected: f1=100, f3=42 (schema projection: only decode these two)
          ColumnVector expectedF1 = ColumnVector.fromBoxedLongs(100L);
-         ColumnVector expectedF2 = ColumnVector.fromStrings((String)null);
          ColumnVector expectedF3 = ColumnVector.fromBoxedInts(42);
-         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedF1, expectedF2, expectedF3);
-         // Decode only fields at indices 0 and 2 (skip index 1)
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedF1, expectedF3);
+         // Decode only f1 (field_number=1) and f3 (field_number=3), skip f2
+         // With the unified API, we only include the fields we want in the schema
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
-             3,  // total fields
-             new int[]{0, 2},  // decode only indices 0 and 2
-             new int[]{1, 3},  // field numbers for decoded fields
+             new int[]{1, 3},  // field numbers for f1 and f3
              new int[]{DType.INT64.getTypeId().getNativeId(),
-                       DType.STRING.getTypeId().getNativeId(),
-                       DType.INT32.getTypeId().getNativeId()},  // types for ALL fields
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},  // encodings for decoded fields
-             true)) {
+                       DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT})) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -348,19 +388,14 @@ public class ProtobufTest {
         box(tag(2, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row0}).build();
-         ColumnVector expectedF1 = ColumnVector.fromBoxedLongs((Long)null);
-         ColumnVector expectedF2 = ColumnVector.fromStrings((String)null);
-         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedF1, expectedF2);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         // With no fields in the schema, the GPU returns an empty struct
+         ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
-             2,  // total fields
-             new int[]{},  // decode no fields
              new int[]{},  // no field numbers
-             new int[]{DType.INT64.getTypeId().getNativeId(),
-                       DType.STRING.getTypeId().getNativeId()},  // types for ALL fields
-             new int[]{},  // no encodings
-             true)) {
-      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+             new int[]{},  // no types
+             new int[]{})) {  // no encodings
+      assertNotNull(actualStruct);
+      assertEquals(DType.STRUCT, actualStruct.getType());
     }
   }
 
@@ -1259,14 +1294,9 @@ public class ProtobufTest {
                                                           byte[][] defaultStrings,
                                                           boolean failOnErrors) {
     int numFields = fieldNumbers.length;
-    int[] decodedFieldIndices = new int[numFields];
-    for (int i = 0; i < numFields; i++) {
-      decodedFieldIndices[i] = i;
-    }
-    return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
-                                   fieldNumbers, typeIds, encodings, isRequired,
-                                   hasDefaultValue, defaultInts, defaultFloats,
-                                   defaultBools, defaultStrings, failOnErrors);
+    return decodeScalarFields(binaryInput, fieldNumbers, typeIds, encodings,
+        isRequired, hasDefaultValue, defaultInts, defaultFloats, defaultBools,
+        defaultStrings, new int[numFields][], failOnErrors);
   }
 
   @Test
@@ -1632,7 +1662,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       // Use the new nested API for repeated fields
       // Field: ids (field_number=1, parent=-1, depth=0, wire_type=VARINT, type=INT32, repeated=true)
-      try (ColumnVector result = Protobuf.decodeNestedToStruct(
+      try (ColumnVector result = Protobuf.decodeToStruct(
           input.getColumn(0),
           new int[]{1},                    // fieldNumbers
           new int[]{-1},                   // parentIndices (-1 = top level)
@@ -1672,7 +1702,7 @@ public class ProtobufTest {
       // Flattened schema:
       // [0] inner: STRUCT, field_number=1, parent=-1, depth=0
       // [1] inner.x: INT32, field_number=1, parent=0, depth=1
-      try (ColumnVector result = Protobuf.decodeNestedToStruct(
+      try (ColumnVector result = Protobuf.decodeToStruct(
           input.getColumn(0),
           new int[]{1, 1},                 // fieldNumbers
           new int[]{-1, 0},                // parentIndices
@@ -1893,20 +1923,10 @@ public class ProtobufTest {
                                                         int[][] enumValidValues,
                                                         boolean failOnErrors) {
     int numFields = fieldNumbers.length;
-    int[] decodedFieldIndices = new int[numFields];
-    boolean[] isRequired = new boolean[numFields];
-    boolean[] hasDefaultValue = new boolean[numFields];
-    long[] defaultInts = new long[numFields];
-    double[] defaultFloats = new double[numFields];
-    boolean[] defaultBools = new boolean[numFields];
-    byte[][] defaultStrings = new byte[numFields][];
-    for (int i = 0; i < numFields; i++) {
-      decodedFieldIndices[i] = i;
-    }
-    return Protobuf.decodeToStruct(binaryInput, numFields, decodedFieldIndices,
-                                   fieldNumbers, typeIds, encodings, isRequired,
-                                   hasDefaultValue, defaultInts, defaultFloats,
-                                   defaultBools, defaultStrings, enumValidValues, failOnErrors);
+    return decodeScalarFields(binaryInput, fieldNumbers, typeIds, encodings,
+        new boolean[numFields], new boolean[numFields], new long[numFields],
+        new double[numFields], new boolean[numFields], new byte[numFields][],
+        enumValidValues, failOnErrors);
   }
 
   @Test
