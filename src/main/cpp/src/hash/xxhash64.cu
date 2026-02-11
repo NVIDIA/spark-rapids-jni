@@ -309,11 +309,11 @@ class device_row_hasher {
     auto result = _seed;
     auto itr    = _table.begin();
 
-    auto op = [row_index, nulls = _check_nulls] (auto hash, auto column) -> hash_value_type {
+    auto op = [row_index, nulls = _check_nulls](auto hash, auto column) -> hash_value_type {
       return cudf::type_dispatcher(
         column.type(), element_hasher_adapter{}, column, row_index, nulls, hash);
     };
-    for(; itr != _table.end(); ++itr) {
+    for (; itr != _table.end(); ++itr) {
       result = op(std::move(result), *itr);
     }
     return result;
@@ -489,11 +489,11 @@ class device_row_hasher {
             }
           }
         } else {  // Primitive column
-          auto op = [curr_col, _check_nulls] (auto hash, auto element_index) {
+          auto op = [curr_col, _check_nulls](auto hash, auto element_index) {
             return cudf::type_dispatcher<cudf::detail::dispatch_void_if_nested>(
               curr_col.type(), element_hasher{_check_nulls, hash}, curr_col, element_index);
           };
-          for(auto i = 0; i < curr_col.size(); ++i) {
+          for (auto i = 0; i < curr_col.size(); ++i) {
             ret = op(std::move(ret), i);
           }
           --stack_size;
