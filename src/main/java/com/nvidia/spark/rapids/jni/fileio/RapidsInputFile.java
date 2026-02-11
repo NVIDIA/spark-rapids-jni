@@ -26,6 +26,14 @@ import java.util.OptionalLong;
  */
 public interface RapidsInputFile {
   /**
+   * Get the path of this input file.
+   * @return the file path string
+   */
+  default String path() {
+    throw new UnsupportedOperationException("path is not supported");
+  }
+
+  /**
    * Get the length of the file in bytes.
    * @return the length of the file in bytes
    * @throws IOException if an I/O error occurs while getting the length
