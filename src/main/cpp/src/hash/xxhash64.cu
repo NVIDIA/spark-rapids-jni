@@ -19,7 +19,6 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/row_operator/hashing.cuh>
-#include <cudf/detail/utilities/algorithm.cuh>
 #include <cudf/table/table_device_view.cuh>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -307,15 +306,17 @@ class device_row_hasher {
 
   __device__ auto operator()(cudf::size_type row_index) const noexcept
   {
-    return cudf::detail::accumulate(
-      _table.begin(),
-      _table.end(),
-      _seed,
-      cuda::proclaim_return_type<hash_value_type>(
-        [row_index, nulls = _check_nulls] __device__(auto hash, auto column) {
-          return cudf::type_dispatcher(
-            column.type(), element_hasher_adapter{}, column, row_index, nulls, hash);
-        }));
+    auto result = _seed;
+    auto itr    = _table.begin();
+
+    auto op = [row_index, nulls = _check_nulls] (auto hash, auto column) -> hash_value_type {
+      return cudf::type_dispatcher(
+        column.type(), element_hasher_adapter{}, column, row_index, nulls, hash);
+    };
+    for(; itr != _table.end(); ++itr) {
+      result = op(std::move(result), *itr);
+    }
+    return result;
   }
 
   /**
@@ -488,14 +489,13 @@ class device_row_hasher {
             }
           }
         } else {  // Primitive column
-          ret = cudf::detail::accumulate(
-            thrust::counting_iterator(0),
-            thrust::counting_iterator(curr_col.size()),
-            ret,
-            [curr_col, _check_nulls] __device__(auto hash, auto element_index) {
-              return cudf::type_dispatcher<cudf::detail::dispatch_void_if_nested>(
-                curr_col.type(), element_hasher{_check_nulls, hash}, curr_col, element_index);
-            });
+          auto op = [curr_col, _check_nulls] (auto hash, auto element_index) {
+            return cudf::type_dispatcher<cudf::detail::dispatch_void_if_nested>(
+              curr_col.type(), element_hasher{_check_nulls, hash}, curr_col, element_index);
+          };
+          for(auto i = 0; i < curr_col.size(); ++i) {
+            ret = op(std::move(ret), i);
+          }
           --stack_size;
         }
       }
