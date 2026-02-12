@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni.fileio;
 
 import java.io.IOException;
+import java.util.OptionalLong;
 
 /**
  * Represents an input file that can be read from.
@@ -25,11 +26,28 @@ import java.io.IOException;
  */
 public interface RapidsInputFile {
   /**
+   * Get the path of this input file.
+   * @return the file path string
+   */
+  default String path() {
+    throw new UnsupportedOperationException("path is not supported");
+  }
+
+  /**
    * Get the length of the file in bytes.
    * @return the length of the file in bytes
    * @throws IOException if an I/O error occurs while getting the length
    */
   long getLength() throws IOException;
+
+  /**
+   * Get the last modification time of the file in milliseconds since epoch.
+   * @return an OptionalLong containing the last modification time, or empty if not available
+   * @throws IOException if an I/O error occurs while getting the modification time
+   */
+  default OptionalLong getLastModificationTime() throws IOException {
+    return OptionalLong.empty();
+  }
 
   /**
    * Open the file for reading.
