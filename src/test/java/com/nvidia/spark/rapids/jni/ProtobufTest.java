@@ -1688,6 +1688,114 @@ public class ProtobufTest {
   }
 
   @Test
+  void testPackedRepeatedDoubleWithMultipleFields() {
+    // Test packed repeated fields with multiple types including edge cases.
+    // message WithPackedRepeated {
+    //   optional int32 id = 1;
+    //   repeated int32 int_values = 2 [packed=true];
+    //   repeated double double_values = 3 [packed=true];
+    //   repeated bool bool_values = 4 [packed=true];
+    // }
+
+    // Helper to build packed int data (varints)
+    java.io.ByteArrayOutputStream intBuf = new java.io.ByteArrayOutputStream();
+
+    // Row 0: id=42, int_values=[1,-1,100] (12 bytes packed), double_values=[1.5,2.5], bool=[true,false]
+    // Row 1: id=7, int_values=15x(-1) (150 bytes packed, 2-byte length varint!), double_values=[3.0,4.0], bool=[true]
+    // Row 2: id=0, int_values=[] (field omitted), double_values=[5.0], bool=[] (field omitted)
+
+    // --- Row 0 ---
+    byte[] r0IntVarints = concatBytes(encodeVarint(1), encodeVarint(-1L & 0xFFFFFFFFFFFFFFFFL), encodeVarint(100));
+    byte[] r0Doubles = concatBytes(encodeDouble(1.5), encodeDouble(2.5));
+    byte[] r0Bools = new byte[]{0x01, 0x00};
+    Byte[] row0 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(42)),
+        box(tag(2, WT_LEN)), box(encodeVarint(r0IntVarints.length)), box(r0IntVarints),
+        box(tag(3, WT_LEN)), box(encodeVarint(r0Doubles.length)), box(r0Doubles),
+        box(tag(4, WT_LEN)), box(encodeVarint(r0Bools.length)), box(r0Bools));
+
+    // --- Row 1: 15 negative ints => 150 bytes packed (length varint is 2 bytes: 0x96 0x01) ---
+    java.io.ByteArrayOutputStream buf1 = new java.io.ByteArrayOutputStream();
+    byte[] negOneVarint = encodeVarint(-1L & 0xFFFFFFFFFFFFFFFFL); // 10 bytes
+    for (int i = 0; i < 15; i++) {
+      buf1.write(negOneVarint, 0, negOneVarint.length);
+    }
+    byte[] r1IntVarints = buf1.toByteArray(); // 150 bytes
+    byte[] r1Doubles = concatBytes(encodeDouble(3.0), encodeDouble(4.0));
+    byte[] r1Bools = new byte[]{0x01};
+    Byte[] row1 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+        box(tag(2, WT_LEN)), box(encodeVarint(r1IntVarints.length)), box(r1IntVarints),
+        box(tag(3, WT_LEN)), box(encodeVarint(r1Doubles.length)), box(r1Doubles),
+        box(tag(4, WT_LEN)), box(encodeVarint(r1Bools.length)), box(r1Bools));
+
+    // --- Row 2: no int_values, no bool_values ---
+    byte[] r2Doubles = encodeDouble(5.0);
+    Byte[] row2 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(0)),
+        box(tag(3, WT_LEN)), box(encodeVarint(r2Doubles.length)), box(r2Doubles));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1, row2}).build()) {
+      try (ColumnVector result = Protobuf.decodeToStruct(
+          input.getColumn(0),
+          new int[]{1, 2, 3, 4},
+          new int[]{-1, -1, -1, -1},
+          new int[]{0, 0, 0, 0},
+          new int[]{WT_VARINT, WT_VARINT, WT_64BIT, WT_VARINT},
+          new int[]{
+            DType.INT32.getTypeId().getNativeId(),
+            DType.INT32.getTypeId().getNativeId(),
+            DType.FLOAT64.getTypeId().getNativeId(),
+            DType.BOOL8.getTypeId().getNativeId()
+          },
+          new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+          new boolean[]{false, true, true, true},
+          new boolean[]{false, false, false, false},
+          new boolean[]{false, false, false, false},
+          new long[]{0, 0, 0, 0},
+          new double[]{0.0, 0.0, 0.0, 0.0},
+          new boolean[]{false, false, false, false},
+          new byte[][]{null, null, null, null},
+          new int[][]{null, null, null, null},
+          false)) {
+        assertNotNull(result);
+        assertEquals(DType.STRUCT, result.getType());
+        assertEquals(3, result.getRowCount());
+
+        // Verify double_values child column has correct total count: 2 + 2 + 1 = 5
+        try (ColumnVector doubleListCol = result.getChildColumnView(2).copyToColumnVector()) {
+          assertEquals(DType.LIST, doubleListCol.getType());
+          try (ColumnVector doubleChildren = doubleListCol.getChildColumnView(0).copyToColumnVector()) {
+            assertEquals(DType.FLOAT64, doubleChildren.getType());
+            assertEquals(5, doubleChildren.getRowCount(),
+                "Total packed doubles across 3 rows should be 5, got " + doubleChildren.getRowCount());
+            try (HostColumnVector hd = doubleChildren.copyToHost()) {
+              assertEquals(1.5, hd.getDouble(0), 1e-10);
+              assertEquals(2.5, hd.getDouble(1), 1e-10);
+              assertEquals(3.0, hd.getDouble(2), 1e-10);
+              assertEquals(4.0, hd.getDouble(3), 1e-10);
+              assertEquals(5.0, hd.getDouble(4), 1e-10);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** Helper: concatenate byte arrays */
+  private static byte[] concatBytes(byte[]... arrays) {
+    int len = 0;
+    for (byte[] a : arrays) len += a.length;
+    byte[] out = new byte[len];
+    int pos = 0;
+    for (byte[] a : arrays) {
+      System.arraycopy(a, 0, out, pos, a.length);
+      pos += a.length;
+    }
+    return out;
+  }
+
+  @Test
   void testNestedMessage() {
     // message Inner { int32 x = 1; }
     // message Outer { Inner inner = 1; }

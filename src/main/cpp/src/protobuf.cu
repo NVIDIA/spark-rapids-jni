@@ -4223,6 +4223,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
         field_info[row] = h_repeated_info[row * num_repeated + ri];
       }
 
+
       if (total_count > 0) {
         // Build offsets for occurrence scanning on GPU (performance fix!)
         rmm::device_uvector<int32_t> d_occ_offsets(num_rows + 1, stream, mr);
