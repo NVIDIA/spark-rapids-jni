@@ -434,7 +434,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           push_context(evaluation_case_path::START_ARRAY___EMPTY_PATH___FLATTEN_STYLE,
                        ctx.g,
                        ctx.style,
-                       {nullptr, 0});
+                       cudf::device_span<path_instruction const>{});
         } else {
           // END_ARRAY
           ctx.task_is_done = true;
