@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/null_mask.hpp>
@@ -678,7 +677,7 @@ struct string_to_integer_impl {
       ansi_mode,
       strip);
 
-    auto null_count = cudf::detail::null_count(null_mask.data(), 0, string_col.size(), stream);
+    auto null_count = cudf::null_count(null_mask.data(), 0, string_col.size(), stream);
 
     auto col = std::make_unique<column>(data_type{type_to_id<T>()},
                                         string_col.size(),
@@ -748,7 +747,7 @@ struct string_to_decimal_impl {
       precision,
       strip);
 
-    auto null_count = cudf::detail::null_count(null_mask.data(), 0, string_col.size(), stream);
+    auto null_count = cudf::null_count(null_mask.data(), 0, string_col.size(), stream);
 
     auto col = std::make_unique<column>(
       dtype, string_col.size(), data.release(), null_mask.release(), null_count);

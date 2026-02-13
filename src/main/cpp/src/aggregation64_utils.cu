@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 #include "aggregation64_utils.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/utilities/error.hpp>
 
 #include <rmm/exec_policy.hpp>
@@ -88,7 +88,7 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
   auto const num_rows = in_col.size();
   auto out_col        = cudf::make_fixed_width_column(type,
                                                num_rows,
-                                               cudf::detail::copy_bitmask(in_col, stream, mr),
+                                               cudf::copy_bitmask(in_col, stream, mr),
                                                in_col.null_count(),
                                                stream,
                                                mr);
@@ -133,13 +133,13 @@ std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_
   std::vector<std::unique_ptr<cudf::column>> columns;
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
                                                   num_rows,
-                                                  cudf::detail::copy_bitmask(chunks0, stream, mr),
+                                                  cudf::copy_bitmask(chunks0, stream, mr),
                                                   chunks0.null_count(),
                                                   stream,
                                                   mr));
   columns.push_back(cudf::make_fixed_width_column(output_type,
                                                   num_rows,
-                                                  cudf::detail::copy_bitmask(chunks0, stream, mr),
+                                                  cudf::copy_bitmask(chunks0, stream, mr),
                                                   chunks0.null_count(),
                                                   stream,
                                                   mr));

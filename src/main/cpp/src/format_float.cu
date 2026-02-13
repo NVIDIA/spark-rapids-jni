@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 #include "ftos_converter.cuh"
 
 #include <cudf/column/column_device_view.cuh>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/utilities/type_dispatcher.hpp>
 
@@ -92,7 +92,7 @@ struct dispatch_format_float_fn {
                                      std::move(offsets),
                                      chars.release(),
                                      floats.null_count(),
-                                     cudf::detail::copy_bitmask(floats, stream, mr));
+                                     cudf::copy_bitmask(floats, stream, mr));
   }
 
   // non-float types throw an exception

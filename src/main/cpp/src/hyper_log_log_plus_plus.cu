@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,11 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/span.hpp>
@@ -417,7 +417,7 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
       // 1. compute all the hashs
       auto input_table_view = cudf::table_view{{input}};
       auto hash_col         = xxhash64(input_table_view, SEED, stream, default_mr);
-      hash_col->set_null_mask(cudf::detail::copy_bitmask(input, stream, default_mr),
+      hash_col->set_null_mask(cudf::copy_bitmask(input, stream, default_mr),
                               input.null_count());
       auto d_hashs = cudf::column_device_view::create(hash_col->view(), stream);
 
@@ -736,7 +736,7 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
   auto input_table_view = cudf::table_view{{input}};
   auto const default_mr = cudf::get_current_device_resource_ref();
   auto hash_col         = xxhash64(input_table_view, SEED, stream, default_mr);
-  hash_col->set_null_mask(cudf::detail::copy_bitmask(input, stream, default_mr),
+  hash_col->set_null_mask(cudf::copy_bitmask(input, stream, default_mr),
                           input.null_count());
   auto d_hashs = cudf::column_device_view::create(hash_col->view(), stream);
 
