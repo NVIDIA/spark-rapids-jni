@@ -305,8 +305,9 @@ std::unique_ptr<cudf::column> truncate_datetime(cudf::column_view const& datetim
 
   auto [null_mask, null_count] =
     cudf::bools_to_mask(cudf::device_span<bool const>(validity), stream, mr);
-  output->set_null_mask(null_count > 0 ? std::move(*null_mask.release()) : rmm::device_buffer{0, stream, mr},
-                        null_count);
+  output->set_null_mask(
+    null_count > 0 ? std::move(*null_mask.release()) : rmm::device_buffer{0, stream, mr},
+    null_count);
   return output;
 }
 

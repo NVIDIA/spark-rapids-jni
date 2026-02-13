@@ -973,8 +973,8 @@ std::unique_ptr<cudf::table> multiply_decimal128(cudf::column_view const& a,
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
+  auto [result_null_mask, result_null_count] =
+    cudf::bitmask_and(cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1008,8 +1008,8 @@ std::unique_ptr<cudf::table> divide_decimal128(cudf::column_view const& a,
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
+  auto [result_null_mask, result_null_count] =
+    cudf::bitmask_and(cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1042,8 +1042,8 @@ std::unique_ptr<cudf::table> integer_divide_decimal128(cudf::column_view const& 
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
+  auto [result_null_mask, result_null_count] =
+    cudf::bitmask_and(cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1075,8 +1075,8 @@ std::unique_ptr<cudf::table> remainder_decimal128(cudf::column_view const& a,
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
+  auto [result_null_mask, result_null_count] =
+    cudf::bitmask_and(cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1108,8 +1108,8 @@ std::unique_ptr<cudf::table> add_decimal128(cudf::column_view const& a,
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
+  auto [result_null_mask, result_null_count] =
+    cudf::bitmask_and(cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1141,8 +1141,8 @@ std::unique_ptr<cudf::table> sub_decimal128(cudf::column_view const& a,
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
+  auto [result_null_mask, result_null_count] =
+    cudf::bitmask_and(cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
