@@ -417,8 +417,7 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
       // 1. compute all the hashs
       auto input_table_view = cudf::table_view{{input}};
       auto hash_col         = xxhash64(input_table_view, SEED, stream, default_mr);
-      hash_col->set_null_mask(cudf::copy_bitmask(input, stream, default_mr),
-                              input.null_count());
+      hash_col->set_null_mask(cudf::copy_bitmask(input, stream, default_mr), input.null_count());
       auto d_hashs = cudf::column_device_view::create(hash_col->view(), stream);
 
       // 2. execute partial group by

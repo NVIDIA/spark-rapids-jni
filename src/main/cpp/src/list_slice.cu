@@ -302,9 +302,8 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                                    int_iterator_from_scalar(length),
                                                    stream);
 
-  auto [null_mask, null_count] =
-    cudf::bitmask_and(table_view{{input.parent(), start}}, stream, mr);
-  auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
+  auto [null_mask, null_count] = cudf::bitmask_and(table_view{{input.parent(), start}}, stream, mr);
+  auto result                  = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
 }

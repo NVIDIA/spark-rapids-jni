@@ -86,13 +86,9 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
                "Output type must be a 32-bit integer type (INT32 or UINT32).");
 
   auto const num_rows = in_col.size();
-  auto out_col        = cudf::make_fixed_width_column(type,
-                                               num_rows,
-                                               cudf::copy_bitmask(in_col, stream, mr),
-                                               in_col.null_count(),
-                                               stream,
-                                               mr);
-  auto out_view       = out_col->mutable_view();
+  auto out_col        = cudf::make_fixed_width_column(
+    type, num_rows, cudf::copy_bitmask(in_col, stream, mr), in_col.null_count(), stream, mr);
+  auto out_view = out_col->mutable_view();
 
   if (chunk_idx == 0) {  // Extract lower 32 bits
     thrust::transform(rmm::exec_policy_nosync(stream),

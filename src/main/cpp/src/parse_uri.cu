@@ -22,8 +22,8 @@
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/null_mask.hpp>
 #include <cudf/lists/lists_column_device_view.cuh>
+#include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/convert/convert_urls.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
@@ -982,8 +982,8 @@ void validate_input_uris(strings_column_view const& input, rmm::cuda_stream_view
 
   auto [validation_mask, null_count] =
     cudf::bools_to_mask(cudf::device_span<bool const>(validity_flags),
-                           stream,
-                           rmm::mr::get_current_device_resource_ref());
+                        stream,
+                        rmm::mr::get_current_device_resource_ref());
 
   // Create validation column for throw_row_error_if_any
   auto validation_column = std::make_unique<column>(
