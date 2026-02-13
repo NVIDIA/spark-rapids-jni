@@ -1099,7 +1099,7 @@ std::unique_ptr<cudf::column> parse_to_date(cudf::strings_column_view const& inp
       *d_input, validity.begin(), result->mutable_view().begin<cudf::timestamp_D>()});
 
   auto [output_bitmask, null_count] =
-    cudf::bools_to_bitmask(cudf::device_span<bool const>(validity), stream, mr);
+    cudf::bools_to_mask(cudf::device_span<bool const>(validity), stream, mr);
   if (null_count) { result->set_null_mask(std::move(*output_bitmask.release()), null_count); }
 
   return result;
