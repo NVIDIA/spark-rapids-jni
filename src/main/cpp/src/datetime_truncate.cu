@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,9 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/string_view.hpp>
+#include <cudf/transform.hpp>
+#include <cudf/utilities/span.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -303,8 +304,8 @@ std::unique_ptr<cudf::column> truncate_datetime(cudf::column_view const& datetim
   }
 
   auto [null_mask, null_count] =
-    cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
-  output->set_null_mask(null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr},
+    cudf::bools_to_mask(cudf::device_span<bool const>(validity), stream, mr);
+  output->set_null_mask(null_count > 0 ? std::move(*null_mask.release()) : rmm::device_buffer{0, stream, mr},
                         null_count);
   return output;
 }

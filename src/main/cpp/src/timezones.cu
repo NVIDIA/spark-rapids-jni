@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,11 +21,11 @@
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
+#include <cudf/null_mask.hpp>
 #include <cudf/table/table.hpp>
+#include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -95,7 +95,7 @@ auto convert_timestamp_tz(column_view const& input,
 
   auto results = cudf::make_timestamp_column(input.type(),
                                              input.size(),
-                                             cudf::detail::copy_bitmask(input, stream, mr),
+                                             cudf::copy_bitmask(input, stream, mr),
                                              input.null_count(),
                                              stream,
                                              mr);
@@ -132,7 +132,7 @@ struct convert_with_timezones_fn {
 
   // outputs
   cudf::timestamp_us* output;
-  uint8_t* output_mask;
+  bool* output_mask;
 
   /**
    * @brief Convert the timestamp from UTC to a specified timezone
@@ -144,7 +144,7 @@ struct convert_with_timezones_fn {
     // 1. check if the input is invalid
     if (invalid[row_idx]) {
       output[row_idx]      = cudf::timestamp_us{cudf::duration_us{0L}};
-      output_mask[row_idx] = 0;
+      output_mask[row_idx] = false;
       return;
     }
 
@@ -174,11 +174,11 @@ struct convert_with_timezones_fn {
           converted_seconds, input_microseconds[row_idx], result)) {
       // overflowed
       output[row_idx]      = cudf::timestamp_us{cudf::duration_us{0L}};
-      output_mask[row_idx] = 0;
+      output_mask[row_idx] = false;
     } else {
       // not overflowed
       output[row_idx]      = cudf::timestamp_us{cudf::duration_us{result}};
-      output_mask[row_idx] = 1;
+      output_mask[row_idx] = true;
     }
   }
 };
@@ -213,7 +213,7 @@ std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
                                             0,
                                             stream,
                                             mr);
-  auto null_mask = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::UINT8},
+  auto null_mask = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
                                                  input_seconds.size(),
                                                  cudf::mask_state::UNALLOCATED,
                                                  stream,
@@ -231,14 +231,10 @@ std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
                                                dst_rules,
                                                tz_indices.begin<int32_t>(),
                                                result->mutable_view().begin<cudf::timestamp_us>(),
-                                               null_mask->mutable_view().begin<uint8_t>()});
+                                               null_mask->mutable_view().begin<bool>()});
 
-  auto [output_bitmask, null_count] = cudf::detail::valid_if(null_mask->view().begin<uint8_t>(),
-                                                             null_mask->view().end<uint8_t>(),
-                                                             cuda::std::identity{},
-                                                             stream,
-                                                             mr);
-  if (null_count) { result->set_null_mask(std::move(output_bitmask), null_count); }
+  auto [output_bitmask, null_count] = cudf::bools_to_mask(null_mask->view(), stream, mr);
+  if (null_count) { result->set_null_mask(std::move(*output_bitmask.release()), null_count); }
 
   return result;
 }
@@ -394,7 +390,7 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
                "Input column must be of type TIMESTAMP_MICROSECONDS");
   auto results = cudf::make_timestamp_column(input.type(),
                                              input.size(),
-                                             cudf::detail::copy_bitmask(input, stream, mr),
+                                             cudf::copy_bitmask(input, stream, mr),
                                              input.null_count(),
                                              stream,
                                              mr);
