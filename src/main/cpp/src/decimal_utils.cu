@@ -1359,7 +1359,7 @@ struct floating_point_to_decimal_dispatcher {
             CUDF_ENABLE_IF(supported_types<FloatType, DecimalType>())>
   void operator()(cudf::column_view const& input,
                   cudf::mutable_column_view const& output,
-                  int8_t* validity,
+                  bool* validity,
                   cudf::size_type* failure_row_id,
                   int32_t decimal_places,
                   int32_t precision,
