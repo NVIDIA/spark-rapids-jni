@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,10 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/fixed_point/fixed_point.hpp>
 #include <cudf/lists/lists_column_view.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/bit.hpp>
@@ -398,7 +398,7 @@ std::unique_ptr<cudf::column> compute_bucket_impl(cudf::column_view const& input
   // Create output column with INT32 type
   auto output = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               num_rows,
-                                              cudf::detail::copy_bitmask(input, stream, mr),
+                                              cudf::copy_bitmask(input, stream, mr),
                                               input.null_count(),
                                               stream,
                                               mr);
