@@ -19,6 +19,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <limits>
 
 // TCompactProtocol requires some #defines to work right.
 // This came from the parquet code itself...
@@ -48,7 +49,8 @@ std::string unicode_to_lower(std::string const& input)
   const char* mbstr          = input.data();
   // get the size of the wide character result
   std::size_t wide_size = std::mbsrtowcs(nullptr, &mbstr, 0, &to_wc_state);
-  if (wide_size < 0) { throw std::invalid_argument("invalid character sequence"); }
+  auto const invalid_size = std::numeric_limits<std::size_t>::max();
+  if (wide_size == invalid_size) { throw std::invalid_argument("invalid character sequence"); }
 
   std::vector<wchar_t> wide(wide_size + 1);
   // Set a null so we can get a proper output size from wcstombs. This is because
@@ -64,7 +66,7 @@ std::string unicode_to_lower(std::string const& input)
   std::mbstate_t from_wc_state = std::mbstate_t();
   const wchar_t* wcstr         = wide.data();
   std::size_t mb_size          = std::wcsrtombs(nullptr, &wcstr, 0, &from_wc_state);
-  if (mb_size < 0) { throw std::invalid_argument("unsupported wide character sequence"); }
+  if (mb_size == invalid_size) { throw std::invalid_argument("unsupported wide character sequence"); }
   // We are allocating a fixed size string so we can put the data directly into it
   // instead of going through a NUL terminated char* first. The NUL fill char is
   // just because we need to pass in a fill char. The value does not matter
@@ -122,7 +124,7 @@ class column_pruner {
     add_depth_first(names, num_children, tags, parent_num_children);
   }
 
-  column_pruner(Tag const in_tag) : children(), tag(in_tag) {}
+  explicit column_pruner(Tag const in_tag) : children(), tag(in_tag) {}
 
   column_pruner() : children(), tag(Tag::STRUCT) {}
 
@@ -550,23 +552,22 @@ class column_pruner {
       if (num_c > 0) {
         tree_stack.push_back(&tree_stack.back()->children[name]);
         num_children_stack.push_back(num_c);
-      } else {
-        // go back up the stack/tree removing children until we hit one with more children
-        bool done = false;
-        while (!done) {
-          int parent_children_left = num_children_stack.back() - 1;
-          if (parent_children_left > 0) {
-            num_children_stack.back() = parent_children_left;
-            done                      = true;
-          } else {
-            tree_stack.pop_back();
-            num_children_stack.pop_back();
-          }
-
-          if (tree_stack.size() <= 0) { done = true; }
-        }
+        continue;
       }
+
+      // go back up the stack/tree removing children until we hit one with more children
+      do {
+        int parent_children_left = num_children_stack.back() - 1;
+        if (parent_children_left > 0) {
+          num_children_stack.back() = parent_children_left;
+          break;
+        }
+
+        tree_stack.pop_back();
+        num_children_stack.pop_back();
+      } while (tree_stack.size() > 0);
     }
+
     if (tree_stack.size() != 0 || num_children_stack.size() != 0) {
       throw std::invalid_argument("DIDN'T CONSUME EVERYTHING...");
     }
@@ -632,13 +633,9 @@ static std::vector<parquet::format::RowGroup> filter_groups(
       // see PARQUET-2078 for details
       start_index = row_group.file_offset;
       if (invalid_file_offset(start_index, pre_start_index, pre_compressed_size)) {
-        // first row group's offset is always 4
-        if (pre_start_index == 0) {
-          start_index = 4;
-        } else {
-          // use minStartIndex(imprecise in case of padding, but good enough for filtering)
-          start_index = pre_start_index + pre_compressed_size;
-        }
+        // first row group's offset is always 4, else
+        // use minStartIndex(imprecise in case of padding, but good enough for filtering)
+        start_index = (pre_start_index == 0) ? 4 : pre_start_index + pre_compressed_size;
       }
       pre_start_index     = start_index;
       pre_compressed_size = row_group.total_compressed_size;

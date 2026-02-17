@@ -224,77 +224,80 @@ class KudoTableMerger implements SimpleSchemaVisitor {
   private void deserializeOffsetBuffer(ColumnOffsetInfo curColOffset) {
     Arrays.fill(sliceInfoBuf, EMPTY_SLICE);
 
-    if (curColOffset.getOffset() != INVALID_OFFSET) {
-      long outputOffset = curColOffset.getOffset();
-      HostMemoryBuffer offsetBuf = buffer;
+    if (curColOffset.getOffset() == INVALID_OFFSET) {
+      return;
+    }
 
-      int accumulatedDataLen = 0;
+    long outputOffset = curColOffset.getOffset();
+    HostMemoryBuffer offsetBuf = buffer;
 
-      for (int tableIdx = 0; tableIdx < kudoTables.length; tableIdx += 1) {
-        SliceInfo sliceInfo = sliceInfoOf(tableIdx);
-        if (sliceInfo.getRowCount() > 0) {
-          int rowCnt = sliceInfo.getRowCount();
+    int accumulatedDataLen = 0;
 
-          int firstOffset = offsetOf(tableIdx, 0);
-          int lastOffset = offsetOf(tableIdx, rowCnt);
-          long inputOffset = offsetOffsets[tableIdx];
-
-          if (firstOffset < 0 || lastOffset < firstOffset) {
-            if (KUDO_SANITY_CHECK) {
-              int[] offsetValues = new int[rowCnt];
-              for (int i = 0; i < rowCnt; i++) {
-                offsetValues[i] = offsetOf(tableIdx, i);
-              }
-              LOG.error("Invalid offset values: [{}], table index: {}, row count: {}, " +
-                      "first offset: {}, last offset: {}, kudo table header: {}",
-                  Arrays.toString(offsetValues), tableIdx, rowCnt, firstOffset, lastOffset,
-                  kudoTables[tableIdx].getHeader());
-            }
-            throw new IllegalArgumentException("Invalid kudo offset buffer content, first offset: "
-                + firstOffset + ", last offset: " + lastOffset);
-          }
-
-          while (rowCnt > 0) {
-            int arrLen = min(rowCnt, min(inputBuf.length, outputBuf.length));
-            kudoTables[tableIdx].getBuffer().getInts(inputBuf, 0, inputOffset, arrLen);
-
-            boolean isValid = true;
-            for (int i = 0; i < arrLen; i++) {
-              outputBuf[i] = inputBuf[i] - firstOffset + accumulatedDataLen;
-              isValid = isValid && (outputBuf[i] >= 0);
-            }
-
-            if (!isValid) {
-              if (KUDO_SANITY_CHECK) {
-                int[] offsetValues = new int[sliceInfo.getRowCount()];
-                for (int i = 0; i < sliceInfo.getRowCount(); i++) {
-                  offsetValues[i] = offsetOf(tableIdx, i);
-                }
-                LOG.error("Negative output offset found, invalid offset values: [{}], " +
-                        "table index: {}, row count: {}, kudo table header: {}",
-                    Arrays.toString(offsetValues), tableIdx, sliceInfo.getRowCount(),
-                    kudoTables[tableIdx].getHeader());
-              }
-              throw new IllegalArgumentException("Invalid kudo offset buffer content: " +
-                  "negative output offset found");
-            }
-
-            offsetBuf.setInts(outputOffset, outputBuf, 0, arrLen);
-            rowCnt -= arrLen;
-            inputOffset += arrLen * (long) Integer.BYTES;
-            outputOffset += arrLen * (long) Integer.BYTES;
-          }
-
-          sliceInfoBuf[tableIdx] = new SliceInfo(firstOffset, lastOffset - firstOffset);
-          long newAccumulatedDataLen = accumulatedDataLen + (long)(lastOffset - firstOffset);
-          accumulatedDataLen = toIntExact(newAccumulatedDataLen);
-        } else {
-          sliceInfoBuf[tableIdx] = EMPTY_SLICE;
-        }
+    for (int tableIdx = 0; tableIdx < kudoTables.length; tableIdx += 1) {
+      SliceInfo sliceInfo = sliceInfoOf(tableIdx);
+      if (sliceInfo.getRowCount() <= 0) {
+        sliceInfoBuf[tableIdx] = EMPTY_SLICE;
+        continue;
       }
 
-      offsetBuf.setInt(outputOffset, accumulatedDataLen);
+      int rowCnt = sliceInfo.getRowCount();
+
+      int firstOffset = offsetOf(tableIdx, 0);
+      int lastOffset = offsetOf(tableIdx, rowCnt);
+      long inputOffset = offsetOffsets[tableIdx];
+
+      if (firstOffset < 0 || lastOffset < firstOffset) {
+        if (KUDO_SANITY_CHECK) {
+          int[] offsetValues = new int[rowCnt];
+          for (int i = 0; i < rowCnt; i++) {
+            offsetValues[i] = offsetOf(tableIdx, i);
+          }
+          LOG.error("Invalid offset values: [{}], table index: {}, row count: {}, " +
+                  "first offset: {}, last offset: {}, kudo table header: {}",
+              Arrays.toString(offsetValues), tableIdx, rowCnt, firstOffset, lastOffset,
+              kudoTables[tableIdx].getHeader());
+        }
+        throw new IllegalArgumentException("Invalid kudo offset buffer content, first offset: "
+            + firstOffset + ", last offset: " + lastOffset);
+      }
+
+      while (rowCnt > 0) {
+        int arrLen = min(rowCnt, min(inputBuf.length, outputBuf.length));
+        kudoTables[tableIdx].getBuffer().getInts(inputBuf, 0, inputOffset, arrLen);
+
+        boolean isValid = true;
+        for (int i = 0; i < arrLen; i++) {
+          outputBuf[i] = inputBuf[i] - firstOffset + accumulatedDataLen;
+          isValid = isValid && (outputBuf[i] >= 0);
+        }
+
+        if (!isValid) {
+          if (KUDO_SANITY_CHECK) {
+            int[] offsetValues = new int[sliceInfo.getRowCount()];
+            for (int i = 0; i < sliceInfo.getRowCount(); i++) {
+              offsetValues[i] = offsetOf(tableIdx, i);
+            }
+            LOG.error("Negative output offset found, invalid offset values: [{}], " +
+                    "table index: {}, row count: {}, kudo table header: {}",
+                Arrays.toString(offsetValues), tableIdx, sliceInfo.getRowCount(),
+                kudoTables[tableIdx].getHeader());
+          }
+          throw new IllegalArgumentException("Invalid kudo offset buffer content: " +
+              "negative output offset found");
+        }
+
+        offsetBuf.setInts(outputOffset, outputBuf, 0, arrLen);
+        rowCnt -= arrLen;
+        inputOffset += arrLen * (long) Integer.BYTES;
+        outputOffset += arrLen * (long) Integer.BYTES;
+      }
+
+      sliceInfoBuf[tableIdx] = new SliceInfo(firstOffset, lastOffset - firstOffset);
+      long newAccumulatedDataLen = accumulatedDataLen + (long)(lastOffset - firstOffset);
+      accumulatedDataLen = toIntExact(newAccumulatedDataLen);
     }
+
+    offsetBuf.setInt(outputOffset, accumulatedDataLen);
   }
 
   private void deserializeDataBuffer(ColumnOffsetInfo curColOffset, OptionalInt sizeInBytes) {

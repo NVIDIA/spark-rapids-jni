@@ -380,12 +380,6 @@ class thread_priority {
     return false;
   }
 
-  void operator=(const thread_priority& other)
-  {
-    task_priority = other.task_priority;
-    thread_id     = other.thread_id;
-  }
-
  private:
   long task_priority;
   long thread_id;
@@ -2048,65 +2042,65 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
                               std::unique_lock<std::mutex>& lock)
   {
     auto const thread = threads.find(thread_id);
-    // only retry if this was due to an out of memory exception.
-    bool ret = true;
-    if (!was_recursive && thread != threads.end()) {
-      if (thread->second.is_cpu_alloc != is_for_cpu) {
-        std::stringstream ss;
-        ss << "thread " << thread_id << " has a mismatch on CPU vs GPU post alloc "
-           << as_str(thread->second.state);
-
-        throw std::invalid_argument(ss.str());
-      }
-
-      switch (thread->second.state) {
-        case thread_state::THREAD_ALLOC_FREE:
-          transition(thread->second, thread_state::THREAD_RUNNING);
-          break;
-        case thread_state::THREAD_ALLOC:
-          if (is_oom && thread->second.is_retry_alloc_before_bufn) {
-            if (thread->second.is_retry_alloc_before_bufn) {
-              thread->second.is_retry_alloc_before_bufn = false;
-              LOG_STATUS(
-                "DETAIL",
-                thread_id,
-                thread->second.task_id,
-                thread->second.state,
-                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
-                thread_id);
-            }
-            transition(thread->second, thread_state::THREAD_BUFN_THROW);
-            thread->second.wake_condition->notify_all();
-          } else if (is_oom && blocking) {
-            if (thread->second.is_retry_alloc_before_bufn) {
-              thread->second.is_retry_alloc_before_bufn = false;
-              LOG_STATUS(
-                "DETAIL",
-                thread_id,
-                thread->second.task_id,
-                thread->second.state,
-                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
-                thread_id);
-            }
-            transition(thread->second, thread_state::THREAD_BLOCKED);
-          } else {
-            // don't block unless it is OOM on a blocking allocation
-            transition(thread->second, thread_state::THREAD_RUNNING);
-          }
-          break;
-        default: {
-          std::stringstream ss;
-          ss << "Internal error: unexpected state after alloc failed " << thread_id << " "
-             << as_str(thread->second.state);
-          throw std::runtime_error(ss.str());
-        }
-      }
-    } else {
-      // do not retry if the thread is not registered...
-      ret = false;
+    if (was_recursive || thread == threads.end()) {
+      check_and_update_for_bufn_state_machine_only(lock);
+      return false;
     }
+
+    // only retry if this was due to an out of memory exception.
+    if (thread->second.is_cpu_alloc != is_for_cpu) {
+      std::stringstream ss;
+      ss << "thread " << thread_id << " has a mismatch on CPU vs GPU post alloc "
+          << as_str(thread->second.state);
+
+      throw std::invalid_argument(ss.str());
+    }
+
+    switch (thread->second.state) {
+      case thread_state::THREAD_ALLOC_FREE:
+        transition(thread->second, thread_state::THREAD_RUNNING);
+        break;
+      case thread_state::THREAD_ALLOC:
+        if (is_oom && thread->second.is_retry_alloc_before_bufn) {
+          if (thread->second.is_retry_alloc_before_bufn) {
+            thread->second.is_retry_alloc_before_bufn = false;
+            LOG_STATUS(
+              "DETAIL",
+              thread_id,
+              thread->second.task_id,
+              thread->second.state,
+              "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
+              thread_id);
+          }
+          transition(thread->second, thread_state::THREAD_BUFN_THROW);
+          thread->second.wake_condition->notify_all();
+        } else if (is_oom && blocking) {
+          if (thread->second.is_retry_alloc_before_bufn) {
+            thread->second.is_retry_alloc_before_bufn = false;
+            LOG_STATUS(
+              "DETAIL",
+              thread_id,
+              thread->second.task_id,
+              thread->second.state,
+              "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
+              thread_id);
+          }
+          transition(thread->second, thread_state::THREAD_BLOCKED);
+        } else {
+          // don't block unless it is OOM on a blocking allocation
+          transition(thread->second, thread_state::THREAD_RUNNING);
+        }
+        break;
+      default: {
+        std::stringstream ss;
+        ss << "Internal error: unexpected state after alloc failed " << thread_id << " "
+            << as_str(thread->second.state);
+        throw std::runtime_error(ss.str());
+      }
+    }
+
     check_and_update_for_bufn_state_machine_only(lock);
-    return ret;
+    return true;
   }
 
   void* do_allocate(std::size_t const num_bytes, rmm::cuda_stream_view stream) override

@@ -154,44 +154,50 @@ public class NVMLMonitor {
             try {
                 NVMLResult<GPUInfo>[] results = NVML.getAllGPUInfo();
 
-                if (results != null && results.length > 0) {
-                    // Extract successful GPUInfo objects
-                    List<GPUInfo> successfulInfos = new ArrayList<>();
-                    for (NVMLResult<GPUInfo> result : results) {
-                        // We will still add nulls to the list to maintain the same index for the lifecycle stats
-                        // but they will be ignored in the stats update.
-                        successfulInfos.add(result.getData());
-                    }
-                    GPUInfo[] gpuInfos = successfulInfos.toArray(new GPUInfo[0]);
+                if (results == null || results.length == 0) {
+                    Thread.sleep(intervalMs);
+                    continue;
+                }
 
-                    if (gpuInfos.length > 0) {
-                        long timestamp = System.currentTimeMillis();
+                // Extract successful GPUInfo objects
+                List<GPUInfo> successfulInfos = new ArrayList<>();
+                for (NVMLResult<GPUInfo> result : results) {
+                    // We will still add nulls to the list to maintain the same index for the lifecycle stats
+                    // but they will be ignored in the stats update.
+                    successfulInfos.add(result.getData());
+                }
+                GPUInfo[] gpuInfos = successfulInfos.toArray(new GPUInfo[0]);
 
-                        // Update lifecycle statistics
-                        for (int i = 0; i < gpuInfos.length; i++) {
-                            GPUInfo info = gpuInfos[i];
-                            if (info != null && info.deviceInfo != null) {
-                                GPULifecycleStats stats = lifecycleStats.get(i);
-                                if (stats != null) {
-                                    stats.addSample(info);
-                                }
-                            }
-                        }
+                if (gpuInfos.length == 0) {
+                    Thread.sleep(intervalMs);
+                    continue;
+                }
 
-                        // Verbose output
-                        if (verbose) {
-                            logger.info("=== GPU Status Update ===");
-                            for (GPUInfo info : gpuInfos) {
-                                logger.info(info.toString());
-                            }
-                            logger.info("");
-                        }
+                long timestamp = System.currentTimeMillis();
 
-                        // Callback notification
-                        if (callback != null) {
-                            callback.onGPUUpdate(gpuInfos, timestamp);
+                // Update lifecycle statistics
+                for (int i = 0; i < gpuInfos.length; i++) {
+                    GPUInfo info = gpuInfos[i];
+                    if (info != null && info.deviceInfo != null) {
+                        GPULifecycleStats stats = lifecycleStats.get(i);
+                        if (stats != null) {
+                            stats.addSample(info);
                         }
                     }
+                }
+
+                // Verbose output
+                if (verbose) {
+                    logger.info("=== GPU Status Update ===");
+                    for (GPUInfo info : gpuInfos) {
+                        logger.info(info.toString());
+                    }
+                    logger.info("");
+                }
+
+                // Callback notification
+                if (callback != null) {
+                    callback.onGPUUpdate(gpuInfos, timestamp);
                 }
 
                 Thread.sleep(intervalMs);
