@@ -2062,16 +2062,14 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         break;
       case thread_state::THREAD_ALLOC:
         if (is_oom && thread->second.is_retry_alloc_before_bufn) {
-          if (thread->second.is_retry_alloc_before_bufn) {
-            thread->second.is_retry_alloc_before_bufn = false;
-            LOG_STATUS(
-              "DETAIL",
-              thread_id,
-              thread->second.task_id,
-              thread->second.state,
-              "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
-              thread_id);
-          }
+          thread->second.is_retry_alloc_before_bufn = false;
+          LOG_STATUS(
+            "DETAIL",
+            thread_id,
+            thread->second.task_id,
+            thread->second.state,
+            "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
+            thread_id);
           transition(thread->second, thread_state::THREAD_BUFN_THROW);
           thread->second.wake_condition->notify_all();
         } else if (is_oom && blocking) {
