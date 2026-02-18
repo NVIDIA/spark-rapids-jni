@@ -192,5 +192,5 @@ public class Hash {
   private static native long sha384NullsPreserved(long columnHandle) throws CudfException;
   private static native long sha512NullsPreserved(long columnHandle) throws CudfException;
 
-  public static native long hostCrc32(long crc, long bufferHandle, int len) throws CudfException;
+  private static native long hostCrc32(long crc, long bufferHandle, int len) throws CudfException;
 }

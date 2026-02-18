@@ -146,7 +146,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_hostCrc32(
   JNI_TRY
   {
     auto const buffer_addr = reinterpret_cast<unsigned char*>(buffer_handle);
-    return crc32(static_cast<uint64_t>(crc), buffer_addr, static_cast<uint32_t>(len));
+    return crc32(static_cast<uLong>(crc), buffer_addr, static_cast<uInt>(len));
   }
   JNI_CATCH(env, 0);
 }
