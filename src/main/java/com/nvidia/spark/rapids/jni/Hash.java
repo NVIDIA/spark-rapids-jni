@@ -20,6 +20,7 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.HostMemoryBuffer;
 import ai.rapids.cudf.NativeDepsLoader;
 
 public class Hash {
@@ -160,6 +161,23 @@ public class Hash {
     return new ColumnVector(sha512NullsPreserved(column.getNativeView()));
   }
 
+  /**
+   * Return the CRC32 checksum of the data in the given HostMemoryBuffer, starting with the provided initial CRC value.
+   * The checksum is computed on the host (CPU) using zlib's crc32 function.
+   * 
+   * @param crc the initial CRC value
+   * @param buffer the HostMemoryBuffer containing the data to checksum
+   * @return the computed CRC32 checksum
+   */
+  public static long hostCrc32(long crc, HostMemoryBuffer buffer) {
+    // zlib's crc32 function takes an unsigned int for the length, but Java's byte arrays are indexed with ints, so this should be safe.
+    long len = buffer.getLength();
+    if (len < 0 || len > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("Buffer length must be between 0 and " + Integer.MAX_VALUE);
+    }
+    return hostCrc32(crc, buffer.getAddress(), (int)len);
+  }
+
   private static native int getMaxStackDepth();
 
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
@@ -173,4 +191,6 @@ public class Hash {
   private static native long sha256NullsPreserved(long columnHandle) throws CudfException;
   private static native long sha384NullsPreserved(long columnHandle) throws CudfException;
   private static native long sha512NullsPreserved(long columnHandle) throws CudfException;
+
+  public static native long hostCrc32(long crc, long bufferHandle, int len) throws CudfException;
 }

@@ -19,6 +19,8 @@
 #include "hash.hpp"
 #include "jni_utils.hpp"
 
+#include <zlib.h>
+
 extern "C" {
 
 JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_Hash_getMaxStackDepth(JNIEnv* env, jclass)
@@ -127,4 +129,27 @@ Java_com_nvidia_spark_rapids_jni_Hash_sha512NullsPreserved(JNIEnv* env, jclass, 
   }
   JNI_CATCH(env, 0);
 }
+
+/**
+ * @brief Compute the CRC32 checksum of the data in the given buffer on the host (CPU).
+ * 
+ * @param crc the initial CRC value
+ * @param buffer_handle the address of the buffer containing the data to checksum. Null is allowed for empty buffers.
+ * @param len the length of the data in bytes
+ * @return the computed CRC32 checksum
+ */
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_Hash_hostCrc32(JNIEnv* env, jclass, jlong crc, jlong buffer_handle, jint len)
+{
+  if (buffer_handle == 0) {
+    JNI_ARG_CHECK(env, len == 0, "len is not zero for empty buffer", 0);
+  }
+  JNI_TRY
+  {
+    auto const buffer_addr = reinterpret_cast<unsigned char*>(buffer_handle);
+    return crc32(static_cast<uint64_t>(crc), buffer_addr, static_cast<uint32_t>(len));
+  }
+  JNI_CATCH(env, 0);
+}
+
 }
