@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +20,12 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/io/json.hpp>
 #include <cudf/lists/lists_column_view.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/traits.hpp>
@@ -343,7 +343,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes_for_floats(
                                     std::move(offsets_column),
                                     chars_data.release(),
                                     input.null_count(),
-                                    cudf::detail::copy_bitmask(input, stream, mr)),
+                                    cudf::copy_bitmask(input, stream, mr)),
           true};
 }
 
@@ -594,7 +594,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
                                     std::move(offsets_column),
                                     chars_data.release(),
                                     input.null_count(),
-                                    cudf::detail::copy_bitmask(input.parent(), stream, mr)),
+                                    cudf::copy_bitmask(input.parent(), stream, mr)),
           true};
 }
 
@@ -765,7 +765,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
       return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
                                             num_rows,
                                             rmm::device_buffer{},
-                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            cudf::copy_bitmask(input, stream, mr),
                                             null_count,
                                             std::move(new_children));
     }
@@ -787,7 +787,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
       return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
                                             num_rows,
                                             rmm::device_buffer{},
-                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            cudf::copy_bitmask(input, stream, mr),
                                             null_count,
                                             std::move(new_children));
     }

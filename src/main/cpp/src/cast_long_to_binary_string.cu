@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/utilities/default_stream.hpp>
 
@@ -136,7 +136,7 @@ std::unique_ptr<cudf::column> long_to_binary_string(cudf::column_view const& inp
                                    std::move(offsets),
                                    chars.release(),
                                    input.null_count(),
-                                   cudf::detail::copy_bitmask(input, stream, mr));
+                                   cudf::copy_bitmask(input, stream, mr));
 }
 
 }  // namespace detail

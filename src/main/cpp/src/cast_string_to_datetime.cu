@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,9 +21,10 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/string_view.hpp>
+#include <cudf/transform.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -1098,8 +1099,8 @@ std::unique_ptr<cudf::column> parse_to_date(cudf::strings_column_view const& inp
       *d_input, validity.begin(), result->mutable_view().begin<cudf::timestamp_D>()});
 
   auto [output_bitmask, null_count] =
-    cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
-  if (null_count) { result->set_null_mask(std::move(output_bitmask), null_count); }
+    cudf::bools_to_mask(cudf::device_span<bool const>(validity), stream, mr);
+  if (null_count) { result->set_null_mask(std::move(*output_bitmask.release()), null_count); }
 
   return result;
 }

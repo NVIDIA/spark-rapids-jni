@@ -20,8 +20,8 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/memory_resource.hpp>
@@ -108,7 +108,7 @@ std::unique_ptr<cudf::column> round_with(cudf::column_view const& input,
 
   auto result = cudf::make_fixed_width_column(input.type(),
                                               input.size(),
-                                              cudf::detail::copy_bitmask(input, stream, mr),
+                                              cudf::copy_bitmask(input, stream, mr),
                                               input.null_count(),
                                               stream,
                                               mr);
