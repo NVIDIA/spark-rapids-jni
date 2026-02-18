@@ -20,6 +20,8 @@
 #include <cudf/utilities/default_stream.hpp>
 
 #include <cuda/std/iterator>
+#include <thrust/find.h>
+#include <thrust/reverse.h>
 
 namespace spark_rapids_jni {
 /**
