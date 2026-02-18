@@ -170,12 +170,7 @@ public class Hash {
    * @return the computed CRC32 checksum
    */
   public static long hostCrc32(long crc, HostMemoryBuffer buffer) {
-    // zlib's crc32 function takes an unsigned int for the length, but Java's byte arrays are indexed with ints, so this should be safe.
-    long len = buffer.getLength();
-    if (len < 0 || len > Integer.MAX_VALUE) {
-      throw new IllegalArgumentException("Buffer length must be between 0 and " + Integer.MAX_VALUE);
-    }
-    return hostCrc32(crc, buffer.getAddress(), (int)len);
+    return hostCrc32(crc, buffer.getAddress(), Math.toIntExact(buffer.getLength()));
   }
 
   private static native int getMaxStackDepth();

@@ -136,13 +136,18 @@ Java_com_nvidia_spark_rapids_jni_Hash_sha512NullsPreserved(JNIEnv* env, jclass, 
  * @param crc the initial CRC value
  * @param buffer_handle the address of the buffer containing the data to checksum. Null is allowed
  * for empty buffers.
- * @param len the length of the data in bytes
+ * @param len the length of the data in bytes. Must be zero for empty buffers, and positive for
+ * non-empty buffers.
  * @return the computed CRC32 checksum
  */
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_hostCrc32(
   JNIEnv* env, jclass, jlong crc, jlong buffer_handle, jint len)
 {
-  if (buffer_handle == 0) { JNI_ARG_CHECK(env, len == 0, "len is not zero for empty buffer", 0); }
+  if (buffer_handle == 0) {
+    JNI_ARG_CHECK(env, len == 0, "len is not zero for empty buffer", 0);
+  } else {
+    JNI_ARG_CHECK(env, len > 0, "len must be positive for non-empty buffer", 0);
+  }
   JNI_TRY
   {
     auto const buffer_addr = reinterpret_cast<unsigned char*>(buffer_handle);
