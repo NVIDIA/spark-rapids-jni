@@ -15,11 +15,11 @@
  */
 
 #include <cwctype>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <limits>
 
 // TCompactProtocol requires some #defines to work right.
 // This came from the parquet code itself...
@@ -48,7 +48,7 @@ std::string unicode_to_lower(std::string const& input)
   std::mbstate_t to_wc_state = std::mbstate_t();
   const char* mbstr          = input.data();
   // get the size of the wide character result
-  std::size_t wide_size = std::mbsrtowcs(nullptr, &mbstr, 0, &to_wc_state);
+  std::size_t wide_size   = std::mbsrtowcs(nullptr, &mbstr, 0, &to_wc_state);
   auto const invalid_size = std::numeric_limits<std::size_t>::max();
   if (wide_size == invalid_size) { throw std::invalid_argument("invalid character sequence"); }
 
@@ -66,7 +66,9 @@ std::string unicode_to_lower(std::string const& input)
   std::mbstate_t from_wc_state = std::mbstate_t();
   const wchar_t* wcstr         = wide.data();
   std::size_t mb_size          = std::wcsrtombs(nullptr, &wcstr, 0, &from_wc_state);
-  if (mb_size == invalid_size) { throw std::invalid_argument("unsupported wide character sequence"); }
+  if (mb_size == invalid_size) {
+    throw std::invalid_argument("unsupported wide character sequence");
+  }
   // We are allocating a fixed size string so we can put the data directly into it
   // instead of going through a NUL terminated char* first. The NUL fill char is
   // just because we need to pass in a fill char. The value does not matter

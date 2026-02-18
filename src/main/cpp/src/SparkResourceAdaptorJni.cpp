@@ -2051,7 +2051,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     if (thread->second.is_cpu_alloc != is_for_cpu) {
       std::stringstream ss;
       ss << "thread " << thread_id << " has a mismatch on CPU vs GPU post alloc "
-          << as_str(thread->second.state);
+         << as_str(thread->second.state);
 
       throw std::invalid_argument(ss.str());
     }
@@ -2092,7 +2092,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       default: {
         std::stringstream ss;
         ss << "Internal error: unexpected state after alloc failed " << thread_id << " "
-            << as_str(thread->second.state);
+           << as_str(thread->second.state);
         throw std::runtime_error(ss.str());
       }
     }
