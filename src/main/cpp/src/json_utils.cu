@@ -204,7 +204,7 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
                           input.offset(),
                           std::vector<cudf::column_view>{input.offsets()}};
 
-  auto concat_strings = cudf::strings::detail::join_strings(
+  auto concat_strings = cudf::strings::join_strings(
     null_count == input.null_count() ? input : cudf::strings_column_view{input_applied_null},
     cudf::string_scalar(std::string(1, delimiter), true, stream, default_mr),
     cudf::string_scalar("{}", true, stream, default_mr),
