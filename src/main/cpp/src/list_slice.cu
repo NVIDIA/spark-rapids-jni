@@ -15,12 +15,12 @@
  */
 
 #include "list_slice.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/copy.hpp>
 #include <cudf/detail/gather.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/grid_1d.cuh>
@@ -358,7 +358,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
@@ -369,7 +369,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
@@ -380,7 +380,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
@@ -391,7 +391,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 

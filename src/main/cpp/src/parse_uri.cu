@@ -15,10 +15,10 @@
  */
 
 #include "exception_with_row_index_utilities.hpp"
+#include "nvtx_ranges.hpp"
 #include "parse_uri.hpp"
 
 #include <cudf/detail/get_value.cuh>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
@@ -1002,7 +1002,7 @@ std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::PROTOCOL, std::nullopt, stream, mr);
 }
@@ -1012,7 +1012,7 @@ std::unique_ptr<column> parse_uri_to_host(strings_column_view const& input,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::HOST, std::nullopt, stream, mr);
 }
@@ -1022,7 +1022,7 @@ std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::QUERY, std::nullopt, stream, mr);
 }
@@ -1033,7 +1033,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
 
   // build string_column_view from incoming query_match string
@@ -1049,7 +1049,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   CUDF_EXPECTS(input.size() == query_match.size(), "Query column must be the same size as input!");
 
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
@@ -1061,7 +1061,7 @@ std::unique_ptr<column> parse_uri_to_path(strings_column_view const& input,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::PATH, std::nullopt, stream, mr);
 }

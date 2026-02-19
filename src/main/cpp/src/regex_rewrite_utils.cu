@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
+#include "nvtx_ranges.hpp"
+
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/utf8.hpp>
 #include <cudf/strings/string_view.cuh>
@@ -126,7 +127,7 @@ std::unique_ptr<cudf::column> literal_range_pattern(cudf::strings_column_view co
                                                     rmm::cuda_stream_view stream,
                                                     rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return find_literal_range_pattern(input, prefix, range_len, start, end, stream, mr);
 }
 

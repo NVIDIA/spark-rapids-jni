@@ -16,9 +16,9 @@
 
 #include "cast_string.hpp"
 #include "ftos_converter.cuh"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/utilities/type_dispatcher.hpp>
@@ -121,7 +121,7 @@ std::unique_ptr<cudf::column> float_to_string(cudf::column_view const& floats,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::float_to_string(floats, stream, mr);
 }
 

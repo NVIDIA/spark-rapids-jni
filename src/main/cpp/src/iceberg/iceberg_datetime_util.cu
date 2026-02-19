@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
+#include "../nvtx_ranges.hpp"
 #include "datetime_utils.cuh"
 #include "iceberg_datetime_util.hpp"
 #include "integer_utils.cuh"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/types.hpp>
 
@@ -253,7 +253,7 @@ std::unique_ptr<cudf::column> years_from_epoch(cudf::column_view const& input,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return compute_years_from_epoch(input, stream, mr);
 }
 
@@ -261,7 +261,7 @@ std::unique_ptr<cudf::column> months_from_epoch(cudf::column_view const& input,
                                                 rmm::cuda_stream_view stream,
                                                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return compute_months_from_epoch(input, stream, mr);
 }
 
@@ -269,7 +269,7 @@ std::unique_ptr<cudf::column> days_from_epoch(cudf::column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return compute_days_from_epoch(input, stream, mr);
 }
 
@@ -277,7 +277,7 @@ std::unique_ptr<cudf::column> hours_from_epoch(cudf::column_view const& input,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return compute_hours_from_epoch(input, stream, mr);
 }
 

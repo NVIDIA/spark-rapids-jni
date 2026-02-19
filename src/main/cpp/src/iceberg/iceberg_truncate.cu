@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
+#include "../nvtx_ranges.hpp"
 #include "iceberg_truncate.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/null_mask.hpp>
@@ -245,7 +245,7 @@ std::unique_ptr<cudf::column> truncate_integral(cudf::column_view const& input,
                                                 rmm::cuda_stream_view stream,
                                                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return truncate_integral_impl(input, width, stream, mr);
 }
 
@@ -254,7 +254,7 @@ std::unique_ptr<cudf::column> truncate_string(cudf::column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return truncate_string_impl(input, truncate_length, stream, mr);
 }
 
@@ -263,7 +263,7 @@ std::unique_ptr<cudf::column> truncate_binary(cudf::column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return truncate_binary_impl(input, truncate_length, stream, mr);
 }
 
