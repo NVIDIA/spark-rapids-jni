@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,18 +19,18 @@
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
-#include <cudf/detail/copy.hpp>
-#include <cudf/detail/copy_if.cuh>
+#include <cudf/copying.hpp>
 #include <cudf/detail/labeling/label_segments.cuh>
-#include <cudf/detail/null_mask.cuh>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
-#include <cudf/detail/sorting.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/lists/list_device_view.cuh>
+#include <cudf/null_mask.hpp>
 #include <cudf/reduction/detail/histogram.hpp>
+#include <cudf/sorting.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/transform.hpp>
 
 #include <cuda/std/functional>
 #include <thrust/binary_search.h>
@@ -68,7 +68,7 @@ struct fill_percentile_fn {
     auto const percentage_idx = idx % percentages.size();
     if (percentage_idx == 0) {
       // If the histogram only contains null elements, the output percentile will be null.
-      out_validity[histogram_idx] = has_all_nulls ? 0 : 1;
+      out_validity[histogram_idx] = !has_all_nulls;
     }
 
     if (has_all_nulls) { return; }
@@ -108,7 +108,7 @@ struct fill_percentile_fn {
                      cudf::device_span<int64_t const> const accumulated_counts_,
                      cudf::device_span<double const> const percentages_,
                      double* const output_,
-                     int8_t* const out_validity_)
+                     bool* const out_validity_)
     : offsets{offsets_},
       sorted_input{sorted_input_},
       sorted_validity{sorted_validity_},
@@ -135,7 +135,7 @@ struct fill_percentile_fn {
   cudf::device_span<int64_t const> const accumulated_counts;
   cudf::device_span<double const> const percentages;
   double* const output;
-  int8_t* const out_validity;
+  bool* const out_validity;
 };
 
 struct percentile_dispatcher {
@@ -171,14 +171,13 @@ struct percentile_dispatcher {
   {
     // Returns all nulls for totally empty input.
     if (data.size() == 0 || percentages.size() == 0) {
-      return {
-        cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64},
-                                  num_histograms,
-                                  cudf::mask_state::UNALLOCATED,
-                                  stream,
-                                  mr),
-        cudf::detail::create_null_mask(num_histograms, cudf::mask_state::ALL_NULL, stream, mr),
-        num_histograms};
+      return {cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64},
+                                        num_histograms,
+                                        cudf::mask_state::UNALLOCATED,
+                                        stream,
+                                        mr),
+              cudf::create_null_mask(num_histograms, cudf::mask_state::ALL_NULL, stream, mr),
+              num_histograms};
     }
 
     auto percentiles =
@@ -191,8 +190,8 @@ struct percentile_dispatcher {
     // We may always have nulls in the output due to either:
     // - Having nulls in the input, and/or,
     // - Having empty histograms.
-    auto out_validities = rmm::device_uvector<int8_t>(
-      num_histograms, stream, rmm::mr::get_current_device_resource_ref());
+    auto out_validities =
+      rmm::device_uvector<bool>(num_histograms, stream, rmm::mr::get_current_device_resource_ref());
 
     auto const fill_percentile = [&](auto const sorted_validity_it) {
       auto const sorted_input_it =
@@ -217,9 +216,11 @@ struct percentile_dispatcher {
       fill_percentile(sorted_validity_it);
     }
 
-    auto [null_mask, null_count] = cudf::detail::valid_if(
-      out_validities.begin(), out_validities.end(), cuda::std::identity{}, stream, mr);
-    if (null_count > 0) { return {std::move(percentiles), std::move(null_mask), null_count}; }
+    auto [null_mask, null_count] =
+      cudf::bools_to_mask(cudf::device_span<bool const>(out_validities), stream, mr);
+    if (null_count > 0) {
+      return {std::move(percentiles), std::move(*null_mask.release()), null_count};
+    }
 
     return {std::move(percentiles), rmm::device_buffer{}, 0};
   }
@@ -273,7 +274,7 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column>&& input
                                         std::move(null_mask),
                                         stream,
                                         mr);
-  if (null_count > 0) { return cudf::detail::purge_nonempty_nulls(output->view(), stream, mr); }
+  if (null_count > 0) { return cudf::purge_nonempty_nulls(output->view(), stream, mr); }
 
   return output;
 }
@@ -314,7 +315,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     cudf::detail::make_zeroed_device_uvector_async<int8_t>(2, stream, default_mr);
 
   // We need to check and remember which rows are valid (positive) so we can do filtering later on.
-  auto check_valid = rmm::device_uvector<int8_t>(frequencies.size(), stream, default_mr);
+  auto check_valid = rmm::device_uvector<bool>(frequencies.size(), stream, default_mr);
 
   thrust::for_each_n(rmm::exec_policy(stream),
                      thrust::make_counting_iterator(0),
@@ -348,7 +349,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
         values_and_frequencies.front()->set_null_mask(std::move(null_mask), null_count);
       } else {
         // We need to AND the current null mask with the given null mask.
-        auto [new_null_mask, new_null_count] = cudf::detail::bitmask_and(
+        auto [new_null_mask, new_null_count] = cudf::bitmask_and(
           std::vector<cudf::bitmask_type const*>{
             // Don't use values.null_mask(), to make sure no slicing.
             values_and_frequencies.front()->view().null_mask(),
@@ -408,10 +409,10 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     // Then, apply it to the output lists column, empty out the null lists, and finally remove
     // the null mask.
     // By doing so, the input rows corresponding to zero frequencies will be output as empty lists.
-    auto [null_mask, null_count] = cudf::detail::valid_if(
-      check_valid.begin(), check_valid.end(), cuda::std::identity{}, stream, default_mr);
-    lists_histograms->set_null_mask(std::move(null_mask), null_count);
-    lists_histograms = cudf::detail::purge_nonempty_nulls(lists_histograms->view(), stream, mr);
+    auto [null_mask, null_count] =
+      cudf::bools_to_mask(cudf::device_span<bool const>(check_valid), stream, default_mr);
+    lists_histograms->set_null_mask(std::move(*null_mask.release()), null_count);
+    lists_histograms = cudf::purge_nonempty_nulls(lists_histograms->view(), stream, mr);
     lists_histograms->set_null_mask(rmm::device_buffer{}, 0);
     return lists_histograms;
   } else {                   // output_as_lists==false
@@ -420,9 +421,9 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     }
 
     // We nullify the values corresponding to zero frequencies.
-    auto [null_mask, null_count] = cudf::detail::valid_if(
-      check_valid.begin(), check_valid.end(), cuda::std::identity{}, stream, mr);
-    return make_structs_histogram(std::move(null_mask), null_count);
+    auto [null_mask, null_count] =
+      cudf::bools_to_mask(cudf::device_span<bool const>(check_valid), stream, mr);
+    return make_structs_histogram(std::move(*null_mask.release()), null_count);
   }
 }
 
@@ -459,7 +460,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const&
   auto const labeled_histograms = cudf::table_view{{labels_cv, histograms}};
   // Find the order of segmented sort elements within each histogram list.
   // The null order must be `AFTER`.
-  auto const ordered_indices = cudf::detail::sorted_order(
+  auto const ordered_indices = cudf::sorted_order(
     labeled_histograms,
     std::vector<cudf::order>{cudf::order::ASCENDING, cudf::order::ASCENDING},
     std::vector<cudf::null_order>{cudf::null_order::AFTER, cudf::null_order::AFTER},
