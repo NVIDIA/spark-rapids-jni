@@ -16,11 +16,11 @@
 
 #include "cast_string.hpp"
 #include "json_utils.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/io/json.hpp>
@@ -147,7 +147,7 @@ std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& 
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::BOOL8}); }
@@ -201,7 +201,7 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return cudf::make_empty_column(output_type); }
@@ -267,7 +267,7 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
 std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes_for_floats(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return {nullptr, false}; }
@@ -353,7 +353,7 @@ std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& in
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return cudf::make_empty_column(output_type); }
@@ -380,7 +380,7 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return cudf::make_empty_column(output_type); }
@@ -523,7 +523,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return {nullptr, false}; }
@@ -606,7 +606,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
                                                 rmm::cuda_stream_view stream,
                                                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   using DecayInputT                  = std::decay_t<InputType>;
   auto constexpr input_is_const_cv   = std::is_same_v<DecayInputT, cudf::column_view>;
@@ -895,7 +895,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   return detail::from_json_to_structs(input,
                                       col_names,
@@ -922,7 +922,7 @@ std::unique_ptr<cudf::column> convert_from_strings(cudf::strings_column_view con
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   [[maybe_unused]] auto const [schema, schema_with_precision] = detail::generate_struct_schema(
     /*dummy col_names*/ std::vector<std::string>(num_children.size(), std::string{}),
@@ -947,7 +947,7 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& inp
                                             rmm::cuda_stream_view stream,
                                             rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const input_cv = input.parent();
   auto [removed_quotes, success] =

@@ -15,12 +15,12 @@
  */
 
 #include "exception_with_row_index.hpp"
+#include "nvtx_ranges.hpp"
 #include "round_float.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
@@ -162,7 +162,7 @@ std::unique_ptr<cudf::column> round(cudf::column_view const& input,
                                     rmm::cuda_stream_view stream,
                                     rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   CUDF_EXPECTS(cudf::is_numeric(input.type()) || cudf::is_fixed_point(input.type()),
                "Only integral/floating point/fixed point currently supported.");
 
@@ -310,7 +310,7 @@ std::unique_ptr<cudf::column> round(cudf::column_view const& input,
                                     rmm::cuda_stream_view stream,
                                     rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   if (input.is_empty()) { return cudf::empty_like(input); }
 

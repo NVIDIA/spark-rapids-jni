@@ -15,10 +15,10 @@
  */
 
 #include "cast_string.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/utilities/default_stream.hpp>
@@ -146,7 +146,7 @@ std::unique_ptr<cudf::column> long_to_binary_string(cudf::column_view const& inp
                                                     rmm::cuda_stream_view stream,
                                                     rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::long_to_binary_string(input, stream, mr);
 }
 

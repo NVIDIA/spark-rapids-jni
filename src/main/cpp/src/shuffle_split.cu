@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "nvtx_ranges.hpp"
 #include "shuffle_split.hpp"
 #include "shuffle_split_detail.hpp"
 
@@ -21,7 +22,6 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/copy.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -800,7 +800,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   // empty inputs
   CUDF_EXPECTS(input.num_columns() != 0, "Encountered input with no columns.");

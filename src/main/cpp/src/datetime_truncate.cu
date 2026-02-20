@@ -15,11 +15,11 @@
  */
 
 #include "datetime_utils.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/strings/string_view.hpp>
 #include <cudf/transform.hpp>
 #include <cudf/utilities/span.hpp>
@@ -382,7 +382,7 @@ std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
                                        rmm::cuda_stream_view stream,
                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::truncate(datetime, format, stream, mr);
 }
 
@@ -391,7 +391,7 @@ std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
                                        rmm::cuda_stream_view stream,
                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::truncate(datetime, format, stream, mr);
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
  */
 
 #include "join_primitives.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/ast/detail/expression_evaluator.cuh>
 #include <cudf/ast/detail/expression_parser.hpp>
 #include <cudf/ast/expressions.hpp>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/join/hash_join.hpp>
 #include <cudf/join/sort_merge_join.hpp>
@@ -185,7 +185,7 @@ sort_merge_inner_join(cudf::table_view const& left_keys,
                       rmm::cuda_stream_view stream,
                       rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   // Validate inputs
   CUDF_EXPECTS(left_keys.num_columns() > 0, "Left keys table must have at least one column");
@@ -210,7 +210,7 @@ hash_inner_join(cudf::table_view const& left_keys,
                 rmm::cuda_stream_view stream,
                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   // Validate inputs
   CUDF_EXPECTS(left_keys.num_columns() > 0, "Left keys table must have at least one column");
@@ -242,7 +242,7 @@ filter_gather_maps_by_ast(cudf::device_span<cudf::size_type const> left_indices,
                           rmm::cuda_stream_view stream,
                           rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   CUDF_EXPECTS(left_indices.size() == right_indices.size(),
                "Left and right gather maps must have the same size");
@@ -366,7 +366,7 @@ make_left_outer(cudf::device_span<cudf::size_type const> left_indices,
                 rmm::cuda_stream_view stream,
                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   CUDF_EXPECTS(left_indices.size() == right_indices.size(),
                "Left and right gather maps must have the same size");
@@ -411,7 +411,7 @@ make_full_outer(cudf::device_span<cudf::size_type const> left_indices,
                 rmm::cuda_stream_view stream,
                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   CUDF_EXPECTS(left_indices.size() == right_indices.size(),
                "Left and right gather maps must have the same size");
@@ -473,7 +473,7 @@ rmm::device_uvector<cudf::size_type> make_semi(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   // Create a boolean mask for all left rows (default-initialized to false)
   auto left_has_match =
@@ -512,7 +512,7 @@ rmm::device_uvector<cudf::size_type> make_anti(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   // Create a boolean mask for all left rows (default-initialized to false)
   auto left_has_match =
@@ -554,7 +554,7 @@ std::unique_ptr<cudf::column> get_matched_rows(cudf::device_span<cudf::size_type
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   // Create a boolean column initialized to false
   auto result = cudf::make_numeric_column(

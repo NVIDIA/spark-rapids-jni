@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "nvtx_ranges.hpp"
 #include "shuffle_split.hpp"
 #include "shuffle_split_detail.hpp"
 
@@ -21,7 +22,6 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/copy.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/batched_memset.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -1920,7 +1920,7 @@ shuffle_assemble_result shuffle_assemble(shuffle_split_metadata const& metadata,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto temp_mr = cudf::get_current_device_resource_ref();
 

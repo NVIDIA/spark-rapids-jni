@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,8 +27,7 @@
 #define ARITHMETIC_RIGHT_SHIFT 1
 #include "cudf_jni_apis.hpp"
 #include "jni_utils.hpp"
-
-#include <cudf/detail/nvtx/ranges.hpp>
+#include "nvtx_ranges.hpp"
 
 #include <generated/parquet_types.h>
 #include <thrift/TApplicationException.h>
@@ -137,7 +136,7 @@ class column_pruner {
   column_pruning_maps filter_schema(std::vector<parquet::format::SchemaElement> const& schema,
                                     bool const ignore_case) const
   {
-    CUDF_FUNC_RANGE();
+    SRJ_FUNC_RANGE();
 
     // These are the outputs of the computation.
     std::vector<int> chunk_map;
@@ -535,7 +534,7 @@ class column_pruner {
                        std::vector<Tag> const& tags,
                        int parent_num_children)
   {
-    CUDF_FUNC_RANGE();
+    SRJ_FUNC_RANGE();
     if (parent_num_children == 0) {
       // There is no point in doing more the tree is empty, and it lets us avoid some corner cases
       // in the code below
@@ -612,7 +611,7 @@ static int64_t get_offset(parquet::format::ColumnChunk const& column_chunk)
 static std::vector<parquet::format::RowGroup> filter_groups(
   parquet::format::FileMetaData const& meta, int64_t part_offset, int64_t part_length)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   // This is based off of the java parquet_mr code to find the groups in a range...
   auto num_row_groups             = meta.row_groups.size();
   int64_t pre_start_index         = 0;
@@ -664,7 +663,7 @@ void deserialize_parquet_footer(uint8_t* buffer, uint32_t len, parquet::format::
 {
   using ThriftBuffer = apache::thrift::transport::TMemoryBuffer;
 
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 // A lot of this came from the parquet source code...
 // Deserialize msg bytes into c++ thrift msg using memory transport.
 #if PARQUET_THRIFT_VERSION_MAJOR > 0 || PARQUET_THRIFT_VERSION_MINOR >= 14
@@ -694,7 +693,7 @@ void deserialize_parquet_footer(uint8_t* buffer, uint32_t len, parquet::format::
 
 void filter_columns(std::vector<parquet::format::RowGroup>& groups, std::vector<int>& chunk_filter)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   for (auto group_it = groups.begin(); group_it != groups.end(); ++group_it) {
     std::vector<parquet::format::ColumnChunk> new_chunks;
     for (auto it = chunk_filter.begin(); it != chunk_filter.end(); ++it) {
@@ -722,7 +721,7 @@ Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv* env,
                                                              jint parent_num_children,
                                                              jboolean ignore_case)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   JNI_TRY
   {
     auto meta    = std::make_unique<parquet::format::FileMetaData>();
@@ -821,7 +820,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumCol
 JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_serializeThriftFile(
   JNIEnv* env, jclass, jlong handle, jobject host_memory_allocator)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   JNI_TRY
   {
     parquet::format::FileMetaData* meta = reinterpret_cast<parquet::format::FileMetaData*>(handle);

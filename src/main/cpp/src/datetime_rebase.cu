@@ -15,10 +15,10 @@
  */
 
 #include "datetime_utils.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/null_mask.hpp>
 
 #include <rmm/exec_policy.hpp>
@@ -343,7 +343,7 @@ std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const
                                                          rmm::cuda_stream_view stream,
                                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const type = input.type().id();
   CUDF_EXPECTS(
@@ -359,7 +359,7 @@ std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const
                                                          rmm::cuda_stream_view stream,
                                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const type = input.type().id();
   CUDF_EXPECTS(
