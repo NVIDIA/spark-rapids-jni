@@ -24,15 +24,6 @@ import ai.rapids.cudf.RmmException;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
 
 /**
- * Enumeration of OOM injection types for testing purposes.
- */
-enum OomInjectionType {
-  CPU_OR_GPU,
-  CPU,
-  GPU;
-}
-
-/**
  * Initialize RMM in ways that are specific to Spark.
  * 
  * Because of the close ties of this class with Rmm.class, we are going to use
@@ -47,6 +38,15 @@ enum OomInjectionType {
  * - Used for all other apis.
  */
 public class RmmSpark {
+
+  /**
+   * Enumeration of OOM injection types for testing purposes.
+   */
+  public enum OomInjectionType {
+    CPU_OR_GPU,
+    CPU,
+    GPU;
+  }
 
   private static volatile SparkResourceAdaptor sra = null;
 
