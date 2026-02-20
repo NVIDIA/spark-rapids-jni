@@ -21,20 +21,20 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/gather.hpp>
 #include <cudf/detail/utilities/integer_utils.hpp>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/filling.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/table/table.hpp>
+#include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include <cuda/functional>
-#include <cuda/std/functional>
 #include <thrust/binary_search.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
@@ -430,17 +430,15 @@ std::unique_ptr<cudf::column> create_random_column(data_profile const& profile,
   }
 
   auto [result_bitmask, null_count] =
-    cudf::detail::valid_if(null_mask.begin(),
-                           null_mask.end(),
-                           cuda::std::identity{},
-                           cudf::get_default_stream(),
-                           rmm::mr::get_current_device_resource_ref());
+    cudf::bools_to_mask(cudf::device_span<bool const>(null_mask),
+                        cudf::get_default_stream(),
+                        rmm::mr::get_current_device_resource_ref());
 
   return std::make_unique<cudf::column>(
     cudf::data_type{cudf::type_to_id<T>()},
     num_rows,
     data.release(),
-    profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{},
+    profile.get_null_frequency().has_value() ? std::move(*result_bitmask) : rmm::device_buffer{},
     null_count);
 }
 
@@ -514,18 +512,16 @@ std::unique_ptr<cudf::column> create_random_utf8_string_column(data_profile cons
                      num_rows,
                      string_generator{chars.data(), engine});
   auto [result_bitmask, null_count] =
-    cudf::detail::valid_if(null_mask.begin(),
-                           null_mask.end() - 1,
-                           cuda::std::identity{},
-                           cudf::get_default_stream(),
-                           rmm::mr::get_current_device_resource_ref());
+    cudf::bools_to_mask(cudf::device_span<bool const>(null_mask.data(), num_rows),
+                        cudf::get_default_stream(),
+                        rmm::mr::get_current_device_resource_ref());
 
   return cudf::make_strings_column(
     num_rows,
     std::make_unique<cudf::column>(std::move(offsets), rmm::device_buffer{}, 0),
     chars.release(),
     null_count,
-    profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{});
+    profile.get_null_frequency().has_value() ? std::move(*result_bitmask) : rmm::device_buffer{});
 }
 
 /**
@@ -638,13 +634,12 @@ std::unique_ptr<cudf::column> create_random_column<cudf::struct_view>(data_profi
       auto [null_mask, null_count] = [&]() {
         if (profile.get_null_frequency().has_value()) {
           auto valids = valid_dist(engine, num_rows);
-          return cudf::detail::valid_if(valids.begin(),
-                                        valids.end(),
-                                        cuda::std::identity{},
-                                        cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource_ref());
+          return cudf::bools_to_mask(cudf::device_span<bool const>(valids),
+                                     cudf::get_default_stream(),
+                                     rmm::mr::get_current_device_resource_ref());
         }
-        return std::pair<rmm::device_buffer, cudf::size_type>{};
+        return std::pair<std::unique_ptr<rmm::device_buffer>, cudf::size_type>{
+          std::make_unique<rmm::device_buffer>(), cudf::size_type{0}};
       }();
 
       // Adopt remaining children as evenly as possible
@@ -659,7 +654,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::struct_view>(data_profi
       current_child += children_to_adopt.size();
 
       *current_parent = cudf::make_structs_column(
-        num_rows, std::move(children_to_adopt), null_count, std::move(null_mask));
+        num_rows, std::move(children_to_adopt), null_count, std::move(*null_mask));
     }
 
     if (lvl == 1) {
@@ -728,18 +723,15 @@ std::unique_ptr<cudf::column> create_random_column<cudf::list_view>(data_profile
                                                          rmm::device_buffer{},
                                                          0);
 
-    auto [null_mask, null_count] =
-      cudf::detail::valid_if(valids.begin(),
-                             valids.end(),
-                             cuda::std::identity{},
-                             cudf::get_default_stream(),
-                             rmm::mr::get_current_device_resource_ref());
-    list_column = cudf::make_lists_column(
+    auto [null_mask, null_count] = cudf::bools_to_mask(cudf::device_span<bool const>(valids),
+                                                       cudf::get_default_stream(),
+                                                       rmm::mr::get_current_device_resource_ref());
+    list_column                  = cudf::make_lists_column(
       num_rows,
       std::move(offsets_column),
       std::move(current_child_column),
       profile.get_null_frequency().has_value() ? null_count : 0,  // cudf::UNKNOWN_NULL_COUNT,
-      profile.get_null_frequency().has_value() ? std::move(null_mask) : rmm::device_buffer{});
+      profile.get_null_frequency().has_value() ? std::move(*null_mask) : rmm::device_buffer{});
   }
   return list_column;  // return the top-level column
 }
@@ -849,11 +841,13 @@ std::pair<rmm::device_buffer, cudf::size_type> create_random_null_mask(
   } else if (*null_probability == 1.0) {
     return {cudf::create_null_mask(size, cudf::mask_state::ALL_NULL), size};
   } else {
-    return cudf::detail::valid_if(thrust::make_counting_iterator<cudf::size_type>(0),
-                                  thrust::make_counting_iterator<cudf::size_type>(size),
-                                  bool_generator{seed, 1.0 - *null_probability},
-                                  cudf::get_default_stream(),
-                                  rmm::mr::get_current_device_resource_ref());
+    rmm::device_uvector<bool> valids(size, cudf::get_default_stream());
+    thrust::tabulate(
+      thrust::device, valids.begin(), valids.end(), bool_generator{seed, 1.0 - *null_probability});
+    auto [mask, null_count] = cudf::bools_to_mask(cudf::device_span<bool const>(valids),
+                                                  cudf::get_default_stream(),
+                                                  rmm::mr::get_current_device_resource_ref());
+    return {std::move(*mask), null_count};
   }
 }
 
