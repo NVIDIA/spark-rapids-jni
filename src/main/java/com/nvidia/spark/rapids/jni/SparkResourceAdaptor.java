@@ -15,8 +15,6 @@
  */
 package com.nvidia.spark.rapids.jni;
 
-import com.nvidia.spark.rapids.jni.RmmSpark.OomInjectionType;
-
 import ai.rapids.cudf.NativeDepsLoader;
 import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
@@ -206,7 +204,7 @@ public class SparkResourceAdaptor
    * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numOOMs the number of times the GpuRetryOOM should be thrown
-   * @param oomMode ordinal of the corresponding RmmSpark.OomInjectionType
+   * @param oomMode ordinal of the corresponding OomInjectionType
    * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
    */
   public void forceRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
@@ -225,7 +223,7 @@ public class SparkResourceAdaptor
    * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numOOMs the number of times the GpuSplitAndRetryOOM should be thrown
-   * @param oomMode ordinal of the corresponding RmmSpark.OomInjectionType
+   * @param oomMode ordinal of the corresponding OomInjectionType
    * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
    */
   public void forceSplitAndRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {

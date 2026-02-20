@@ -18,8 +18,6 @@
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
-using namespace cudf;
-
 namespace spark_rapids_jni {
 
 /**

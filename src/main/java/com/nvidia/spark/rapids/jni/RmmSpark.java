@@ -24,6 +24,15 @@ import ai.rapids.cudf.RmmException;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
 
 /**
+ * Enumeration of OOM injection types for testing purposes.
+ */
+enum OomInjectionType {
+  CPU_OR_GPU,
+  CPU,
+  GPU;
+}
+
+/**
  * Initialize RMM in ways that are specific to Spark.
  * 
  * Because of the close ties of this class with Rmm.class, we are going to use
@@ -38,12 +47,6 @@ import ai.rapids.cudf.RmmTrackingResourceAdaptor;
  * - Used for all other apis.
  */
 public class RmmSpark {
-
-  public enum OomInjectionType {
-    CPU_OR_GPU,
-    CPU,
-    GPU;
-  }
 
   private static volatile SparkResourceAdaptor sra = null;
 
@@ -100,17 +103,27 @@ public class RmmSpark {
       }
       RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> eventHandler =
           new RmmEventHandlerResourceAdaptor<>(deviceResource, tracker, handler, enableDebug);
-      SparkResourceAdaptor.initializeLogger(logLocation);
-      sra = new SparkResourceAdaptor(eventHandler);
-      boolean success = false;
+      SparkResourceAdaptor localSra = null;
       try {
-        Rmm.setCurrentDeviceResource(sra, deviceResource, false);
-        success = true;
-      } finally {
-        if (!success) {
-          sra.releaseWrapped();
-          eventHandler.releaseWrapped();
+        SparkResourceAdaptor.initializeLogger(logLocation);
+        localSra = new SparkResourceAdaptor(eventHandler);
+        Rmm.setCurrentDeviceResource(localSra, deviceResource, false);
+        sra = localSra; // Only assign to static field after successful setup
+      } catch (Throwable t) {
+        // Clean up resources if anything fails before successful setup
+        if (localSra != null) {
+          try {
+            localSra.releaseWrapped();
+          } catch (Throwable t2) {
+            t.addSuppressed(t2);
+          }
         }
+        try {
+          eventHandler.releaseWrapped();
+        } catch (Throwable t2) {
+          t.addSuppressed(t2);
+        }
+        throw t;
       }
     } finally {
       Rmm.writeLock.unlock();

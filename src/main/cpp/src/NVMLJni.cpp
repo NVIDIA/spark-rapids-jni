@@ -359,35 +359,6 @@ nvml_result populate_gpu_info_from_device(JNIEnv* env, nvmlDevice_t device)
   nvml_result pcie_result        = populate_pcie_info(env, device);
   nvml_result ecc_result         = populate_ecc_info(env, device);
 
-  // Track the first error encountered
-  if (result.return_code == NVML_SUCCESS && device_result.return_code != NVML_SUCCESS) {
-    result.return_code = device_result.return_code;
-  }
-  if (result.return_code == NVML_SUCCESS && utilization_result.return_code != NVML_SUCCESS) {
-    result.return_code = utilization_result.return_code;
-  }
-  if (result.return_code == NVML_SUCCESS && memory_result.return_code != NVML_SUCCESS) {
-    result.return_code = memory_result.return_code;
-  }
-  if (result.return_code == NVML_SUCCESS && temperature_result.return_code != NVML_SUCCESS) {
-    result.return_code = temperature_result.return_code;
-  }
-  if (result.return_code == NVML_SUCCESS && power_result.return_code != NVML_SUCCESS) {
-    result.return_code = power_result.return_code;
-  }
-  if (result.return_code == NVML_SUCCESS && clock_result.return_code != NVML_SUCCESS) {
-    result.return_code = clock_result.return_code;
-  }
-  if (result.return_code == NVML_SUCCESS && hardware_result.return_code != NVML_SUCCESS) {
-    result.return_code = hardware_result.return_code;
-  }
-  if (result.return_code == NVML_SUCCESS && pcie_result.return_code != NVML_SUCCESS) {
-    result.return_code = pcie_result.return_code;
-  }
-  if (result.return_code == NVML_SUCCESS && ecc_result.return_code != NVML_SUCCESS) {
-    result.return_code = ecc_result.return_code;
-  }
-
   // Set nested info objects in GPUInfo
   jfieldID device_info_field =
     env->GetFieldID(gpu_info_class, "deviceInfo", "L" NVML_CLASS_PATH "GPUDeviceInfo;");
@@ -408,43 +379,25 @@ nvml_result populate_gpu_info_from_device(JNIEnv* env, nvmlDevice_t device)
   jfieldID ecc_info_field =
     env->GetFieldID(gpu_info_class, "eccInfo", "L" NVML_CLASS_PATH "GPUECCInfo;");
 
-  if (device_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, device_info_field, device_result.data);
-  }
-  if (utilization_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, utilization_info_field, utilization_result.data);
-  }
-  if (memory_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, memory_info_field, memory_result.data);
-  }
-  if (temperature_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, temperature_info_field, temperature_result.data);
-  }
-  if (power_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, power_info_field, power_result.data);
-  }
-  if (clock_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, clock_info_field, clock_result.data);
-  }
-  if (hardware_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, hardware_info_field, hardware_result.data);
-  }
-  if (pcie_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, pcie_info_field, pcie_result.data);
-  }
-  if (ecc_result.return_code == NVML_SUCCESS) {
-    env->SetObjectField(gpu_info, ecc_info_field, ecc_result.data);
-  }
+  auto handle_result = [&](nvml_result const& field_result, jfieldID field_id){
+    if (field_result.return_code == NVML_SUCCESS) {
+      env->SetObjectField(gpu_info, field_id, field_result.data);
+    } else if (result.return_code == NVML_SUCCESS) {
+      // Track the first error encountered
+      result.return_code = field_result.return_code;
+    }
+    env->DeleteLocalRef(field_result.data);
+  };
 
-  env->DeleteLocalRef(device_result.data);
-  env->DeleteLocalRef(utilization_result.data);
-  env->DeleteLocalRef(memory_result.data);
-  env->DeleteLocalRef(temperature_result.data);
-  env->DeleteLocalRef(power_result.data);
-  env->DeleteLocalRef(clock_result.data);
-  env->DeleteLocalRef(hardware_result.data);
-  env->DeleteLocalRef(pcie_result.data);
-  env->DeleteLocalRef(ecc_result.data);
+  handle_result(device_result, device_info_field);
+  handle_result(utilization_result, utilization_info_field);
+  handle_result(memory_result, memory_info_field);
+  handle_result(temperature_result, temperature_info_field);
+  handle_result(power_result, power_info_field);
+  handle_result(clock_result, clock_info_field);
+  handle_result(hardware_result, hardware_info_field);
+  handle_result(pcie_result, pcie_info_field);
+  handle_result(ecc_result, ecc_info_field);
 
   return result;
 }
