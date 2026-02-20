@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,10 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/transform.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
@@ -190,8 +190,8 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
   auto const delimiter =
     static_cast<char>(cuda::std::distance(zero_level_it, first_zero_count_pos));
 
-  auto [null_mask, null_count] = cudf::detail::valid_if(
-    is_valid_input.begin(), is_valid_input.end(), cuda::std::identity{}, stream, default_mr);
+  auto [null_mask, null_count] =
+    cudf::bools_to_mask(cudf::device_span<bool const>(is_valid_input), stream, default_mr);
   // If the null count doesn't change, just use the input column for concatenation.
   auto const input_applied_null =
     null_count == input.null_count()
@@ -199,12 +199,12 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
       : cudf::column_view{cudf::data_type{cudf::type_id::STRING},
                           input.size(),
                           input.chars_begin(stream),
-                          reinterpret_cast<cudf::bitmask_type const*>(null_mask.data()),
+                          reinterpret_cast<cudf::bitmask_type const*>(null_mask->data()),
                           null_count,
                           input.offset(),
                           std::vector<cudf::column_view>{input.offsets()}};
 
-  auto concat_strings = cudf::strings::detail::join_strings(
+  auto concat_strings = cudf::strings::join_strings(
     null_count == input.null_count() ? input : cudf::strings_column_view{input_applied_null},
     cudf::string_scalar(std::string(1, delimiter), true, stream, default_mr),
     cudf::string_scalar("{}", true, stream, default_mr),

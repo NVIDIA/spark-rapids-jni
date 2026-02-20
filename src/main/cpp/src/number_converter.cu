@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/assert.cuh>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 
 #include <cuda/std/functional>
@@ -285,7 +285,7 @@ struct convert_fn {
   STR_ITERATOR input;
   FROM_BASE_ITERATOR from_base_iter;
   TO_BASE_ITERATOR to_base_iter;
-  int8_t* out_mask;
+  bool* out_mask;
 
   // For the first phase: calculate the d_sizes and out_mask of the converted strings
   cudf::size_type* d_sizes{};
@@ -304,7 +304,7 @@ struct convert_fn {
       if (input.is_null(idx)) {
         // if base is invalid, set null and zero length
         d_sizes[idx]  = 0;
-        out_mask[idx] = 0;
+        out_mask[idx] = false;
         return;
       }
 
@@ -313,7 +313,7 @@ struct convert_fn {
         if (from_base_iter.is_null(idx) || to_base_iter.is_null(idx)) {
           // if base is invalid, set null and zero length
           d_sizes[idx]  = 0;
-          out_mask[idx] = 0;
+          out_mask[idx] = false;
           return;
         }
 
@@ -325,7 +325,7 @@ struct convert_fn {
           // if base is invalid, return all nulls
           // first phase
           d_sizes[idx]  = 0;
-          out_mask[idx] = 0;
+          out_mask[idx] = false;
           return;
         }
       }
@@ -385,7 +385,7 @@ std::unique_ptr<cudf::column> convert_impl(cudf::size_type num_rows,
   }
 
   auto out_mask =
-    rmm::device_uvector<int8_t>(num_rows, stream, cudf::get_current_device_resource_ref());
+    rmm::device_uvector<bool>(num_rows, stream, cudf::get_current_device_resource_ref());
 
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
     convert_fn<STR_ITERATOR, FROM_BASE_ITERATOR, TO_BASE_ITERATOR>{
@@ -395,14 +395,15 @@ std::unique_ptr<cudf::column> convert_impl(cudf::size_type num_rows,
     mr);
 
   // make null mask and null count
-  auto [null_mask, null_count] = cudf::detail::valid_if(
-    out_mask.data(), out_mask.data() + out_mask.size(), cuda::std::identity{}, stream, mr);
+  auto [null_mask, null_count] =
+    cudf::bools_to_mask(cudf::device_span<bool const>(out_mask), stream, mr);
 
-  return cudf::make_strings_column(num_rows,
-                                   std::move(offsets),
-                                   chars.release(),
-                                   null_count,
-                                   null_count ? std::move(null_mask) : rmm::device_buffer{});
+  return cudf::make_strings_column(
+    num_rows,
+    std::move(offsets),
+    chars.release(),
+    null_count,
+    null_count ? std::move(*null_mask.release()) : rmm::device_buffer{});
 }
 
 /**
