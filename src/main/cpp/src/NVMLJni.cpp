@@ -379,7 +379,7 @@ nvml_result populate_gpu_info_from_device(JNIEnv* env, nvmlDevice_t device)
   jfieldID ecc_info_field =
     env->GetFieldID(gpu_info_class, "eccInfo", "L" NVML_CLASS_PATH "GPUECCInfo;");
 
-  auto handle_result = [&](nvml_result const& field_result, jfieldID field_id){
+  auto handle_result = [&](nvml_result const& field_result, jfieldID field_id) {
     if (field_result.return_code == NVML_SUCCESS) {
       env->SetObjectField(gpu_info, field_id, field_result.data);
     } else if (result.return_code == NVML_SUCCESS) {
