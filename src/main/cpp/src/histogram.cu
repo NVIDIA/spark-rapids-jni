@@ -31,6 +31,7 @@
 #include <cudf/reduction/detail/histogram.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/transform.hpp>
 
 #include <cuda/std/functional>
 #include <thrust/binary_search.h>
@@ -108,7 +109,7 @@ struct fill_percentile_fn {
                      cudf::device_span<int64_t const> const accumulated_counts_,
                      cudf::device_span<double const> const percentages_,
                      double* const output_,
-                     int8_t* const out_validity_)
+                     bool* const out_validity_)
     : offsets{offsets_},
       sorted_input{sorted_input_},
       sorted_validity{sorted_validity_},
@@ -135,7 +136,7 @@ struct fill_percentile_fn {
   cudf::device_span<int64_t const> const accumulated_counts;
   cudf::device_span<double const> const percentages;
   double* const output;
-  int8_t* const out_validity;
+  bool* const out_validity;
 };
 
 struct percentile_dispatcher {
@@ -191,8 +192,8 @@ struct percentile_dispatcher {
     // We may always have nulls in the output due to either:
     // - Having nulls in the input, and/or,
     // - Having empty histograms.
-    auto out_validities = rmm::device_uvector<int8_t>(
-      num_histograms, stream, rmm::mr::get_current_device_resource_ref());
+    auto out_validities =
+      rmm::device_uvector<bool>(num_histograms, stream, rmm::mr::get_current_device_resource_ref());
 
     auto const fill_percentile = [&](auto const sorted_validity_it) {
       auto const sorted_input_it =
@@ -217,9 +218,9 @@ struct percentile_dispatcher {
       fill_percentile(sorted_validity_it);
     }
 
-    auto [null_mask, null_count] = cudf::detail::valid_if(
-      out_validities.begin(), out_validities.end(), cuda::std::identity{}, stream, mr);
-    if (null_count > 0) { return {std::move(percentiles), std::move(null_mask), null_count}; }
+    auto [null_mask, null_count] =
+      cudf::bools_to_mask(cudf::device_span<bool const>(out_validities), stream, mr);
+    if (null_count > 0) { return {std::move(percentiles), std::move(*null_mask), null_count}; }
 
     return {std::move(percentiles), rmm::device_buffer{}, 0};
   }
@@ -314,7 +315,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     cudf::detail::make_zeroed_device_uvector_async<int8_t>(2, stream, default_mr);
 
   // We need to check and remember which rows are valid (positive) so we can do filtering later on.
-  auto check_valid = rmm::device_uvector<int8_t>(frequencies.size(), stream, default_mr);
+  auto check_valid = rmm::device_uvector<bool>(frequencies.size(), stream, default_mr);
 
   thrust::for_each_n(rmm::exec_policy(stream),
                      thrust::make_counting_iterator(0),
@@ -326,7 +327,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
                        if (frequencies[idx] < 0) { *check_invalid = 1; }
                        if (frequencies[idx] == 0) { *check_zero = 1; }
 
-                       check_valid[idx] = static_cast<int8_t>(frequencies[idx] > 0);
+                       check_valid[idx] = frequencies[idx] > 0;
                      });
 
   auto const h_checks = cudf::detail::make_std_vector(check_invalid_and_zero, stream);
@@ -408,9 +409,9 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     // Then, apply it to the output lists column, empty out the null lists, and finally remove
     // the null mask.
     // By doing so, the input rows corresponding to zero frequencies will be output as empty lists.
-    auto [null_mask, null_count] = cudf::detail::valid_if(
-      check_valid.begin(), check_valid.end(), cuda::std::identity{}, stream, default_mr);
-    lists_histograms->set_null_mask(std::move(null_mask), null_count);
+    auto [null_mask, null_count] =
+      cudf::bools_to_mask(cudf::device_span<bool const>(check_valid), stream, default_mr);
+    lists_histograms->set_null_mask(std::move(*null_mask), null_count);
     lists_histograms = cudf::detail::purge_nonempty_nulls(lists_histograms->view(), stream, mr);
     lists_histograms->set_null_mask(rmm::device_buffer{}, 0);
     return lists_histograms;
@@ -420,9 +421,9 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     }
 
     // We nullify the values corresponding to zero frequencies.
-    auto [null_mask, null_count] = cudf::detail::valid_if(
-      check_valid.begin(), check_valid.end(), cuda::std::identity{}, stream, mr);
-    return make_structs_histogram(std::move(null_mask), null_count);
+    auto [null_mask, null_count] =
+      cudf::bools_to_mask(cudf::device_span<bool const>(check_valid), stream, mr);
+    return make_structs_histogram(std::move(*null_mask), null_count);
   }
 }
 
