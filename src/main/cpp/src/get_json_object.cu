@@ -24,11 +24,11 @@
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
@@ -39,6 +39,7 @@
 #include <cuda/functional>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/pair.h>
+#include <thrust/transform.h>
 #include <thrust/transform_reduce.h>
 #include <thrust/tuple.h>
 
@@ -1092,8 +1093,17 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     if (h_error_check[idx]) {
       oob_indices.emplace_back(idx);
 
-      out_null_masks_and_null_counts.emplace_back(
-        cudf::detail::valid_if(out_sview.begin(), out_sview.end(), validator, stream, mr));
+      {
+        rmm::device_uvector<bool> valids(out_sview.size(), stream);
+        thrust::transform(rmm::exec_policy_nosync(stream),
+                          out_sview.begin(),
+                          out_sview.end(),
+                          valids.begin(),
+                          validator);
+        auto [mask, null_count] =
+          cudf::bools_to_mask(cudf::device_span<bool const>(valids), stream, mr);
+        out_null_masks_and_null_counts.emplace_back(std::move(*mask), null_count);
+      }
 
       // The string sizes computed in the previous kernel call will be used to allocate a new char
       // buffer to store the output.
