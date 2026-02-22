@@ -273,9 +273,11 @@ set_target_properties(
              # set target compile options
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
+             CXX_VISIBILITY_PRESET hidden
              CXX_EXTENSIONS ON
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
+             CUDA_VISIBILITY_PRESET hidden
              POSITION_INDEPENDENT_CODE ON
              INTERFACE_POSITION_INDEPENDENT_CODE ON
              CUDA_RUNTIME_LIBRARY Static
@@ -371,9 +373,11 @@ if(USE_GDS)
                # set target compile options
                CXX_STANDARD 20
                CXX_STANDARD_REQUIRED ON
+               CXX_VISIBILITY_PRESET hidden
                CXX_EXTENSIONS ON
                CUDA_STANDARD 20
                CUDA_STANDARD_REQUIRED ON
+               CUDA_VISIBILITY_PRESET hidden
                POSITION_INDEPENDENT_CODE ON
                INTERFACE_POSITION_INDEPENDENT_CODE ON
                CUDA_RUNTIME_LIBRARY Static
