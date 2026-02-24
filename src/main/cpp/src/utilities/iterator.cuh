@@ -21,7 +21,6 @@
 #include <cudf/scalar/scalar_device_view.cuh>
 #include <cudf/types.hpp>
 
-
 #include <cuda/iterator>
 #include <thrust/iterator/transform_iterator.h>
 
@@ -184,7 +183,10 @@ template <typename Element>
 struct scalar_pair_accessor : public scalar_value_accessor<Element> {
   using super_t    = scalar_value_accessor<Element>;
   using value_type = cuda::std::pair<Element, bool>;
-  scalar_pair_accessor(cudf::scalar const& scalar_value) : scalar_value_accessor<Element>(scalar_value) {}
+  scalar_pair_accessor(cudf::scalar const& scalar_value)
+    : scalar_value_accessor<Element>(scalar_value)
+  {
+  }
 
   __device__ inline value_type const operator()(cudf::size_type) const
   {
