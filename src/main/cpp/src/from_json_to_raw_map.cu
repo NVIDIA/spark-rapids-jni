@@ -39,7 +39,6 @@
 #include <thrust/copy.h>
 #include <thrust/count.h>
 #include <thrust/for_each.h>
-#include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/permutation_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
@@ -333,8 +332,8 @@ void propagate_parent_to_siblings(cudf::device_span<TreeDepthT const> node_level
     sorted_node_levels.end(),
     thrust::make_permutation_iterator(parent_node_ids.begin(), sorted_order.begin()),
     thrust::make_permutation_iterator(parent_node_ids.begin(), sorted_order.begin()),
-    thrust::equal_to<TreeDepthT>{},
-    thrust::maximum<NodeIndexT>{});
+    cuda::std::equal_to<TreeDepthT>{},
+    cuda::maximum<NodeIndexT>{});
 }
 
 // This is copied from cudf's `json_tree.cu`.

@@ -37,6 +37,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cub/device/device_memcpy.cuh>
+#include <cuda/functional>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -1038,7 +1039,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
                         buf_sizes_by_type,
                         thrust::make_discard_iterator(),
                         d_partition_sizes_unpadded,
-                        thrust::equal_to<size_t>{},  // key equality check
+                        cuda::std::equal_to<size_t>{},  // key equality check
                         buf_size_reduce);
 
   // - compute: padded section sizes

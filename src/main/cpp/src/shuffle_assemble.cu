@@ -39,6 +39,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cub/device/device_memcpy.cuh>
+#include <cuda/functional>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
@@ -343,8 +344,8 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
                         has_validity_values,
                         thrust::make_discard_iterator(),
                         assemble_column_info_has_validity_output_iter{column_info.begin()},
-                        thrust::equal_to<size_type>{},
-                        thrust::logical_or<bool>{});
+                        cuda::std::equal_to<size_type>{},
+                        cuda::std::logical_or<bool>{});
 
   // compute everything else except row count (which will be done later after we have computed
   // column instance information)
@@ -1939,7 +1940,7 @@ shuffle_assemble_result shuffle_assemble(shuffle_split_metadata const& metadata,
                                                    iter,
                                                    iter + (_partition_offsets.size() - 1),
                                                    size_t{0},
-                                                   thrust::maximum<size_t>{});
+                                                   cuda::maximum<size_t>{});
   size_t const num_partitions     = num_partitions_raw == 0 ? 1 : num_partitions_raw;
 
   // if the input is empty, allocate minimal buffer and create column_views
