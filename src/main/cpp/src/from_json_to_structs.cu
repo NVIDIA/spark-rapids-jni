@@ -17,6 +17,7 @@
 #include "cast_string.hpp"
 #include "json_utils.hpp"
 #include "nvtx_ranges.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -324,7 +325,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes_for_floats(
                      return {str, size};
                    });
 
-  auto const size_it = cudf::detail::make_counting_transform_iterator(
+  auto const size_it = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<cudf::size_type>(
       [string_pairs = string_pairs.begin()] __device__(cudf::size_type idx) -> cudf::size_type {
@@ -398,7 +399,7 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
 
   {
     using count_type    = thrust::tuple<int8_t, int8_t>;
-    auto const check_it = cudf::detail::make_counting_transform_iterator(
+    auto const check_it = spark_rapids_jni::util::make_counting_transform_iterator(
       0,
       cuda::proclaim_return_type<count_type>(
         [chars = input_sv.chars_begin(stream)] __device__(auto idx) {
@@ -440,7 +441,7 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
                                        stream.value());
   }
 
-  auto const out_size_it = cudf::detail::make_counting_transform_iterator(
+  auto const out_size_it = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<cudf::size_type>(
       [offsets       = in_offsets,
@@ -557,7 +558,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
                      return {chars + start_offset, size};
                    });
 
-  auto const size_it = cudf::detail::make_counting_transform_iterator(
+  auto const size_it = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<cudf::size_type>(
       [string_pairs = string_pairs.begin()] __device__(cudf::size_type idx) -> cudf::size_type {
