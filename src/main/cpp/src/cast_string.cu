@@ -29,6 +29,7 @@
 #include <cub/warp/warp_reduce.cuh>
 #include <cuda/std/optional>
 #include <cuda/std/tuple>
+#include <cuda/std/utility>
 
 using namespace cudf;
 

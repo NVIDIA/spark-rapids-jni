@@ -39,10 +39,10 @@
 #include <cuda/functional>
 #include <cuda/std/functional>
 #include <cuda/std/tuple>
+#include <cuda/std/utility>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
-#include <thrust/pair.h>
 #include <thrust/tabulate.h>
 #include <thrust/transform.h>
 #include <thrust/uninitialized_fill.h>
