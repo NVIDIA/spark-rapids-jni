@@ -434,12 +434,13 @@ std::unique_ptr<cudf::column> create_random_column(data_profile const& profile,
                         cudf::get_default_stream(),
                         rmm::mr::get_current_device_resource_ref());
 
-  return std::make_unique<cudf::column>(
-    cudf::data_type{cudf::type_to_id<T>()},
-    num_rows,
-    data.release(),
-    profile.get_null_frequency().has_value() ? std::move(*result_bitmask) : rmm::device_buffer{},
-    null_count);
+  return std::make_unique<cudf::column>(cudf::data_type{cudf::type_to_id<T>()},
+                                        num_rows,
+                                        data.release(),
+                                        profile.get_null_frequency().has_value()
+                                          ? std::move(*result_bitmask.release())
+                                          : rmm::device_buffer{},
+                                        null_count);
 }
 
 struct valid_or_zero {
@@ -521,7 +522,8 @@ std::unique_ptr<cudf::column> create_random_utf8_string_column(data_profile cons
     std::make_unique<cudf::column>(std::move(offsets), rmm::device_buffer{}, 0),
     chars.release(),
     null_count,
-    profile.get_null_frequency().has_value() ? std::move(*result_bitmask) : rmm::device_buffer{});
+    profile.get_null_frequency().has_value() ? std::move(*result_bitmask.release())
+                                             : rmm::device_buffer{});
 }
 
 /**
@@ -654,7 +656,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::struct_view>(data_profi
       current_child += children_to_adopt.size();
 
       *current_parent = cudf::make_structs_column(
-        num_rows, std::move(children_to_adopt), null_count, std::move(*null_mask));
+        num_rows, std::move(children_to_adopt), null_count, std::move(*null_mask.release()));
     }
 
     if (lvl == 1) {
@@ -731,7 +733,8 @@ std::unique_ptr<cudf::column> create_random_column<cudf::list_view>(data_profile
       std::move(offsets_column),
       std::move(current_child_column),
       profile.get_null_frequency().has_value() ? null_count : 0,  // cudf::UNKNOWN_NULL_COUNT,
-      profile.get_null_frequency().has_value() ? std::move(*null_mask) : rmm::device_buffer{});
+      profile.get_null_frequency().has_value() ? std::move(*null_mask.release())
+                                                                : rmm::device_buffer{});
   }
   return list_column;  // return the top-level column
 }
@@ -847,7 +850,7 @@ std::pair<rmm::device_buffer, cudf::size_type> create_random_null_mask(
     auto [mask, null_count] = cudf::bools_to_mask(cudf::device_span<bool const>(valids),
                                                   cudf::get_default_stream(),
                                                   rmm::mr::get_current_device_resource_ref());
-    return {std::move(*mask), null_count};
+    return {std::move(*mask.release()), null_count};
   }
 }
 

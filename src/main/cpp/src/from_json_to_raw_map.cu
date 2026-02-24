@@ -780,7 +780,8 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
                     thrust::logical_not<bool>{});
   auto [null_mask, null_count] =
     cudf::bools_to_mask(cudf::device_span<bool const>(valids), stream, mr);
-  return {null_count > 0 ? std::move(*null_mask) : rmm::device_buffer{0, stream, mr}, null_count};
+  return {null_count > 0 ? std::move(*null_mask.release()) : rmm::device_buffer{0, stream, mr},
+          null_count};
 }
 
 }  // namespace

@@ -1093,17 +1093,16 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     if (h_error_check[idx]) {
       oob_indices.emplace_back(idx);
 
-      {
+      auto [mask, null_count] = [&] {
         rmm::device_uvector<bool> valids(out_sview.size(), stream);
         thrust::transform(rmm::exec_policy_nosync(stream),
                           out_sview.begin(),
                           out_sview.end(),
                           valids.begin(),
                           validator);
-        auto [mask, null_count] =
-          cudf::bools_to_mask(cudf::device_span<bool const>(valids), stream, mr);
-        out_null_masks_and_null_counts.emplace_back(std::move(*mask), null_count);
-      }
+        return cudf::bools_to_mask(cudf::device_span<bool const>(valids), stream, mr);
+      }();
+      out_null_masks_and_null_counts.emplace_back(std::move(*mask.release()), null_count);
 
       // The string sizes computed in the previous kernel call will be used to allocate a new char
       // buffer to store the output.
