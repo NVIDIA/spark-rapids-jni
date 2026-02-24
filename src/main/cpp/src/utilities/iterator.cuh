@@ -74,7 +74,7 @@ CUDF_HOST_DEVICE inline auto make_counting_transform_iterator(CountingIterType s
  * false`. `pair(column[i], validity)`. `validity` is `true` if `has_nulls=false`. `validity` is
  * validity of the element at `i` if `has_nulls=true` and the column is nullable.
  *
- * @throws cudf::logic_error if the column is nullable.
+ * @throws cudf::logic_error if the column is not nullable and `has_nulls` is true.
  * @throws cudf::logic_error if column datatype and Element type mismatch.
  *
  * @tparam Element The type of elements in the column
