@@ -22,6 +22,7 @@
 #include <cudf/types.hpp>
 
 #include <cuda/std/tuple>
+#include <cuda/std/utility>
 
 namespace spark_rapids_jni {
 
