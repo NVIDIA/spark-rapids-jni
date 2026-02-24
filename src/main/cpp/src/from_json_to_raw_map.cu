@@ -35,6 +35,7 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_select.cuh>
 #include <cuda/functional>
+#include <cuda/std/utility>
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
@@ -43,7 +44,6 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/permutation_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
-#include <thrust/pair.h>
 #include <thrust/scan.h>
 #include <thrust/sequence.h>
 #include <thrust/transform.h>
@@ -433,7 +433,7 @@ struct node_ranges_fn {
   // Whether the extracted string values from json map will have the quote character.
   static const bool include_quote_char{false};
 
-  __device__ thrust::pair<SymbolOffsetT, SymbolOffsetT> operator()(cudf::size_type node_id) const
+  __device__ cuda::std::pair<SymbolOffsetT, SymbolOffsetT> operator()(cudf::size_type node_id) const
   {
     [[maybe_unused]] auto const is_begin_of_section =
       cuda::proclaim_return_type<bool>([] __device__(PdaTokenT const token) {
@@ -489,7 +489,7 @@ struct node_ranges_fn {
       });
 
     if (key_or_value[node_id] != key_sentinel && key_or_value[node_id] != value_sentinel) {
-      return thrust::make_pair(0, 0);
+      return cuda::std::make_pair(0, 0);
     }
 
     auto const token_idx = node_token_ids[node_id];
@@ -516,13 +516,13 @@ struct node_ranges_fn {
       cudf_assert(nested_range_value == 0 && "Invalid range computation.");
       cudf_assert((end_idx + 1 < tokens.size()) && "Invalid range computation.");
     }
-    return thrust::make_pair(range_begin, range_end);
+    return cuda::std::make_pair(range_begin, range_end);
   }
 };
 
 // Compute position range for each node.
 // These ranges identify positions to extract nodes from the unified json string.
-rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> compute_node_ranges(
+rmm::device_uvector<cuda::std::pair<SymbolOffsetT, SymbolOffsetT>> compute_node_ranges(
   cudf::device_span<PdaTokenT const> tokens,
   cudf::device_span<SymbolOffsetT const> token_positions,
   cudf::device_span<NodeIndexT const> node_token_ids,
@@ -532,7 +532,7 @@ rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> compute_node_ran
 {
   auto const num_nodes = node_token_ids.size();
   auto node_ranges =
-    rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(num_nodes, stream);
+    rmm::device_uvector<cuda::std::pair<SymbolOffsetT, SymbolOffsetT>>(num_nodes, stream);
   auto const transform_it = thrust::counting_iterator<int>(0);
   thrust::transform(
     rmm::exec_policy_nosync(stream),
@@ -552,7 +552,7 @@ rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> compute_node_ran
 // No bound check is performed, assuming that the substring bounds are all valid.
 struct substring_fn {
   cudf::device_span<char const> d_string;
-  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> d_ranges;
+  cudf::device_span<cuda::std::pair<SymbolOffsetT, SymbolOffsetT> const> d_ranges;
 
   cudf::size_type* d_sizes;
   char* d_chars;
@@ -573,7 +573,7 @@ struct substring_fn {
 // Extract key-value string pairs from the input json string.
 std::unique_ptr<cudf::column> extract_keys_or_values(
   int8_t key_value_sentinel,
-  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> node_ranges,
+  cudf::device_span<cuda::std::pair<SymbolOffsetT, SymbolOffsetT> const> node_ranges,
   cudf::device_span<int8_t const> key_or_value,
   cudf::device_span<char const> input_json,
   rmm::cuda_stream_view stream,
@@ -584,8 +584,8 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
       return key_or_value[node_id] == key_value_sentinel;
     });
 
-  auto extracted_ranges =
-    rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(node_ranges.size(), stream, mr);
+  auto extracted_ranges = rmm::device_uvector<cuda::std::pair<SymbolOffsetT, SymbolOffsetT>>(
+    node_ranges.size(), stream, mr);
   auto const range_end   = copy_if(node_ranges.begin(),
                                  node_ranges.end(),
                                  thrust::make_counting_iterator(0),

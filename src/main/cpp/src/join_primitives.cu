@@ -156,9 +156,9 @@ filter_by_conditional_impl(cudf::device_span<cudf::size_type const> left_indices
 
   // Copy indices where condition is true
   auto input_iter =
-    thrust::make_zip_iterator(thrust::make_tuple(left_indices.begin(), right_indices.begin()));
+    thrust::make_zip_iterator(cuda::std::make_tuple(left_indices.begin(), right_indices.begin()));
   auto output_iter = thrust::make_zip_iterator(
-    thrust::make_tuple(out_left_indices.begin(), out_right_indices.begin()));
+    cuda::std::make_tuple(out_left_indices.begin(), out_right_indices.begin()));
 
   thrust::copy_if(rmm::exec_policy_nosync(stream),
                   input_iter,

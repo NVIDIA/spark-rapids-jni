@@ -23,9 +23,9 @@
 #include <cudf/types.hpp>
 
 #include <cuda/std/functional>
+#include <cuda/std/utility>
 #include <thrust/count.h>
 #include <thrust/for_each.h>
-#include <thrust/pair.h>
 
 #include <cstdlib>  // For abs() function
 
@@ -62,7 +62,7 @@ CUDF_HOST_DEVICE bool is_invalid_base_range(int from_base, int to_base)
  * @brief Trims space characters (ASCII 32)
  * @return The first non-space index and last non-space index pair
  */
-__device__ thrust::pair<int, int> trim(char const* ptr, int len)
+__device__ cuda::std::pair<int, int> trim(char const* ptr, int len)
 {
   int first = 0;
   int last  = len - 1;
@@ -72,7 +72,7 @@ __device__ thrust::pair<int, int> trim(char const* ptr, int len)
   while (last > first && ptr[last] == ' ') {
     --last;
   }
-  return thrust::make_pair(first, last);
+  return cuda::std::make_pair(first, last);
 }
 
 /**
@@ -145,14 +145,14 @@ enum class result_type : int32_t { SUCCESS, OVERFLOW, NULL_VALUE };
  * @return result_type and length pair
  *
  */
-__device__ thrust::pair<result_type, int> convert(
+__device__ cuda::std::pair<result_type, int> convert(
   char const* ptr, int len, int from_base, int to_base, char* out, int out_len, ansi_mode ansi_type)
 {
   // trim spaces
   auto [first, last] = trim(ptr, len);
   if (last - first < 0) {
     // return null if the trimmed string is empty
-    return thrust::make_pair(result_type::NULL_VALUE, 0);
+    return cuda::std::make_pair(result_type::NULL_VALUE, 0);
   }
 
   // handle sign
@@ -177,7 +177,7 @@ __device__ thrust::pair<result_type, int> convert(
       // overflow since base is greater than 2 and v is considered as unsigned long
       if (ansi_type == ansi_mode::ON) {
         // overflow for ansi mode, which means throw exception
-        return thrust::make_pair(result_type::OVERFLOW, 0);
+        return cuda::std::make_pair(result_type::OVERFLOW, 0);
       } else {
         // overflow for non-ansi mode, use -1
         v = -1L;
@@ -193,7 +193,7 @@ __device__ thrust::pair<result_type, int> convert(
         // overflow since base is greater than 2 and v is considered as unsigned long
         if (ansi_type == ansi_mode::ON) {
           // overflow for ansi mode, which means throw exception
-          return thrust::make_pair(result_type::OVERFLOW, 0);
+          return cuda::std::make_pair(result_type::OVERFLOW, 0);
         } else {
           // overflow for non-ansi mode, use -1
           v = -1L;
@@ -239,7 +239,7 @@ __device__ thrust::pair<result_type, int> convert(
     if (out != nullptr) { out[out_idx] = '-'; }
     --out_idx;
   }
-  return thrust::make_pair(result_type::SUCCESS, out_len - 1 - out_idx);
+  return cuda::std::make_pair(result_type::SUCCESS, out_len - 1 - out_idx);
 }
 
 struct str_iter {

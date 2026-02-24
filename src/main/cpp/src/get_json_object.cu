@@ -37,10 +37,9 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <cuda/std/tuple>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/pair.h>
 #include <thrust/transform_reduce.h>
-#include <thrust/tuple.h>
 
 #include <numeric>
 
@@ -294,26 +293,26 @@ __device__ inline bool path_match_elements(cudf::device_span<path_instruction co
   return path.data()[0].type == path_type0 && path.data()[1].type == path_type1;
 }
 
-__device__ inline thrust::tuple<bool, int> path_match_index(
+__device__ inline cuda::std::tuple<bool, int> path_match_index(
   cudf::device_span<path_instruction const> path)
 {
   auto match = path_match_element(path, path_instruction_type::INDEX);
   if (match) {
-    return thrust::make_tuple(true, path.data()[0].index);
+    return cuda::std::make_tuple(true, path.data()[0].index);
   } else {
-    return thrust::make_tuple(false, 0);
+    return cuda::std::make_tuple(false, 0);
   }
 }
 
-__device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
+__device__ inline cuda::std::tuple<bool, int> path_match_index_wildcard(
   cudf::device_span<path_instruction const> path)
 {
   auto match =
     path_match_elements(path, path_instruction_type::INDEX, path_instruction_type::WILDCARD);
   if (match) {
-    return thrust::make_tuple(true, path.data()[0].index);
+    return cuda::std::make_tuple(true, path.data()[0].index);
   } else {
-    return thrust::make_tuple(false, 0);
+    return cuda::std::make_tuple(false, 0);
   }
 }
 
@@ -372,7 +371,7 @@ struct context {
  *        during parsing the input string
  * @return A pair containing the result code and the output size
  */
-__device__ thrust::pair<bool, cudf::size_type> evaluate_path(
+__device__ cuda::std::pair<bool, cudf::size_type> evaluate_path(
   json_parser& p,
   cudf::device_span<path_instruction const> path_commands,
   char* out_buf,
@@ -629,8 +628,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       /* case (START_ARRAY, Index(idx) :: (xs@Wildcard :: _)) */
       // case path 8
       else if (json_token::START_ARRAY == ctx.token &&
-               thrust::get<0>(path_match_index_wildcard(ctx.path))) {
-        int idx = thrust::get<1>(path_match_index_wildcard(ctx.path));
+               cuda::std::get<0>(path_match_index_wildcard(ctx.path))) {
+        int idx = cuda::std::get<1>(path_match_index_wildcard(ctx.path));
 
         p.next_token();
         // JSON validation check
@@ -661,8 +660,9 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       }
       // case (START_ARRAY, Index(idx) :: xs)
       // case path 9
-      else if (json_token::START_ARRAY == ctx.token && thrust::get<0>(path_match_index(ctx.path))) {
-        int idx = thrust::get<1>(path_match_index(ctx.path));
+      else if (json_token::START_ARRAY == ctx.token &&
+               cuda::std::get<0>(path_match_index(ctx.path))) {
+        int idx = cuda::std::get<1>(path_match_index(ctx.path));
 
         p.next_token();
         // JSON validation check
@@ -791,7 +791,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 struct json_path_processing_data {
   cudf::device_span<path_instruction const> path_commands;
   cudf::detail::input_offsetalator offsets;
-  thrust::pair<char const*, cudf::size_type>* out_stringviews;
+  cuda::std::pair<char const*, cudf::size_type>* out_stringviews;
   char* out_buf;
   int8_t* has_out_of_bound;
 };
@@ -1028,7 +1028,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   auto const d_max_path_depth_exceeded = d_error_check.data() + num_outputs;
 
   std::vector<rmm::device_uvector<char>> scratch_buffers;
-  std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
+  std::vector<rmm::device_uvector<cuda::std::pair<char const*, cudf::size_type>>> out_stringviews;
   std::vector<json_path_processing_data> h_path_data;
   scratch_buffers.reserve(json_paths.size());
   out_stringviews.reserve(json_paths.size());
@@ -1041,7 +1041,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     }
 
     scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
-    out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
+    out_stringviews.emplace_back(rmm::device_uvector<cuda::std::pair<char const*, cudf::size_type>>{
       static_cast<std::size_t>(input.size()), stream});
 
     h_path_data.emplace_back(json_path_processing_data{d_json_paths[idx],
@@ -1059,7 +1059,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   auto h_error_check = cudf::detail::make_host_vector(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
-  std::vector<cudf::device_span<thrust::pair<char const*, cudf::size_type> const>>
+  std::vector<cudf::device_span<cuda::std::pair<char const*, cudf::size_type> const>>
     batch_stringviews;
   batch_stringviews.reserve(out_stringviews.size());
 
@@ -1080,7 +1080,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   std::vector<std::size_t> no_oob_indices;
 
   // Check validity from the stored char pointers.
-  auto const validator = [] __device__(thrust::pair<char const*, cudf::size_type> const item) {
+  auto const validator = [] __device__(cuda::std::pair<char const*, cudf::size_type> const item) {
     return item.first != nullptr;
   };
 

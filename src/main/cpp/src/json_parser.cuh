@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +21,7 @@
 #include <cudf/strings/string_view.hpp>
 #include <cudf/types.hpp>
 
-#include <thrust/pair.h>
-#include <thrust/tuple.h>
+#include <cuda/std/tuple>
 
 namespace spark_rapids_jni {
 
@@ -602,10 +601,10 @@ class json_parser {
    * @return a tuple of values indicating if the parse process was successful, if field name was
    *         matched, and a pointer to the past-end position of the parsed data
    */
-  static __device__ inline thrust::tuple<bool, bool, char const*> try_parse_string(
+  static __device__ inline cuda::std::tuple<bool, bool, char const*> try_parse_string(
     char_range_reader str, char_range_reader to_match = char_range_reader(char_range::null()))
   {
-    if (str.is_empty()) { return thrust::make_tuple(false, false, nullptr); }
+    if (str.is_empty()) { return cuda::std::make_tuple(false, false, nullptr); }
     char const quote_char   = str.current_char();
     bool matched_field_name = !to_match.is_null();
 
@@ -620,7 +619,7 @@ class json_parser {
       if (c == quote_char) {  // path 1: match closing quote char
         str.next();
         matched_field_name = matched_field_name && (to_match.is_null() || to_match.is_empty());
-        return thrust::make_tuple(true, matched_field_name, str.data());
+        return cuda::std::make_tuple(true, matched_field_name, str.data());
       } else if (v >= 0 && v < 32) {  // path 2: unescaped control char
         matched_field_name = matched_field_name && try_match_char(to_match, c);
         str.next();
@@ -636,15 +635,17 @@ class json_parser {
                                   escape_style::UNESCAPED,
                                   output_size_bytes,
                                   matched_field_name)) {
-          return thrust::make_tuple(false, false, nullptr);
+          return cuda::std::make_tuple(false, false, nullptr);
         }
       } else {  // path 4: safe code point
-        if (!try_skip_safe_code_point(str, c)) { return thrust::make_tuple(false, false, nullptr); }
+        if (!try_skip_safe_code_point(str, c)) {
+          return cuda::std::make_tuple(false, false, nullptr);
+        }
         matched_field_name = matched_field_name && try_match_char(to_match, c);
       }
     }
 
-    return thrust::make_tuple(false, false, nullptr);
+    return cuda::std::make_tuple(false, false, nullptr);
   }
 
   static __device__ inline bool try_match_char(char_range_reader& reader, char c)
@@ -1594,7 +1595,7 @@ class json_parser {
    * reurn true otherwise.
    * @param[out] copy_to
    */
-  __device__ thrust::pair<bool, size_t> copy_current_structure(char* copy_to)
+  __device__ cuda::std::pair<bool, size_t> copy_current_structure(char* copy_to)
   {
     switch (current_token) {
       case json_token::INIT:
@@ -1602,7 +1603,7 @@ class json_parser {
       case json_token::SUCCESS:
       case json_token::FIELD_NAME:
       case json_token::END_ARRAY:
-      case json_token::END_OBJECT: return thrust::make_pair(false, 0);
+      case json_token::END_OBJECT: return cuda::std::make_pair(false, 0);
       case json_token::VALUE_NUMBER_INT:
       case json_token::VALUE_NUMBER_FLOAT:
       case json_token::VALUE_STRING:
@@ -1612,10 +1613,10 @@ class json_parser {
         // copy terminal token
         if (nullptr != copy_to) {
           size_t copy_len = write_escaped_text(copy_to);
-          return thrust::make_pair(true, copy_len);
+          return cuda::std::make_pair(true, copy_len);
         } else {
           size_t copy_len = compute_escaped_len();
-          return thrust::make_pair(true, copy_len);
+          return cuda::std::make_pair(true, copy_len);
         }
       case json_token::START_ARRAY:
       case json_token::START_OBJECT:
@@ -1643,7 +1644,7 @@ class json_parser {
             has_comma_before_token, has_colon_before_token, matched_field_name);
 
           // check the JSON format
-          if (current_token == json_token::ERROR) { return thrust::make_pair(false, 0); }
+          if (current_token == json_token::ERROR) { return cuda::std::make_pair(false, 0); }
 
           // write out the token
           if (nullptr != copy_to) {
@@ -1666,14 +1667,14 @@ class json_parser {
 
           if (backup_stack_size - 1 == stack_size) {
             // indicate meet the matched end object/array
-            return thrust::make_pair(true, sum_copy_len);
+            return cuda::std::make_pair(true, sum_copy_len);
           }
         }
-        return thrust::make_pair(false, 0);
+        return cuda::std::make_pair(false, 0);
     }
 
     // never happen
-    return thrust::make_pair(false, 0);
+    return cuda::std::make_pair(false, 0);
   }
 
   __device__ inline bool max_nesting_depth_exceeded() const { return max_depth_exceeded; }
