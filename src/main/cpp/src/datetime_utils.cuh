@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,8 @@
 #include <cudf/utilities/span.hpp>
 
 #include <cuda/std/limits>
+#include <cuda/std/utility>
 #include <thrust/binary_search.h>
-#include <thrust/pair.h>
 
 namespace spark_rapids_jni {
 
@@ -479,21 +479,21 @@ struct daylight_saving_time_utils {
    * @param ldv The list device view containing DST rules
    * @return A pair of transition rules
    */
-  __device__ static thrust::pair<transition_rule, transition_rule> create_dst_rules(
+  __device__ static cuda::std::pair<transition_rule, transition_rule> create_dst_rules(
     cudf::list_device_view const& ldv)
   {
-    return thrust::make_pair(transition_rule(ldv.element<int32_t>(0),
-                                             ldv.element<int32_t>(1),
-                                             ldv.element<int32_t>(2),
-                                             ldv.element<int32_t>(3),
-                                             ldv.element<int32_t>(4),
-                                             ldv.element<int32_t>(5)),
-                             transition_rule(ldv.element<int32_t>(6),
-                                             ldv.element<int32_t>(7),
-                                             ldv.element<int32_t>(8),
-                                             ldv.element<int32_t>(9),
-                                             ldv.element<int32_t>(10),
-                                             ldv.element<int32_t>(11)));
+    return {transition_rule(ldv.element<int32_t>(0),
+                            ldv.element<int32_t>(1),
+                            ldv.element<int32_t>(2),
+                            ldv.element<int32_t>(3),
+                            ldv.element<int32_t>(4),
+                            ldv.element<int32_t>(5)),
+            transition_rule(ldv.element<int32_t>(6),
+                            ldv.element<int32_t>(7),
+                            ldv.element<int32_t>(8),
+                            ldv.element<int32_t>(9),
+                            ldv.element<int32_t>(10),
+                            ldv.element<int32_t>(11))};
   }
 };
 

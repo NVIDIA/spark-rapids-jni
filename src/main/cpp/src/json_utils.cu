@@ -29,11 +29,11 @@
 
 #include <cub/device/device_histogram.cuh>
 #include <cuda/std/functional>
+#include <cuda/std/tuple>
 #include <thrust/find.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/transform.h>
-#include <thrust/tuple.h>
 #include <thrust/uninitialized_fill.h>
 
 namespace spark_rapids_jni {
@@ -101,14 +101,14 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
     thrust::make_counting_iterator(input.size() * static_cast<int64_t>(cudf::detail::warp_size)),
     [nullify_invalid_rows,
      input  = *d_input_ptr,
-     output = thrust::make_zip_iterator(thrust::make_tuple(
-       is_valid_input.begin(), should_be_nullified.begin()))] __device__(int64_t tidx) {
+     output = thrust::make_zip_iterator(is_valid_input.begin(),
+                                        should_be_nullified.begin())] __device__(int64_t tidx) {
       // Execute one warp per row to minimize thread divergence.
       if ((tidx % cudf::detail::warp_size) != 0) { return; }
       auto const idx = tidx / cudf::detail::warp_size;
 
       if (input.is_null(idx)) {
-        output[idx] = thrust::make_tuple(false, true);
+        output[idx] = cuda::std::make_tuple(false, true);
         return;
       }
 
@@ -130,11 +130,11 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
       // Note that if we want to support ARRAY schema, we need to check for `[` instead.
       auto constexpr start_character = '{';
       if (not_eol && ch != start_character) {
-        output[idx] = thrust::make_tuple(false, nullify_invalid_rows);
+        output[idx] = cuda::std::make_tuple(false, nullify_invalid_rows);
         return;
       }
 
-      output[idx] = thrust::make_tuple(not_eol, !not_eol);
+      output[idx] = cuda::std::make_tuple(not_eol, !not_eol);
     });
 
   auto constexpr num_levels  = 256;

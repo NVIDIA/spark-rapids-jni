@@ -42,7 +42,6 @@
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/remove.h>
 #include <thrust/sort.h>
-#include <thrust/tuple.h>
 #include <thrust/unique.h>
 
 #include <limits>
@@ -155,10 +154,8 @@ filter_by_conditional_impl(cudf::device_span<cudf::size_type const> left_indices
   auto out_right_indices = rmm::device_uvector<cudf::size_type>(num_matches, stream, mr);
 
   // Copy indices where condition is true
-  auto input_iter =
-    thrust::make_zip_iterator(thrust::make_tuple(left_indices.begin(), right_indices.begin()));
-  auto output_iter = thrust::make_zip_iterator(
-    thrust::make_tuple(out_left_indices.begin(), out_right_indices.begin()));
+  auto input_iter  = thrust::make_zip_iterator(left_indices.begin(), right_indices.begin());
+  auto output_iter = thrust::make_zip_iterator(out_left_indices.begin(), out_right_indices.begin());
 
   thrust::copy_if(rmm::exec_policy_nosync(stream),
                   input_iter,

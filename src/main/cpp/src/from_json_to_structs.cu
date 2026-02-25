@@ -38,13 +38,13 @@
 #include <cub/device/device_segmented_reduce.cuh>
 #include <cuda/functional>
 #include <cuda/std/functional>
+#include <cuda/std/tuple>
+#include <cuda/std/utility>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
-#include <thrust/pair.h>
 #include <thrust/tabulate.h>
 #include <thrust/transform.h>
-#include <thrust/tuple.h>
 #include <thrust/uninitialized_fill.h>
 
 namespace spark_rapids_jni {
@@ -141,7 +141,7 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> generate_stru
       cudf::data_type{cudf::type_id::STRUCT}, -1, std::move(schema_cols_with_precisions)}};
 }
 
-using string_index_pair = thrust::pair<char const*, cudf::size_type>;
+using string_index_pair = cuda::std::pair<char const*, cudf::size_type>;
 
 std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& input,
                                                        rmm::cuda_stream_view stream,
@@ -161,14 +161,14 @@ std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& 
     cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
   auto const d_input_ptr = cudf::column_device_view::create(input, stream);
   auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
-  auto const output_it   = thrust::make_zip_iterator(
-    thrust::make_tuple(output->mutable_view().begin<bool>(), validity.begin()));
+  auto const output_it =
+    thrust::make_zip_iterator(output->mutable_view().begin<bool>(), validity.begin());
   thrust::tabulate(
     rmm::exec_policy_nosync(stream),
     output_it,
     output_it + string_count,
     [chars = input_sv.chars_begin(stream), offsets = offsets_it, is_valid = is_valid_it] __device__(
-      auto idx) -> thrust::tuple<bool, bool> {
+      auto idx) -> cuda::std::tuple<bool, bool> {
       if (is_valid[idx]) {
         auto const start_offset = offsets[idx];
         auto const end_offset   = offsets[idx + 1];
@@ -397,7 +397,7 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
   rmm::device_uvector<int8_t> remove_counts(string_count, stream);
 
   {
-    using count_type    = thrust::tuple<int8_t, int8_t>;
+    using count_type    = cuda::std::tuple<int8_t, int8_t>;
     auto const check_it = cudf::detail::make_counting_transform_iterator(
       0,
       cuda::proclaim_return_type<count_type>(
@@ -409,8 +409,8 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
         }));
     auto const plus_op =
       cuda::proclaim_return_type<count_type>([] __device__(count_type lhs, count_type rhs) {
-        return count_type{thrust::get<0>(lhs) + thrust::get<0>(rhs),
-                          thrust::get<1>(lhs) + thrust::get<1>(rhs)};
+        return count_type{cuda::std::get<0>(lhs) + cuda::std::get<0>(rhs),
+                          cuda::std::get<1>(lhs) + cuda::std::get<1>(rhs)};
       });
 
     auto const out_count_it =
