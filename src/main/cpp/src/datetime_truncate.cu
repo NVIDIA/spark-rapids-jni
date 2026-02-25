@@ -31,9 +31,9 @@
 
 #include <cuda/std/functional>
 #include <cuda/std/optional>
+#include <cuda/std/utility>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
-#include <thrust/pair.h>
 #include <thrust/transform.h>
 
 #include <type_traits>
@@ -173,7 +173,7 @@ struct truncate_date_fn {
   cudf::column_device_view datetime;
   FormatDeviceT format;
 
-  __device__ inline thrust::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
+  __device__ inline cuda::std::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
   {
     auto const datetime_idx = datetime.size() > 1 ? idx : 0;
     if (datetime.is_null(datetime_idx)) { return {Timestamp{}, false}; }
@@ -211,7 +211,7 @@ struct truncate_timestamp_fn {
   cudf::column_device_view datetime;
   FormatDeviceT format;
 
-  __device__ inline thrust::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
+  __device__ inline cuda::std::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
   {
     auto const datetime_idx = datetime.size() > 1 ? idx : 0;
     if (datetime.is_null(datetime_idx)) { return {Timestamp{}, false}; }

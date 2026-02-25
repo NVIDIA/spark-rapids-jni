@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@
 #include <rmm/resource_ref.hpp>
 
 #include <cub/warp/warp_reduce.cuh>
-#include <thrust/pair.h>
+#include <cuda/std/utility>
 
 using namespace cudf;
 
@@ -335,7 +335,7 @@ class string_to_float {
   }
 
   // parse the actual digits.  returns 64 bit digit holding value and exponent
-  __device__ thrust::pair<uint64_t, int> parse_digits()
+  __device__ cuda::std::pair<uint64_t, int> parse_digits()
   {
     typedef cub::WarpReduce<uint64_t> WarpReduce;
     __shared__ typename WarpReduce::TempStorage temp_storage;

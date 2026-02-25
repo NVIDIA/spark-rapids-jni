@@ -36,7 +36,7 @@
 
 #include <cuda/functional>
 #include <cuda/std/optional>
-#include <thrust/pair.h>
+#include <cuda/std/utility>
 #include <thrust/tabulate.h>
 
 #include <memory>
@@ -95,7 +95,7 @@ constexpr bool is_hex(char c)
   return is_numeric(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-__device__ thrust::pair<bool, string_view::const_iterator> skip_and_validate_special(
+__device__ cuda::std::pair<bool, string_view::const_iterator> skip_and_validate_special(
   string_view::const_iterator iter,
   string_view::const_iterator end,
   bool allow_invalid_escapes = false)
