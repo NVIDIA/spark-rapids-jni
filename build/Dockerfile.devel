@@ -47,13 +47,13 @@ RUN mkdir -p /tmp/git-src && cd /tmp/git-src && \
     wget -O "git-${GIT_VERSION}.tar.xz" "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz" && \
     tar -xf "git-${GIT_VERSION}.tar.xz" && \
     cd "git-${GIT_VERSION}" && \
-    scl enable gcc-toolset-${TOOLSET_VERSION} \
-      "./configure \
+    scl enable gcc-toolset-${TOOLSET_VERSION} -- bash -c " \
+      ./configure \
         --prefix=/usr \
         --with-libpcre2 \
         --with-openssl \
-        --with-curl" && \
-      make -j"${PARALLEL_LEVEL}" all && \
-      make install && \
+        --with-curl && \
+      make -j\"${PARALLEL_LEVEL:-\$(nproc)}\" all && \
+      make install" && \
       cd / && rm -rf /tmp/git-src
 
