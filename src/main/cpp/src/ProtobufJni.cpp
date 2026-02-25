@@ -19,6 +19,7 @@
 #include "protobuf.hpp"
 
 #include <cudf/column/column_view.hpp>
+#include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/traits.hpp>
 
 extern "C" {
@@ -92,6 +93,43 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                     cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
                     "All field arrays must have the same length",
                     0);
+    }
+
+    // Validate schema topology and wire types:
+    // - parent index must be -1 or a prior field index
+    // - depth must be 0 for top-level and parent_depth + 1 for children
+    // - wire type must be one of {0, 1, 2, 5}
+    for (int i = 0; i < num_fields; ++i) {
+      auto const parent_idx = n_parent_indices[i];
+      auto const depth      = n_depth_levels[i];
+      auto const wire_type  = n_wire_types[i];
+
+      if (!(wire_type == 0 || wire_type == 1 || wire_type == 2 || wire_type == 5)) {
+        JNI_THROW_NEW(
+          env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "wire_types must be one of {0,1,2,5}", 0);
+      }
+
+      if (parent_idx < -1 || parent_idx >= num_fields || parent_idx >= i) {
+        JNI_THROW_NEW(env,
+                      cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                      "parent_indices must be -1 or a valid prior field index",
+                      0);
+      }
+
+      if (parent_idx == -1) {
+        if (depth != 0) {
+          JNI_THROW_NEW(
+            env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "top-level fields must have depth 0", 0);
+        }
+      } else {
+        auto const parent_depth = n_depth_levels[parent_idx];
+        if (depth != parent_depth + 1) {
+          JNI_THROW_NEW(env,
+                        cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                        "child depth must equal parent depth + 1",
+                        0);
+        }
+      }
     }
 
     // Build schema descriptors
@@ -204,7 +242,8 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                                                     std::move(enum_name_values),
                                                     static_cast<bool>(fail_on_errors)};
 
-    auto result = spark_rapids_jni::decode_protobuf_to_struct(*input, context);
+    auto result =
+      spark_rapids_jni::decode_protobuf_to_struct(*input, context, cudf::get_default_stream());
 
     return cudf::jni::release_as_jlong(result);
   }

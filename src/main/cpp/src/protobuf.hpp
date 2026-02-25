@@ -20,6 +20,8 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/types.hpp>
 
+#include <rmm/cuda_stream_view.hpp>
+
 #include <memory>
 #include <vector>
 
@@ -94,6 +96,7 @@ struct ProtobufDecodeContext {
  * @return STRUCT column with nested structure
  */
 std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
-                                                        ProtobufDecodeContext const& context);
+                                                        ProtobufDecodeContext const& context,
+                                                        rmm::cuda_stream_view stream);
 
 }  // namespace spark_rapids_jni

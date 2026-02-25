@@ -1885,6 +1885,148 @@ public class ProtobufTest {
     }
   }
 
+  @Test
+  void testPackedRepeatedInsideNestedMessage() {
+    // message Inner { repeated int32 ids = 1 [packed=true]; }
+    // message Outer { Inner inner = 1; }
+    byte[] packedIds = concatBytes(encodeVarint(10), encodeVarint(20), encodeVarint(30));
+    Byte[] inner = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(packedIds.length)),
+        box(packedIds));
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(inner.length)),
+        inner);
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1, 1},  // outer.inner, inner.ids
+             new int[]{-1, 0},
+             new int[]{0, 1},
+             new int[]{WT_LEN, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, true},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new long[]{0, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             new int[][]{null, null},
+             false)) {
+      assertEquals(DType.STRUCT, result.getType());
+      try (ColumnVector innerStruct = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector idsList = innerStruct.getChildColumnView(0).copyToColumnVector();
+           ColumnVector ids = idsList.getChildColumnView(0).copyToColumnVector();
+           HostColumnVector hostIds = ids.copyToHost()) {
+        assertEquals(3, ids.getRowCount());
+        assertEquals(10, hostIds.getInt(0));
+        assertEquals(20, hostIds.getInt(1));
+        assertEquals(30, hostIds.getInt(2));
+      }
+    }
+  }
+
+  @Test
+  void testRepeatedUint32() {
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(2)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(3)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.UINT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      try (ColumnVector list = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector vals = list.getChildColumnView(0).copyToColumnVector()) {
+        assertEquals(DType.UINT32, vals.getType());
+        assertEquals(3, vals.getRowCount());
+      }
+    }
+  }
+
+  @Test
+  void testRepeatedUint64() {
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(11)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(22)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(33)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.UINT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      try (ColumnVector list = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector vals = list.getChildColumnView(0).copyToColumnVector()) {
+        assertEquals(DType.UINT64, vals.getType());
+        assertEquals(3, vals.getRowCount());
+      }
+    }
+  }
+
+  @Test
+  void testWireTypeMismatchInRepeatedMessageChildFailfast() {
+    // message Item { int32 x = 1; }  message Outer { repeated Item items = 1; }
+    // Encode x with WT_64BIT instead of WT_VARINT to force hard mismatch.
+    Byte[] badItem = concat(box(tag(1, WT_64BIT)), box(encodeFixed64(123L)));
+    Byte[] row = concat(box(tag(1, WT_LEN)), box(encodeVarint(badItem.length)), badItem);
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+        try (ColumnVector ignored = Protobuf.decodeToStruct(
+            input.getColumn(0),
+            new int[]{1, 1},
+            new int[]{-1, 0},
+            new int[]{0, 1},
+            new int[]{WT_LEN, WT_VARINT},
+            new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+            new boolean[]{true, false},
+            new boolean[]{false, false},
+            new boolean[]{false, false},
+            new long[]{0, 0},
+            new double[]{0.0, 0.0},
+            new boolean[]{false, false},
+            new byte[][]{null, null},
+            new int[][]{null, null},
+            true)) {
+        }
+      });
+    }
+  }
+
   // ============================================================================
   // FAILFAST Mode Tests (failOnErrors = true)
   // ============================================================================
