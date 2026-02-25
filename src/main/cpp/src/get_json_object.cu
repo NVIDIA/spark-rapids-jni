@@ -972,7 +972,7 @@ int64_t calc_scratch_size(cudf::strings_column_view const& input,
     cuda::proclaim_return_type<int64_t>(
       [in_offsets] __device__(auto const idx) { return in_offsets[idx + 1] - in_offsets[idx]; }),
     int64_t{0},
-    thrust::maximum{});
+    cuda::maximum{});
 
   // We will use scratch buffers to store the output strings without knowing their sizes.
   // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
