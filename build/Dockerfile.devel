@@ -34,7 +34,7 @@ RUN echo "source scl_source enable gcc-toolset-${TOOLSET_VERSION}" >> /etc/bashr
 ENV BASH_ENV=/etc/bashrc
 
 ### Remove the old version of git
-RUN dnf remove -y git
+RUN rpm -e --nodeps git-core git || true
 
 # Install a newer version of git to support worktree feature
 ARG GIT_VERSION=2.53.0
