@@ -15,7 +15,7 @@
 #
 
 ###
-# Build the image for spark-rapids-jni development environment.
+# Build the image for spark-rapids-jni CICD environment.
 #
 # Arguments: CUDA_VERSION=[12.X.Y], OS_RELEASE=[8, 9], TARGETPLATFORM=[linux/amd64, linux/arm64]
 #
@@ -28,15 +28,14 @@ ARG TARGETPLATFORM=linux/amd64
 # check available official arm-based docker images at https://hub.docker.com/r/nvidia/cuda/tags (OS/ARCH)
 FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
 
-# If DEV_BUILD is ON, the gcc-toolset will be enabled by default for bash shell
-ARG DEV_BUILD=OFF
-
 # Dependency versions
 # Act as default GCC toolset in the image
 ARG TOOLSET_VERSION=14
 ARG CMAKE_VERSION=3.30.4
 ARG CCACHE_VERSION=4.11.2
-ARG GIT_VERSION=2.53.0
+
+# Make it available at runtime and to the inherited images (e.g. Dockerfile.devel)
+ENV TOOLSET_VERSION=${TOOLSET_VERSION}
 
 # Default x86_64 from x86 build, aarch64 cmake for arm build
 ARG CMAKE_ARCH=x86_64
@@ -44,14 +43,9 @@ ARG CMAKE_ARCH=x86_64
 ### Install basic requirements
 # pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
 RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-11 gcc-toolset-${TOOLSET_VERSION} python39 \
-    zlib-devel maven tar wget patch ninja-build zip && \
+    zlib-devel maven tar wget patch ninja-build git zip && \
   alternatives --set python /usr/bin/python3 && \
   python -m pip install requests 'urllib3<2.0'
-
-# Enable the gcc-toolset by default for bash shell if DEV_BUILD is ON
-RUN if [ "$DEV_BUILD" = "ON" ]; then \
-        echo "source scl_source enable gcc-toolset-${TOOLSET_VERSION}" >> /etc/bashrc; \
-    fi
 
 # Execute every time a new non-interactive bash shell is started
 ENV BASH_ENV=/etc/bashrc
@@ -67,6 +61,7 @@ RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/down
 RUN ln -s /usr/local/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin/cmake /usr/local/bin/cmake
 
 # ccache for interactive builds
+ARG PARALLEL_LEVEL
 RUN cd /tmp && wget --quiet https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/ccache-${CCACHE_VERSION}.tar.gz && \
    tar zxf ccache-${CCACHE_VERSION}.tar.gz && \
    rm ccache-${CCACHE_VERSION}.tar.gz && \
@@ -91,22 +86,6 @@ RUN cd /usr/local && wget --quiet https://archives.boost.io/release/1.79.0/sourc
   ./b2 install --prefix=/usr/local --with-filesystem --with-system && \
    cd /usr/local && \
    rm -rf boost_1_79_0
-
-# install a version of git that is newer than the one in the base image to support worktree feature
-RUN dnf install -y libcurl-devel openssl-devel && dnf clean all
-RUN mkdir -p /tmp/git-src && cd /tmp/git-src && \
-    wget -O "git-${GIT_VERSION}.tar.xz" "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz" && \
-    tar -xf "git-${GIT_VERSION}.tar.xz" && \
-    cd "git-${GIT_VERSION}" && \
-    scl enable gcc-toolset-${TOOLSET_VERSION} \
-      "./configure \
-        --prefix=/usr \
-        --with-libpcre2 \
-        --with-openssl \
-        --with-curl" && \
-      make -j"${PARALLEL_LEVEL}" all && \
-      make install && \
-      cd / && rm -rf /tmp/git-src
 
 # disable cuda container constraints to allow running w/ elder drivers on data-center GPUs
 ENV NVIDIA_DISABLE_REQUIRE="true"
