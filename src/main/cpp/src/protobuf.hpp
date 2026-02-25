@@ -51,6 +51,21 @@ struct nested_field_descriptor {
 };
 
 /**
+ * Context and schema information for decoding protobuf messages.
+ */
+struct ProtobufDecodeContext {
+  std::vector<nested_field_descriptor> schema;
+  std::vector<cudf::data_type> schema_output_types;
+  std::vector<int64_t> default_ints;
+  std::vector<double> default_floats;
+  std::vector<bool> default_bools;
+  std::vector<std::vector<uint8_t>> default_strings;
+  std::vector<std::vector<int32_t>> enum_valid_values;
+  std::vector<std::vector<std::vector<uint8_t>>> enum_names;
+  bool fail_on_errors;
+};
+
+/**
  * Decode protobuf messages (one message per row) from a LIST<INT8/UINT8> column into a STRUCT
  * column, with support for nested messages and repeated fields.
  *
@@ -75,28 +90,10 @@ struct nested_field_descriptor {
  * - STRUCT  : protobuf nested `message`
  *
  * @param binary_input LIST<INT8/UINT8> column, each row is one protobuf message
- * @param schema Flattened schema with parent-child relationships
- * @param schema_output_types Output types for each field in schema (cudf types)
- * @param default_ints Default values for int/long/enum fields
- * @param default_floats Default values for float/double fields
- * @param default_bools Default values for bool fields
- * @param default_strings Default values for string/bytes fields
- * @param enum_valid_values Valid enum values for each field (empty if not enum)
- * @param enum_names Enum names for enum-as-string fields (empty if not enum-as-string),
- *                   ordered in parallel with enum_valid_values
- * @param fail_on_errors Whether to throw on malformed data
+ * @param context Decoding context containing schema and default values
  * @return STRUCT column with nested structure
  */
-std::unique_ptr<cudf::column> decode_protobuf_to_struct(
-  cudf::column_view const& binary_input,
-  std::vector<nested_field_descriptor> const& schema,
-  std::vector<cudf::data_type> const& schema_output_types,
-  std::vector<int64_t> const& default_ints,
-  std::vector<double> const& default_floats,
-  std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
-  bool fail_on_errors);
+std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
+                                                        ProtobufDecodeContext const& context);
 
 }  // namespace spark_rapids_jni
