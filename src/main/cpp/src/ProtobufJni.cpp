@@ -25,24 +25,24 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
-                                                                jclass,
-                                                                jlong binary_input_view,
-                                                                jintArray field_numbers,
-                                                                jintArray parent_indices,
-                                                                jintArray depth_levels,
-                                                                jintArray wire_types,
-                                                                jintArray output_type_ids,
-                                                                jintArray encodings,
-                                                                jbooleanArray is_repeated,
-                                                                jbooleanArray is_required,
-                                                                jbooleanArray has_default_value,
-                                                                jlongArray default_ints,
-                                                                jdoubleArray default_floats,
-                                                                jbooleanArray default_bools,
-                                                                jobjectArray default_strings,
-                                                                jobjectArray enum_valid_values,
-                                                                jobjectArray enum_names,
-                                                                jboolean fail_on_errors)
+                                                         jclass,
+                                                         jlong binary_input_view,
+                                                         jintArray field_numbers,
+                                                         jintArray parent_indices,
+                                                         jintArray depth_levels,
+                                                         jintArray wire_types,
+                                                         jintArray output_type_ids,
+                                                         jintArray encodings,
+                                                         jbooleanArray is_repeated,
+                                                         jbooleanArray is_required,
+                                                         jbooleanArray has_default_value,
+                                                         jlongArray default_ints,
+                                                         jdoubleArray default_floats,
+                                                         jbooleanArray default_bools,
+                                                         jobjectArray default_strings,
+                                                         jobjectArray enum_valid_values,
+                                                         jobjectArray enum_names,
+                                                         jboolean fail_on_errors)
 {
   JNI_NULL_CHECK(env, binary_input_view, "binary_input_view is null", 0);
   JNI_NULL_CHECK(env, field_numbers, "field_numbers is null", 0);
@@ -82,16 +82,11 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     int num_fields = n_field_numbers.size();
 
     // Validate array sizes
-    if (n_parent_indices.size() != num_fields ||
-        n_depth_levels.size() != num_fields ||
-        n_wire_types.size() != num_fields ||
-        n_output_type_ids.size() != num_fields ||
-        n_encodings.size() != num_fields ||
-        n_is_repeated.size() != num_fields ||
-        n_is_required.size() != num_fields ||
-        n_has_default.size() != num_fields ||
-        n_default_ints.size() != num_fields ||
-        n_default_floats.size() != num_fields ||
+    if (n_parent_indices.size() != num_fields || n_depth_levels.size() != num_fields ||
+        n_wire_types.size() != num_fields || n_output_type_ids.size() != num_fields ||
+        n_encodings.size() != num_fields || n_is_repeated.size() != num_fields ||
+        n_is_required.size() != num_fields || n_has_default.size() != num_fields ||
+        n_default_ints.size() != num_fields || n_default_floats.size() != num_fields ||
         n_default_bools.size() != num_fields) {
       JNI_THROW_NEW(env,
                     cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
@@ -103,17 +98,15 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     std::vector<spark_rapids_jni::nested_field_descriptor> schema;
     schema.reserve(num_fields);
     for (int i = 0; i < num_fields; ++i) {
-      schema.push_back({
-        n_field_numbers[i],
-        n_parent_indices[i],
-        n_depth_levels[i],
-        n_wire_types[i],
-        static_cast<cudf::type_id>(n_output_type_ids[i]),
-        n_encodings[i],
-        n_is_repeated[i] != 0,
-        n_is_required[i] != 0,
-        n_has_default[i] != 0
-      });
+      schema.push_back({n_field_numbers[i],
+                        n_parent_indices[i],
+                        n_depth_levels[i],
+                        n_wire_types[i],
+                        static_cast<cudf::type_id>(n_output_type_ids[i]),
+                        n_encodings[i],
+                        n_is_repeated[i] != 0,
+                        n_is_required[i] != 0,
+                        n_has_default[i] != 0});
     }
 
     // Build output types
@@ -183,7 +176,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
           if (name_bytes == nullptr) {
             names_for_field.emplace_back();
           } else {
-            jsize len = env->GetArrayLength(name_bytes);
+            jsize len    = env->GetArrayLength(name_bytes);
             jbyte* bytes = env->GetByteArrayElements(name_bytes, nullptr);
             names_for_field.emplace_back(reinterpret_cast<uint8_t*>(bytes),
                                          reinterpret_cast<uint8_t*>(bytes) + len);
@@ -194,17 +187,16 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       }
     }
 
-    auto result = spark_rapids_jni::decode_protobuf_to_struct(
-      *input,
-      schema,
-      schema_output_types,
-      default_int_values,
-      default_float_values,
-      default_bool_values,
-      default_string_values,
-      enum_values,
-      enum_name_values,
-      fail_on_errors);
+    auto result = spark_rapids_jni::decode_protobuf_to_struct(*input,
+                                                              schema,
+                                                              schema_output_types,
+                                                              default_int_values,
+                                                              default_float_values,
+                                                              default_bool_values,
+                                                              default_string_values,
+                                                              enum_values,
+                                                              enum_name_values,
+                                                              fail_on_errors);
 
     return cudf::jni::release_as_jlong(result);
   }
