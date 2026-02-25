@@ -3252,7 +3252,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   }
 
   auto const threads   = THREADS_PER_BLOCK;
-  auto const blocks    = (num_rows + threads - 1) / threads;
+  auto const blocks    = static_cast<int>((num_rows + threads - 1) / threads);
   int num_child_fields = static_cast<int>(child_field_indices.size());
 
   std::vector<field_descriptor> h_child_field_descs(num_child_fields);

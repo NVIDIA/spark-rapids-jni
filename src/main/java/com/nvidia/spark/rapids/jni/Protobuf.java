@@ -134,12 +134,12 @@ public class Protobuf {
       throw new IllegalArgumentException("All arrays must have the same length");
     }
 
-    // Validate field numbers are positive
+    // Validate field numbers are positive and within protobuf spec range
     for (int i = 0; i < fieldNumbers.length; i++) {
-      if (fieldNumbers[i] <= 0) {
+      if (fieldNumbers[i] <= 0 || fieldNumbers[i] > 536870911) {
         throw new IllegalArgumentException(
             "Invalid field number at index " + i + ": " + fieldNumbers[i] +
-            " (field numbers must be positive)");
+            " (field numbers must be 1-536870911)");
       }
     }
 

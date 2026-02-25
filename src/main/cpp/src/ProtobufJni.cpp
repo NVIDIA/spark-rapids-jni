@@ -132,11 +132,13 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     default_string_values.reserve(num_fields);
     for (int i = 0; i < num_fields; ++i) {
       jbyteArray byte_arr = static_cast<jbyteArray>(env->GetObjectArrayElement(default_strings, i));
+      if (env->ExceptionCheck()) { return 0; }
       if (byte_arr == nullptr) {
         default_string_values.emplace_back();
       } else {
         jsize len    = env->GetArrayLength(byte_arr);
         jbyte* bytes = env->GetByteArrayElements(byte_arr, nullptr);
+        if (bytes == nullptr) { return 0; }
         default_string_values.emplace_back(reinterpret_cast<uint8_t*>(bytes),
                                            reinterpret_cast<uint8_t*>(bytes) + len);
         env->ReleaseByteArrayElements(byte_arr, bytes, JNI_ABORT);
@@ -148,11 +150,13 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     enum_values.reserve(num_fields);
     for (int i = 0; i < num_fields; ++i) {
       jintArray int_arr = static_cast<jintArray>(env->GetObjectArrayElement(enum_valid_values, i));
+      if (env->ExceptionCheck()) { return 0; }
       if (int_arr == nullptr) {
         enum_values.emplace_back();
       } else {
         jsize len  = env->GetArrayLength(int_arr);
         jint* ints = env->GetIntArrayElements(int_arr, nullptr);
+        if (ints == nullptr) { return 0; }
         enum_values.emplace_back(ints, ints + len);
         env->ReleaseIntArrayElements(int_arr, ints, JNI_ABORT);
       }
@@ -165,6 +169,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     enum_name_values.reserve(num_fields);
     for (int i = 0; i < num_fields; ++i) {
       jobjectArray names_arr = static_cast<jobjectArray>(env->GetObjectArrayElement(enum_names, i));
+      if (env->ExceptionCheck()) { return 0; }
       if (names_arr == nullptr) {
         enum_name_values.emplace_back();
       } else {
@@ -173,11 +178,13 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
         names_for_field.reserve(num_names);
         for (jsize j = 0; j < num_names; ++j) {
           jbyteArray name_bytes = static_cast<jbyteArray>(env->GetObjectArrayElement(names_arr, j));
+          if (env->ExceptionCheck()) { return 0; }
           if (name_bytes == nullptr) {
             names_for_field.emplace_back();
           } else {
             jsize len    = env->GetArrayLength(name_bytes);
             jbyte* bytes = env->GetByteArrayElements(name_bytes, nullptr);
+            if (bytes == nullptr) { return 0; }
             names_for_field.emplace_back(reinterpret_cast<uint8_t*>(bytes),
                                          reinterpret_cast<uint8_t*>(bytes) + len);
             env->ReleaseByteArrayElements(name_bytes, bytes, JNI_ABORT);
