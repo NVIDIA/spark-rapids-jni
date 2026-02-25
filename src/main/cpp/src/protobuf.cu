@@ -40,22 +40,35 @@
 #include <thrust/transform.h>
 
 #include <algorithm>
-#include <iostream>
 #include <map>
 #include <type_traits>
 
 namespace {
 
-// Wire type constants
+// Wire type constants (protobuf encoding spec)
 constexpr int WT_VARINT = 0;
 constexpr int WT_64BIT  = 1;
 constexpr int WT_LEN    = 2;
 constexpr int WT_32BIT  = 5;
 
-}  // namespace
+// Protobuf varint encoding uses at most 10 bytes to represent a 64-bit value.
+constexpr int MAX_VARINT_BYTES = 10;
 
-namespace {
+// CUDA kernel launch configuration.
+constexpr int THREADS_PER_BLOCK = 256;
 
+// Error codes for kernel error reporting.
+constexpr int ERR_BOUNDS       = 1;
+constexpr int ERR_VARINT       = 2;
+constexpr int ERR_FIELD_NUMBER = 3;
+constexpr int ERR_WIRE_TYPE    = 4;
+constexpr int ERR_OVERFLOW     = 5;
+constexpr int ERR_FIELD_SIZE   = 6;
+constexpr int ERR_SKIP         = 7;
+constexpr int ERR_FIXED_LEN    = 8;
+constexpr int ERR_REQUIRED     = 9;
+
+// Maximum supported nesting depth for recursive struct decoding.
 constexpr int MAX_NESTED_STRUCT_DECODE_DEPTH = 10;
 
 /**
@@ -119,7 +132,9 @@ __device__ inline bool read_varint(uint8_t const* cur,
   out       = 0;
   bytes     = 0;
   int shift = 0;
-  while (cur < end && bytes < 10) {
+  // Protobuf varint uses 7 bits per byte with MSB as continuation flag.
+  // A 64-bit value requires at most ceil(64/7) = 10 bytes.
+  while (cur < end && bytes < MAX_VARINT_BYTES) {
     uint8_t b = *cur++;
     // For the 10th byte (bytes == 9, shift == 63), only the lowest bit is valid
     if (bytes == 9 && (b & 0xFE) != 0) {
@@ -139,7 +154,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
     case WT_VARINT: {
       // Need to scan to find the end of varint
       int count = 0;
-      while (cur < end && count < 10) {
+      while (cur < end && count < MAX_VARINT_BYTES) {
         if ((*cur++ & 0x80u) == 0) { return count + 1; }
         count++;
       }
@@ -157,7 +172,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
       uint64_t len;
       int n;
       if (!read_varint(cur, end, len, n)) return -1;
-      if (len > static_cast<uint64_t>(end - cur - n) || len > static_cast<uint64_t>(INT_MAX))
+      if (len > static_cast<uint64_t>(end - cur - n) || len > static_cast<uint64_t>(INT_MAX - n))
         return -1;
       return n + static_cast<int>(len);
     }
@@ -209,6 +224,49 @@ __device__ inline bool get_field_data_location(uint8_t const* cur,
   return true;
 }
 
+__device__ inline bool check_message_bounds(int32_t start,
+                                            int32_t end_pos,
+                                            cudf::size_type total_size,
+                                            int* error_flag)
+{
+  if (start < 0 || end_pos < start || end_pos > total_size) {
+    atomicExch(error_flag, ERR_BOUNDS);
+    return false;
+  }
+  return true;
+}
+
+struct proto_tag {
+  int field_number;
+  int wire_type;
+};
+
+__device__ inline bool decode_tag(uint8_t const*& cur,
+                                  uint8_t const* end,
+                                  proto_tag& tag,
+                                  int* error_flag)
+{
+  uint64_t key;
+  int key_bytes;
+  if (!read_varint(cur, end, key, key_bytes)) {
+    atomicExch(error_flag, ERR_VARINT);
+    return false;
+  }
+
+  cur += key_bytes;
+  tag.field_number = static_cast<int>(key >> 3);
+  tag.wire_type    = static_cast<int>(key & 0x7);
+  if (tag.field_number == 0) {
+    atomicExch(error_flag, ERR_FIELD_NUMBER);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Load a little-endian value from unaligned memory.
+ * Reads bytes individually to avoid unaligned-access issues on GPU.
+ */
 template <typename T>
 __device__ inline T load_le(uint8_t const* p);
 
@@ -240,6 +298,8 @@ __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
  *
  * For "last one wins" semantics (protobuf standard for repeated scalars),
  * we continue scanning even after finding a field.
+ *
+ * @note Time complexity: O(message_length * num_fields) per row.
  */
 __global__ void scan_all_fields_kernel(
   cudf::column_device_view const d_in,
@@ -264,42 +324,27 @@ __global__ void scan_all_fields_kernel(
   auto const base   = in.offset_at(0);
   auto const child  = in.get_sliced_child();
   auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
-  auto start        = in.offset_at(row) - base;
-  auto end          = in.offset_at(row + 1) - base;
+  int32_t start      = in.offset_at(row) - base;
+  int32_t end        = in.offset_at(row + 1) - base;
 
-  // Bounds check
-  if (start < 0 || end < start || end > child.size()) {
-    atomicExch(error_flag, 1);
-    return;
-  }
+  if (!check_message_bounds(start, end, child.size(), error_flag)) { return; }
 
-  uint8_t const* cur  = bytes + start;
-  uint8_t const* stop = bytes + end;
+  uint8_t const* cur     = bytes + start;
+  uint8_t const* msg_end = bytes + end;
 
   // Scan the message once, recording locations of all target fields
-  while (cur < stop) {
-    uint64_t key;
-    int key_bytes;
-    if (!read_varint(cur, stop, key, key_bytes)) {
-      atomicExch(error_flag, 1);
-      return;
-    }
-    cur += key_bytes;
-
-    int fn = static_cast<int>(key >> 3);
-    int wt = static_cast<int>(key & 0x7);
-
-    if (fn == 0) {
-      atomicExch(error_flag, 1);
-      return;
-    }
+  while (cur < msg_end) {
+    proto_tag tag;
+    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
 
     // Check if this field is one we're looking for
     for (int f = 0; f < num_fields; f++) {
       if (field_descs[f].field_number == fn) {
         // Check wire type matches
         if (wt != field_descs[f].expected_wire_type) {
-          atomicExch(error_flag, 1);
+          atomicExch(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
@@ -310,22 +355,22 @@ __global__ void scan_all_fields_kernel(
           // For length-delimited, record offset after length prefix and the data length
           uint64_t len;
           int len_bytes;
-          if (!read_varint(cur, stop, len, len_bytes)) {
-            atomicExch(error_flag, 1);
+          if (!read_varint(cur, msg_end, len, len_bytes)) {
+            atomicExch(error_flag, ERR_VARINT);
             return;
           }
-          if (len > static_cast<uint64_t>(stop - cur - len_bytes) ||
+          if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
               len > static_cast<uint64_t>(INT_MAX)) {
-            atomicExch(error_flag, 1);
+            atomicExch(error_flag, ERR_OVERFLOW);
             return;
           }
           // Record offset pointing to the actual data (after length prefix)
           locations[row * num_fields + f] = {data_offset + len_bytes, static_cast<int32_t>(len)};
         } else {
           // For fixed-size and varint fields, record offset and compute length
-          int field_size = get_wire_type_size(wt, cur, stop);
+          int field_size = get_wire_type_size(wt, cur, msg_end);
           if (field_size < 0) {
-            atomicExch(error_flag, 1);
+            atomicExch(error_flag, ERR_FIELD_SIZE);
             return;
           }
           locations[row * num_fields + f] = {data_offset, field_size};
@@ -336,8 +381,8 @@ __global__ void scan_all_fields_kernel(
 
     // Skip to next field
     uint8_t const* next;
-    if (!skip_field(cur, stop, wt, next)) {
-      atomicExch(error_flag, 1);
+    if (!skip_field(cur, msg_end, wt, next)) {
+      atomicExch(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -351,6 +396,8 @@ __global__ void scan_all_fields_kernel(
 /**
  * Count occurrences of repeated fields in each row.
  * Also records locations of nested message fields for hierarchical processing.
+ *
+ * @note Time complexity: O(message_length * (num_repeated_fields + num_nested_fields)) per row.
  */
 __global__ void count_repeated_fields_kernel(
   cudf::column_device_view const d_in,
@@ -386,33 +433,18 @@ __global__ void count_repeated_fields_kernel(
   auto const base   = in.offset_at(0);
   auto const child  = in.get_sliced_child();
   auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
-  auto start        = in.offset_at(row) - base;
-  auto end          = in.offset_at(row + 1) - base;
+  int32_t start      = in.offset_at(row) - base;
+  int32_t end        = in.offset_at(row + 1) - base;
+  if (!check_message_bounds(start, end, child.size(), error_flag)) { return; }
 
-  if (start < 0 || end < start || end > child.size()) {
-    atomicExch(error_flag, 1);
-    return;
-  }
+  uint8_t const* cur     = bytes + start;
+  uint8_t const* msg_end = bytes + end;
 
-  uint8_t const* cur  = bytes + start;
-  uint8_t const* stop = bytes + end;
-
-  while (cur < stop) {
-    uint64_t key;
-    int key_bytes;
-    if (!read_varint(cur, stop, key, key_bytes)) {
-      atomicExch(error_flag, 1);
-      return;
-    }
-    cur += key_bytes;
-
-    int fn = static_cast<int>(key >> 3);
-    int wt = static_cast<int>(key & 0x7);
-
-    if (fn == 0) {
-      atomicExch(error_flag, 1);
-      return;
-    }
+  while (cur < msg_end) {
+    proto_tag tag;
+    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
 
     // Check repeated fields at this depth
     for (int i = 0; i < num_repeated_fields; i++) {
@@ -425,7 +457,7 @@ __global__ void count_repeated_fields_kernel(
         bool is_packed = (wt == WT_LEN && expected_wt != WT_LEN);
         
         if (!is_packed && wt != expected_wt) {
-          atomicExch(error_flag, 1);
+          atomicExch(error_flag, ERR_WIRE_TYPE);
           return;
         }
         
@@ -433,16 +465,16 @@ __global__ void count_repeated_fields_kernel(
           // Packed encoding: read length, then count elements inside
           uint64_t packed_len;
           int len_bytes;
-          if (!read_varint(cur, stop, packed_len, len_bytes)) {
-            atomicExch(error_flag, 1);
+          if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
+            atomicExch(error_flag, ERR_VARINT);
             return;
           }
           
           // Count elements based on type
           uint8_t const* packed_start = cur + len_bytes;
           uint8_t const* packed_end = packed_start + packed_len;
-          if (packed_end > stop) {
-            atomicExch(error_flag, 1);
+          if (packed_end > msg_end) {
+            atomicExch(error_flag, ERR_OVERFLOW);
             return;
           }
           
@@ -454,7 +486,7 @@ __global__ void count_repeated_fields_kernel(
               uint64_t dummy;
               int vbytes;
               if (!read_varint(p, packed_end, dummy, vbytes)) {
-                atomicExch(error_flag, 1);
+                atomicExch(error_flag, ERR_VARINT);
                 return;
               }
               p += vbytes;
@@ -471,8 +503,8 @@ __global__ void count_repeated_fields_kernel(
         } else {
           // Non-packed encoding: single element
           int32_t data_offset, data_length;
-          if (!get_field_data_location(cur, stop, wt, data_offset, data_length)) {
-            atomicExch(error_flag, 1);
+          if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
+            atomicExch(error_flag, ERR_FIELD_SIZE);
             return;
           }
           
@@ -487,14 +519,14 @@ __global__ void count_repeated_fields_kernel(
       int schema_idx = nested_field_indices[i];
       if (schema[schema_idx].field_number == fn && schema[schema_idx].depth == depth_level) {
         if (wt != WT_LEN) {
-          atomicExch(error_flag, 1);
+          atomicExch(error_flag, ERR_WIRE_TYPE);
           return;
         }
         
         uint64_t len;
         int len_bytes;
-        if (!read_varint(cur, stop, len, len_bytes)) {
-          atomicExch(error_flag, 1);
+        if (!read_varint(cur, msg_end, len, len_bytes)) {
+          atomicExch(error_flag, ERR_VARINT);
           return;
         }
         
@@ -505,8 +537,8 @@ __global__ void count_repeated_fields_kernel(
 
     // Skip to next field
     uint8_t const* next;
-    if (!skip_field(cur, stop, wt, next)) {
-      atomicExch(error_flag, 1);
+    if (!skip_field(cur, msg_end, wt, next)) {
+      atomicExch(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -516,6 +548,8 @@ __global__ void count_repeated_fields_kernel(
 /**
  * Scan and record all occurrences of repeated fields.
  * Called after count_repeated_fields_kernel to fill in actual locations.
+ *
+ * @note Time complexity: O(message_length * num_repeated_fields) per row.
  */
 __global__ void scan_repeated_field_occurrences_kernel(
   cudf::column_device_view const d_in,
@@ -537,37 +571,22 @@ __global__ void scan_repeated_field_occurrences_kernel(
   auto const base   = in.offset_at(0);
   auto const child  = in.get_sliced_child();
   auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
-  auto start        = in.offset_at(row) - base;
-  auto end          = in.offset_at(row + 1) - base;
+  int32_t start      = in.offset_at(row) - base;
+  int32_t end        = in.offset_at(row + 1) - base;
+  if (!check_message_bounds(start, end, child.size(), error_flag)) { return; }
 
-  if (start < 0 || end < start || end > child.size()) {
-    atomicExch(error_flag, 1);
-    return;
-  }
-
-  uint8_t const* cur  = bytes + start;
-  uint8_t const* stop = bytes + end;
+  uint8_t const* cur     = bytes + start;
+  uint8_t const* msg_end = bytes + end;
 
   int target_fn = schema[schema_idx].field_number;
   int target_wt = schema[schema_idx].wire_type;
   int write_idx = output_offsets[row];
 
-  while (cur < stop) {
-    uint64_t key;
-    int key_bytes;
-    if (!read_varint(cur, stop, key, key_bytes)) {
-      atomicExch(error_flag, 1);
-      return;
-    }
-    cur += key_bytes;
-
-    int fn = static_cast<int>(key >> 3);
-    int wt = static_cast<int>(key & 0x7);
-
-    if (fn == 0) {
-      atomicExch(error_flag, 1);
-      return;
-    }
+  while (cur < msg_end) {
+    proto_tag tag;
+    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
 
     if (fn == target_fn) {
       // Check for packed encoding: wire type LEN but expected non-LEN
@@ -577,15 +596,15 @@ __global__ void scan_repeated_field_occurrences_kernel(
         // Packed encoding: multiple elements in a length-delimited blob
         uint64_t packed_len;
         int len_bytes;
-        if (!read_varint(cur, stop, packed_len, len_bytes)) {
-          atomicExch(error_flag, 1);
+        if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
+          atomicExch(error_flag, ERR_VARINT);
           return;
         }
         
         uint8_t const* packed_start = cur + len_bytes;
         uint8_t const* packed_end = packed_start + packed_len;
-        if (packed_end > stop) {
-          atomicExch(error_flag, 1);
+        if (packed_end > msg_end) {
+          atomicExch(error_flag, ERR_OVERFLOW);
           return;
         }
         
@@ -598,7 +617,7 @@ __global__ void scan_repeated_field_occurrences_kernel(
             uint64_t dummy;
             int vbytes;
             if (!read_varint(p, packed_end, dummy, vbytes)) {
-              atomicExch(error_flag, 1);
+              atomicExch(error_flag, ERR_VARINT);
               return;
             }
             occurrences[write_idx] = {static_cast<int32_t>(row), elem_offset, vbytes};
@@ -627,8 +646,8 @@ __global__ void scan_repeated_field_occurrences_kernel(
       } else if (wt == target_wt) {
         // Non-packed encoding: single element
         int32_t data_offset, data_length;
-        if (!get_field_data_location(cur, stop, wt, data_offset, data_length)) {
-          atomicExch(error_flag, 1);
+        if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
+          atomicExch(error_flag, ERR_FIELD_SIZE);
           return;
         }
         
@@ -640,8 +659,8 @@ __global__ void scan_repeated_field_occurrences_kernel(
 
     // Skip to next field
     uint8_t const* next;
-    if (!skip_field(cur, stop, wt, next)) {
-      atomicExch(error_flag, 1);
+    if (!skip_field(cur, msg_end, wt, next)) {
+      atomicExch(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -656,7 +675,7 @@ __global__ void scan_repeated_field_occurrences_kernel(
  * Extract varint field data using pre-recorded locations.
  * Supports default values for missing fields.
  */
-template <typename OutT, bool ZigZag = false>
+template <typename OutputType, bool ZigZag = false>
 __global__ void extract_varint_from_locations_kernel(
   uint8_t const* message_data,
   cudf::size_type const* offsets,   // List offsets for each row
@@ -664,7 +683,7 @@ __global__ void extract_varint_from_locations_kernel(
   field_location const* locations,  // [num_rows * num_fields]
   int field_idx,
   int num_fields,
-  OutT* out,
+  OutputType* out,
   bool* valid,
   int num_rows,
   int* error_flag,
@@ -678,7 +697,7 @@ __global__ void extract_varint_from_locations_kernel(
   if (loc.offset < 0) {
     // Field not found - use default value if available
     if (has_default) {
-      out[row]   = static_cast<OutT>(default_value);
+      out[row]   = static_cast<OutputType>(default_value);
       valid[row] = true;
     } else {
       valid[row] = false;
@@ -694,13 +713,13 @@ __global__ void extract_varint_from_locations_kernel(
   uint64_t v;
   int n;
   if (!read_varint(cur, cur_end, v, n)) {
-    atomicExch(error_flag, 1);
+    atomicExch(error_flag, ERR_VARINT);
     valid[row] = false;
     return;
   }
 
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  out[row]   = static_cast<OutT>(v);
+  out[row]   = static_cast<OutputType>(v);
   valid[row] = true;
 }
 
@@ -708,19 +727,19 @@ __global__ void extract_varint_from_locations_kernel(
  * Extract fixed-size field data (fixed32, fixed64, float, double).
  * Supports default values for missing fields.
  */
-template <typename OutT, int WT>
+template <typename OutputType, int WT>
 __global__ void extract_fixed_from_locations_kernel(uint8_t const* message_data,
                                                     cudf::size_type const* offsets,
                                                     cudf::size_type base_offset,
                                                     field_location const* locations,
                                                     int field_idx,
                                                     int num_fields,
-                                                    OutT* out,
+                                                    OutputType* out,
                                                     bool* valid,
                                                     int num_rows,
                                                     int* error_flag,
                                                     bool has_default   = false,
-                                                    OutT default_value = OutT{})
+                                                    OutputType default_value = OutputType{})
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
@@ -740,10 +759,10 @@ __global__ void extract_fixed_from_locations_kernel(uint8_t const* message_data,
   auto row_start     = offsets[row] - base_offset;
   uint8_t const* cur = message_data + row_start + loc.offset;
 
-  OutT value;
+  OutputType value;
   if constexpr (WT == WT_32BIT) {
     if (loc.length < 4) {
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_FIXED_LEN);
       valid[row] = false;
       return;
     }
@@ -751,7 +770,7 @@ __global__ void extract_fixed_from_locations_kernel(uint8_t const* message_data,
     memcpy(&value, &raw, sizeof(value));
   } else {
     if (loc.length < 8) {
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_FIXED_LEN);
       valid[row] = false;
       return;
     }
@@ -770,14 +789,14 @@ __global__ void extract_fixed_from_locations_kernel(uint8_t const* message_data,
 /**
  * Extract repeated varint values using pre-recorded occurrences.
  */
-template <typename OutT, bool ZigZag = false>
+template <typename OutputType, bool ZigZag = false>
 __global__ void extract_repeated_varint_kernel(
   uint8_t const* message_data,
   cudf::size_type const* row_offsets,
   cudf::size_type base_offset,
   repeated_occurrence const* occurrences,
   int total_occurrences,
-  OutT* out,
+  OutputType* out,
   int* error_flag)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -791,26 +810,26 @@ __global__ void extract_repeated_varint_kernel(
   uint64_t v;
   int n;
   if (!read_varint(cur, cur_end, v, n)) {
-    atomicExch(error_flag, 1);
-    out[idx] = OutT{};
+    atomicExch(error_flag, ERR_VARINT);
+    out[idx] = OutputType{};
     return;
   }
 
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  out[idx] = static_cast<OutT>(v);
+  out[idx] = static_cast<OutputType>(v);
 }
 
 /**
  * Extract repeated fixed-size values using pre-recorded occurrences.
  */
-template <typename OutT, int WT>
+template <typename OutputType, int WT>
 __global__ void extract_repeated_fixed_kernel(
   uint8_t const* message_data,
   cudf::size_type const* row_offsets,
   cudf::size_type base_offset,
   repeated_occurrence const* occurrences,
   int total_occurrences,
-  OutT* out,
+  OutputType* out,
   int* error_flag)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -820,19 +839,19 @@ __global__ void extract_repeated_fixed_kernel(
   auto row_start = row_offsets[occ.row_idx] - base_offset;
   uint8_t const* cur = message_data + row_start + occ.offset;
 
-  OutT value;
+  OutputType value;
   if constexpr (WT == WT_32BIT) {
     if (occ.length < 4) {
-      atomicExch(error_flag, 1);
-      out[idx] = OutT{};
+      atomicExch(error_flag, ERR_FIXED_LEN);
+      out[idx] = OutputType{};
       return;
     }
     uint32_t raw = load_le<uint32_t>(cur);
     memcpy(&value, &raw, sizeof(value));
   } else {
     if (occ.length < 8) {
-      atomicExch(error_flag, 1);
-      out[idx] = OutT{};
+      atomicExch(error_flag, ERR_FIXED_LEN);
+      out[idx] = OutputType{};
       return;
     }
     uint64_t raw = load_le<uint64_t>(cur);
@@ -864,9 +883,7 @@ __global__ void copy_repeated_varlen_data_kernel(
   uint8_t const* src = message_data + row_start + occ.offset;
   char* dst = output_data + output_offsets[idx];
 
-  for (int i = 0; i < occ.length; i++) {
-    dst[i] = static_cast<char>(src[i]);
-  }
+  memcpy(dst, src, occ.length);
 }
 
 /**
@@ -922,26 +939,15 @@ __global__ void scan_nested_message_fields_kernel(
   uint8_t const* cur = nested_start;
 
   while (cur < nested_end) {
-    uint64_t key;
-    int key_bytes;
-    if (!read_varint(cur, nested_end, key, key_bytes)) {
-      atomicExch(error_flag, 1);
-      return;
-    }
-    cur += key_bytes;
-
-    int fn = static_cast<int>(key >> 3);
-    int wt = static_cast<int>(key & 0x7);
-
-    if (fn == 0) {
-      atomicExch(error_flag, 1);
-      return;
-    }
+    proto_tag tag;
+    if (!decode_tag(cur, nested_end, tag, error_flag)) { return; }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
 
     for (int f = 0; f < num_fields; f++) {
       if (field_descs[f].field_number == fn) {
         if (wt != field_descs[f].expected_wire_type) {
-          atomicExch(error_flag, 1);
+          atomicExch(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
@@ -951,19 +957,19 @@ __global__ void scan_nested_message_fields_kernel(
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, nested_end, len, len_bytes)) {
-            atomicExch(error_flag, 1);
+            atomicExch(error_flag, ERR_VARINT);
             return;
           }
           if (len > static_cast<uint64_t>(nested_end - cur - len_bytes) ||
               len > static_cast<uint64_t>(INT_MAX)) {
-            atomicExch(error_flag, 1);
+            atomicExch(error_flag, ERR_OVERFLOW);
             return;
           }
           output_locations[row * num_fields + f] = {data_offset + len_bytes, static_cast<int32_t>(len)};
         } else {
           int field_size = get_wire_type_size(wt, cur, nested_end);
           if (field_size < 0) {
-            atomicExch(error_flag, 1);
+            atomicExch(error_flag, ERR_FIELD_SIZE);
             return;
           }
           output_locations[row * num_fields + f] = {data_offset, field_size};
@@ -973,15 +979,18 @@ __global__ void scan_nested_message_fields_kernel(
 
     uint8_t const* next;
     if (!skip_field(cur, nested_end, wt, next)) {
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
   }
 }
 
-// Utility function: make_null_mask_from_valid
-// (Moved here to be available for repeated message child extraction)
+/**
+ * Build a null bitmask from a boolean validity array.
+ * @param valid Device vector where valid[i] indicates row i validity.
+ * @return Pair of (null mask buffer, null count).
+ */
 template <typename T>
 inline std::pair<rmm::device_buffer, cudf::size_type> make_null_mask_from_valid(
   rmm::device_uvector<T> const& valid,
@@ -1027,21 +1036,10 @@ __global__ void scan_repeated_message_children_kernel(
   uint8_t const* cur = msg_start;
 
   while (cur < msg_end) {
-    uint64_t key;
-    int key_bytes;
-    if (!read_varint(cur, msg_end, key, key_bytes)) {
-      atomicExch(error_flag, 1);
-      return;
-    }
-    cur += key_bytes;
-
-    int fn = static_cast<int>(key >> 3);
-    int wt = static_cast<int>(key & 0x7);
-
-    if (fn == 0) {
-      atomicExch(error_flag, 1);
-      return;
-    }
+    proto_tag tag;
+    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
 
     // Check against child field descriptors
     for (int f = 0; f < num_child_fields; f++) {
@@ -1058,7 +1056,7 @@ __global__ void scan_repeated_message_children_kernel(
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, msg_end, len, len_bytes)) {
-            atomicExch(error_flag, 1);
+            atomicExch(error_flag, ERR_VARINT);
             return;
           }
           // Store offset (after length prefix) and length
@@ -1086,7 +1084,7 @@ __global__ void scan_repeated_message_children_kernel(
     // Skip to next field
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -1110,35 +1108,29 @@ __global__ void count_repeated_in_nested_kernel(
   int const* repeated_indices,
   int* error_flag)
 {
-  auto row_idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (row_idx >= num_rows) return;
+  auto row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (row >= num_rows) return;
 
   // Initialize counts
   for (int ri = 0; ri < num_repeated; ri++) {
-    repeated_info[row_idx * num_repeated + ri] = {0, 0};
+    repeated_info[row * num_repeated + ri] = {0, 0};
   }
 
-  auto const& parent_loc = parent_locs[row_idx];
+  auto const& parent_loc = parent_locs[row];
   if (parent_loc.offset < 0) return;
 
   cudf::size_type row_off;
-  row_off = row_offsets[row_idx] - base_offset;
+  row_off = row_offsets[row] - base_offset;
   
   uint8_t const* msg_start = message_data + row_off + parent_loc.offset;
   uint8_t const* msg_end = msg_start + parent_loc.length;
   uint8_t const* cur = msg_start;
 
   while (cur < msg_end) {
-    uint64_t key;
-    int key_bytes;
-    if (!read_varint(cur, msg_end, key, key_bytes)) {
-      atomicExch(error_flag, 1);
-      return;
-    }
-    cur += key_bytes;
-
-    int fn = static_cast<int>(key >> 3);
-    int wt = static_cast<int>(key & 0x7);
+    proto_tag tag;
+    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
 
     // Check if this is one of our repeated fields
     for (int ri = 0; ri < num_repeated; ri++) {
@@ -1149,19 +1141,19 @@ __global__ void count_repeated_in_nested_kernel(
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, msg_end, len, len_bytes)) {
-            atomicExch(error_flag, 1);
+            atomicExch(error_flag, ERR_VARINT);
             return;
           }
           data_len = static_cast<int>(len);
         }
-        repeated_info[row_idx * num_repeated + ri].count++;
-        repeated_info[row_idx * num_repeated + ri].total_length += data_len;
+        repeated_info[row * num_repeated + ri].count++;
+        repeated_info[row * num_repeated + ri].total_length += data_len;
       }
     }
 
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -1179,25 +1171,22 @@ __global__ void scan_repeated_in_nested_kernel(
   int num_rows,
   device_nested_field_descriptor const* schema,
   int num_fields,
-  repeated_field_info const* repeated_info,
+  int32_t const* occ_prefix_sums,
   int num_repeated,
   int const* repeated_indices,
   repeated_occurrence* occurrences,
   int* error_flag)
 {
-  auto row_idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (row_idx >= num_rows) return;
+  auto row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (row >= num_rows) return;
 
-  auto const& parent_loc = parent_locs[row_idx];
+  auto const& parent_loc = parent_locs[row];
   if (parent_loc.offset < 0) return;
 
-  // Calculate output offset for this row
-  int occ_offset = 0;
-  for (int r = 0; r < row_idx; r++) {
-    occ_offset += repeated_info[r * num_repeated].count;
-  }
+  // Prefix sum gives the write start offset for this row.
+  int occ_offset = occ_prefix_sums[row];
 
-  cudf::size_type row_off = row_offsets[row_idx] - base_offset;
+  cudf::size_type row_off = row_offsets[row] - base_offset;
   
   uint8_t const* msg_start = message_data + row_off + parent_loc.offset;
   uint8_t const* msg_end = msg_start + parent_loc.length;
@@ -1206,51 +1195,47 @@ __global__ void scan_repeated_in_nested_kernel(
   int occ_idx = 0;
 
   while (cur < msg_end) {
-    uint64_t key;
-    int key_bytes;
-    if (!read_varint(cur, msg_end, key, key_bytes)) {
-      atomicExch(error_flag, 1);
-      return;
-    }
-    cur += key_bytes;
+    proto_tag tag;
+    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
 
-    int fn = static_cast<int>(key >> 3);
-    int wt = static_cast<int>(key & 0x7);
+    // Check if this is one of our repeated fields.
+    for (int ri = 0; ri < num_repeated; ri++) {
+      int schema_idx = repeated_indices[ri];
+      if (schema[schema_idx].field_number == fn && schema[schema_idx].is_repeated) {
+        int32_t data_offset = static_cast<int32_t>(cur - msg_start);
+        int32_t data_len = 0;
 
-    // Check if this is our repeated field (assuming single repeated field for simplicity)
-    int schema_idx = repeated_indices[0];
-    if (schema[schema_idx].field_number == fn && schema[schema_idx].is_repeated) {
-      int32_t data_offset = static_cast<int32_t>(cur - msg_start);
-      int32_t data_len = 0;
-      
-      if (wt == WT_LEN) {
-        uint64_t len;
-        int len_bytes;
-        if (!read_varint(cur, msg_end, len, len_bytes)) {
-          atomicExch(error_flag, 1);
-          return;
+        if (wt == WT_LEN) {
+          uint64_t len;
+          int len_bytes;
+          if (!read_varint(cur, msg_end, len, len_bytes)) {
+            atomicExch(error_flag, ERR_VARINT);
+            return;
+          }
+          data_offset += len_bytes;
+          data_len = static_cast<int32_t>(len);
+        } else if (wt == WT_VARINT) {
+          uint64_t dummy;
+          int vbytes;
+          if (read_varint(cur, msg_end, dummy, vbytes)) {
+            data_len = vbytes;
+          }
+        } else if (wt == WT_32BIT) {
+          data_len = 4;
+        } else if (wt == WT_64BIT) {
+          data_len = 8;
         }
-        data_offset += len_bytes;
-        data_len = static_cast<int32_t>(len);
-      } else if (wt == WT_VARINT) {
-        uint64_t dummy;
-        int vbytes;
-        if (read_varint(cur, msg_end, dummy, vbytes)) {
-          data_len = vbytes;
-        }
-      } else if (wt == WT_32BIT) {
-        data_len = 4;
-      } else if (wt == WT_64BIT) {
-        data_len = 8;
+
+        occurrences[occ_offset + occ_idx] = {row, data_offset, data_len};
+        occ_idx++;
       }
-      
-      occurrences[occ_offset + occ_idx] = {row_idx, data_offset, data_len};
-      occ_idx++;
     }
 
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -1260,7 +1245,7 @@ __global__ void scan_repeated_in_nested_kernel(
 /**
  * Extract varint values from repeated field occurrences within nested messages.
  */
-template <typename OutT, bool ZigZag = false>
+template <typename OutputType, bool ZigZag = false>
 __global__ void extract_repeated_in_nested_varint_kernel(
   uint8_t const* message_data,
   cudf::size_type const* row_offsets,
@@ -1268,7 +1253,7 @@ __global__ void extract_repeated_in_nested_varint_kernel(
   field_location const* parent_locs,
   repeated_occurrence const* occurrences,
   int total_count,
-  OutT* out,
+  OutputType* out,
   int* error_flag)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1279,22 +1264,23 @@ __global__ void extract_repeated_in_nested_varint_kernel(
   
   cudf::size_type row_off = row_offsets[occ.row_idx] - base_offset;
   uint8_t const* data_ptr = message_data + row_off + parent_loc.offset + occ.offset;
+  uint8_t const* msg_end  = message_data + row_off + parent_loc.offset + parent_loc.length;
+  uint8_t const* varint_end =
+    (data_ptr + MAX_VARINT_BYTES < msg_end) ? (data_ptr + MAX_VARINT_BYTES) : msg_end;
 
   uint64_t val;
   int vbytes;
-  if (!read_varint(data_ptr, data_ptr + 10, val, vbytes)) {
-    atomicExch(error_flag, 1);
+  if (!read_varint(data_ptr, varint_end, val, vbytes)) {
+    atomicExch(error_flag, ERR_VARINT);
     return;
   }
 
-  if constexpr (ZigZag) {
-    val = (val >> 1) ^ (~(val & 1) + 1);
-  }
+  if constexpr (ZigZag) { val = (val >> 1) ^ (-(val & 1)); }
 
-  out[idx] = static_cast<OutT>(val);
+  out[idx] = static_cast<OutputType>(val);
 }
 
-template <typename OutT, int WT>
+template <typename OutputType, int WT>
 __global__ void extract_repeated_in_nested_fixed_kernel(
   uint8_t const* message_data,
   cudf::size_type const* row_offsets,
@@ -1302,7 +1288,7 @@ __global__ void extract_repeated_in_nested_fixed_kernel(
   field_location const* parent_locs,
   repeated_occurrence const* occurrences,
   int total_count,
-  OutT* out,
+  OutputType* out,
   int* error_flag)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1316,20 +1302,20 @@ __global__ void extract_repeated_in_nested_fixed_kernel(
 
   if constexpr (WT == WT_32BIT) {
     if (occ.length < 4) {
-      atomicExch(error_flag, 1);
-      out[idx] = OutT{};
+      atomicExch(error_flag, ERR_FIXED_LEN);
+      out[idx] = OutputType{};
       return;
     }
     uint32_t raw = load_le<uint32_t>(data_ptr);
-    memcpy(&out[idx], &raw, sizeof(OutT));
+    memcpy(&out[idx], &raw, sizeof(OutputType));
   } else {
     if (occ.length < 8) {
-      atomicExch(error_flag, 1);
-      out[idx] = OutT{};
+      atomicExch(error_flag, ERR_FIXED_LEN);
+      out[idx] = OutputType{};
       return;
     }
     uint64_t raw = load_le<uint64_t>(data_ptr);
-    memcpy(&out[idx], &raw, sizeof(OutT));
+    memcpy(&out[idx], &raw, sizeof(OutputType));
   }
 }
 
@@ -1357,15 +1343,13 @@ __global__ void extract_repeated_in_nested_string_kernel(
   uint8_t const* data_ptr = message_data + row_off + parent_loc.offset + occ.offset;
   
   int32_t out_offset = str_offsets[idx];
-  for (int32_t i = 0; i < occ.length; i++) {
-    chars[out_offset + i] = static_cast<char>(data_ptr[i]);
-  }
+  memcpy(chars + out_offset, data_ptr, occ.length);
 }
 
 /**
  * Extract varint child fields from repeated message occurrences.
  */
-template <typename OutT, bool ZigZag = false>
+template <typename OutputType, bool ZigZag = false>
 __global__ void extract_repeated_msg_child_varint_kernel(
   uint8_t const* message_data,
   int32_t const* msg_row_offsets,
@@ -1373,53 +1357,54 @@ __global__ void extract_repeated_msg_child_varint_kernel(
   field_location const* child_locs,
   int child_idx,
   int num_child_fields,
-  OutT* out,
+  OutputType* out,
   bool* valid,
   int num_occurrences,
   int* error_flag,
   bool has_default = false,
   int64_t default_value = 0)
 {
-  auto occ_idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (occ_idx >= num_occurrences) return;
+  auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (idx >= num_occurrences) return;
 
-  auto const& msg_loc = msg_locs[occ_idx];
-  auto const& field_loc = child_locs[occ_idx * num_child_fields + child_idx];
+  auto const& msg_loc = msg_locs[idx];
+  auto const& field_loc = child_locs[idx * num_child_fields + child_idx];
 
   if (msg_loc.offset < 0 || field_loc.offset < 0) {
     if (has_default) {
-      out[occ_idx] = static_cast<OutT>(default_value);
-      valid[occ_idx] = true;
+      out[idx] = static_cast<OutputType>(default_value);
+      valid[idx] = true;
     } else {
-      valid[occ_idx] = false;
+      valid[idx] = false;
     }
     return;
   }
 
-  int32_t row_offset = msg_row_offsets[occ_idx];
+  int32_t row_offset = msg_row_offsets[idx];
   uint8_t const* msg_start = message_data + row_offset + msg_loc.offset;
   uint8_t const* cur = msg_start + field_loc.offset;
+  uint8_t const* msg_end = msg_start + msg_loc.length;
+  uint8_t const* varint_end =
+    (cur + MAX_VARINT_BYTES < msg_end) ? (cur + MAX_VARINT_BYTES) : msg_end;
 
   uint64_t val;
   int vbytes;
-  if (!read_varint(cur, cur + 10, val, vbytes)) {
-    atomicExch(error_flag, 1);
-    valid[occ_idx] = false;
+  if (!read_varint(cur, varint_end, val, vbytes)) {
+    atomicExch(error_flag, ERR_VARINT);
+    valid[idx] = false;
     return;
   }
 
-  if constexpr (ZigZag) {
-    val = (val >> 1) ^ (~(val & 1) + 1);
-  }
+  if constexpr (ZigZag) { val = (val >> 1) ^ (-(val & 1)); }
 
-  out[occ_idx] = static_cast<OutT>(val);
-  valid[occ_idx] = true;
+  out[idx] = static_cast<OutputType>(val);
+  valid[idx] = true;
 }
 
 /**
  * Extract fixed-size child fields from repeated message occurrences.
  */
-template <typename OutT, int WT>
+template <typename OutputType, int WT>
 __global__ void extract_repeated_msg_child_fixed_kernel(
   uint8_t const* message_data,
   int32_t const* msg_row_offsets,
@@ -1427,34 +1412,34 @@ __global__ void extract_repeated_msg_child_fixed_kernel(
   field_location const* child_locs,
   int child_idx,
   int num_child_fields,
-  OutT* out,
+  OutputType* out,
   bool* valid,
   int num_occurrences,
   int* error_flag,
   bool has_default = false,
-  OutT default_value = OutT{})
+  OutputType default_value = OutputType{})
 {
-  auto occ_idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (occ_idx >= num_occurrences) return;
+  auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (idx >= num_occurrences) return;
 
-  auto const& msg_loc = msg_locs[occ_idx];
-  auto const& field_loc = child_locs[occ_idx * num_child_fields + child_idx];
+  auto const& msg_loc = msg_locs[idx];
+  auto const& field_loc = child_locs[idx * num_child_fields + child_idx];
 
   if (msg_loc.offset < 0 || field_loc.offset < 0) {
     if (has_default) {
-      out[occ_idx] = default_value;
-      valid[occ_idx] = true;
+      out[idx] = default_value;
+      valid[idx] = true;
     } else {
-      valid[occ_idx] = false;
+      valid[idx] = false;
     }
     return;
   }
 
-  int32_t row_offset = msg_row_offsets[occ_idx];
+  int32_t row_offset = msg_row_offsets[idx];
   uint8_t const* msg_start = message_data + row_offset + msg_loc.offset;
   uint8_t const* cur = msg_start + field_loc.offset;
 
-  OutT value;
+  OutputType value;
   if constexpr (WT == WT_32BIT) {
     uint32_t raw = load_le<uint32_t>(cur);
     memcpy(&value, &raw, sizeof(value));
@@ -1463,8 +1448,8 @@ __global__ void extract_repeated_msg_child_fixed_kernel(
     memcpy(&value, &raw, sizeof(value));
   }
 
-  out[occ_idx] = value;
-  valid[occ_idx] = true;
+  out[idx] = value;
+  valid[idx] = true;
 }
 
 /**
@@ -1501,9 +1486,7 @@ __global__ void extract_repeated_msg_child_strings_kernel(
   char* str_dst = output_chars + string_offsets[idx];
   
   // Copy string data
-  for (int i = 0; i < field_loc.length; i++) {
-    str_dst[i] = static_cast<char>(str_src[i]);
-  }
+  memcpy(str_dst, str_src, field_loc.length);
 }
 
 /**
@@ -1543,7 +1526,7 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_string_column(
     return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
   }
 
-  auto const threads = 256;
+  auto const threads = THREADS_PER_BLOCK;
   auto const blocks = (total_count + threads - 1) / threads;
 
   // Compute string lengths on GPU
@@ -1625,7 +1608,7 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_bytes_column(
                                    0, rmm::device_buffer{}, stream, mr);
   }
 
-  auto const threads = 256;
+  auto const threads = THREADS_PER_BLOCK;
   auto const blocks = (total_count + threads - 1) / threads;
 
   rmm::device_uvector<int32_t> d_lengths(total_count, stream, mr);
@@ -1796,7 +1779,7 @@ struct extract_strided_count {
 /**
  * Extract varint from nested message locations.
  */
-template <typename OutT, bool ZigZag = false>
+template <typename OutputType, bool ZigZag = false>
 __global__ void extract_nested_varint_kernel(
   uint8_t const* message_data,
   cudf::size_type const* parent_row_offsets,
@@ -1805,7 +1788,7 @@ __global__ void extract_nested_varint_kernel(
   field_location const* field_locations,
   int field_idx,
   int num_fields,
-  OutT* out,
+  OutputType* out,
   bool* valid,
   int num_rows,
   int* error_flag,
@@ -1820,7 +1803,7 @@ __global__ void extract_nested_varint_kernel(
 
   if (parent_loc.offset < 0 || field_loc.offset < 0) {
     if (has_default) {
-      out[row] = static_cast<OutT>(default_value);
+      out[row] = static_cast<OutputType>(default_value);
       valid[row] = true;
     } else {
       valid[row] = false;
@@ -1835,20 +1818,20 @@ __global__ void extract_nested_varint_kernel(
   uint64_t v;
   int n;
   if (!read_varint(cur, cur_end, v, n)) {
-    atomicExch(error_flag, 1);
+    atomicExch(error_flag, ERR_VARINT);
     valid[row] = false;
     return;
   }
 
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  out[row] = static_cast<OutT>(v);
+  out[row] = static_cast<OutputType>(v);
   valid[row] = true;
 }
 
 /**
  * Extract fixed-size from nested message locations.
  */
-template <typename OutT, int WT>
+template <typename OutputType, int WT>
 __global__ void extract_nested_fixed_kernel(
   uint8_t const* message_data,
   cudf::size_type const* parent_row_offsets,
@@ -1857,12 +1840,12 @@ __global__ void extract_nested_fixed_kernel(
   field_location const* field_locations,
   int field_idx,
   int num_fields,
-  OutT* out,
+  OutputType* out,
   bool* valid,
   int num_rows,
   int* error_flag,
   bool has_default = false,
-  OutT default_value = OutT{})
+  OutputType default_value = OutputType{})
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
@@ -1883,10 +1866,10 @@ __global__ void extract_nested_fixed_kernel(
   auto parent_row_start = parent_row_offsets[row] - parent_base_offset;
   uint8_t const* cur = message_data + parent_row_start + parent_loc.offset + field_loc.offset;
 
-  OutT value;
+  OutputType value;
   if constexpr (WT == WT_32BIT) {
     if (field_loc.length < 4) {
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_FIXED_LEN);
       valid[row] = false;
       return;
     }
@@ -1894,7 +1877,7 @@ __global__ void extract_nested_fixed_kernel(
     memcpy(&value, &raw, sizeof(value));
   } else {
     if (field_loc.length < 8) {
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_FIXED_LEN);
       valid[row] = false;
       return;
     }
@@ -1934,9 +1917,7 @@ __global__ void copy_nested_varlen_data_kernel(
 
   if (parent_loc.offset < 0 || field_loc.offset < 0) {
     if (has_default && default_length > 0) {
-      for (int i = 0; i < default_length; i++) {
-        dst[i] = static_cast<char>(default_data[i]);
-      }
+      memcpy(dst, default_data, default_length);
     }
     return;
   }
@@ -1946,9 +1927,7 @@ __global__ void copy_nested_varlen_data_kernel(
   auto parent_row_start = parent_row_offsets[row] - parent_base_offset;
   uint8_t const* src = message_data + parent_row_start + parent_loc.offset + field_loc.offset;
 
-  for (int i = 0; i < field_loc.length; i++) {
-    dst[i] = static_cast<char>(src[i]);
-  }
+  memcpy(dst, src, field_loc.length);
 }
 
 /**
@@ -2034,9 +2013,7 @@ __global__ void copy_scalar_string_data_kernel(
   if (loc.offset < 0) {
     // Field not found - use default if available
     if (has_default && default_length > 0) {
-      for (int i = 0; i < default_length; i++) {
-        dst[i] = static_cast<char>(default_data[i]);
-      }
+      memcpy(dst, default_data, default_length);
     }
     return;
   }
@@ -2046,9 +2023,7 @@ __global__ void copy_scalar_string_data_kernel(
   auto row_start = row_offsets[row] - row_base_offset;
   uint8_t const* src = message_data + row_start + loc.offset;
 
-  for (int i = 0; i < loc.length; i++) {
-    dst[i] = static_cast<char>(src[i]);
-  }
+  memcpy(dst, src, loc.length);
 }
 
 // ============================================================================
@@ -2121,10 +2096,10 @@ std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
                                      mr);
     }
     case cudf::type_id::STRUCT: {
-      // Create STRUCT with all nulls and no children
-      // Note: This is a workaround. Proper nested struct handling requires recursive processing
-      // with full schema information. An empty struct with no children won't match expected
-      // schema for deeply nested types, but prevents crashes for unprocessed struct fields.
+      // TODO(protobuf): This creates an empty STRUCT with no children, which does not
+      // match the expected nested schema. This is a crash-prevention workaround for
+      // unprocessed struct fields at deep nesting levels. A proper fix would recurse
+      // into the schema to build the correct child column structure with all-null leaves.
       std::vector<std::unique_ptr<cudf::column>> empty_children;
       auto null_mask = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
       return cudf::make_structs_column(
@@ -2255,7 +2230,7 @@ __global__ void check_required_fields_kernel(
   for (int f = 0; f < num_fields; f++) {
     if (is_required[f] != 0 && locations[row * num_fields + f].offset < 0) {
       // Required field is missing - set error flag
-      atomicExch(error_flag, 1);
+      atomicExch(error_flag, ERR_REQUIRED);
       return;  // No need to check other fields for this row
     }
   }
@@ -2271,6 +2246,8 @@ __global__ void check_required_fields_kernel(
  * encountered, the entire struct row is set to null (not just the enum field).
  *
  * The valid_values array must be sorted for binary search.
+ *
+ * @note Time complexity: O(log(num_valid_values)) per row.
  */
 __global__ void validate_enum_values_kernel(
   int32_t const* values,             // [num_rows] extracted enum values
@@ -2476,7 +2453,7 @@ std::unique_ptr<cudf::column> build_repeated_scalar_column(
   rmm::device_uvector<int> d_error(1, stream, mr);
   CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
 
-  auto const threads = 256;
+  auto const threads = THREADS_PER_BLOCK;
   auto const blocks = (total_count + threads - 1) / threads;
 
   int encoding = field_desc.encoding;
@@ -2592,7 +2569,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   // Extract string lengths from occurrences
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, mr);
-  auto const threads = 256;
+  auto const threads = THREADS_PER_BLOCK;
   auto const blocks = (total_count + threads - 1) / threads;
   extract_repeated_lengths_kernel<<<blocks, threads, 0, stream.value()>>>(
     d_occurrences.data(), total_count, str_lengths.data());
@@ -2787,7 +2764,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   rmm::device_uvector<field_location> d_msg_locs(total_count, stream, mr);
   rmm::device_uvector<int32_t> d_msg_row_offsets(total_count, stream, mr);
   {
-    auto const occ_threads = 256;
+    auto const occ_threads = THREADS_PER_BLOCK;
     auto const occ_blocks = (total_count + occ_threads - 1) / occ_threads;
     compute_msg_locations_from_occurrences_kernel<<<occ_blocks, occ_threads, 0, stream.value()>>>(
       d_occurrences.data(), list_offsets, base_offset,
@@ -2799,7 +2776,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   rmm::device_uvector<int> d_error(1, stream, mr);
   CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
 
-  auto const threads = 256;
+  auto const threads = THREADS_PER_BLOCK;
   auto const blocks = (total_count + threads - 1) / threads;
 
   // Use a custom kernel to scan child fields within message occurrences
@@ -3030,7 +3007,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     return cudf::make_structs_column(0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
   }
 
-  auto const threads = 256;
+  auto const threads = THREADS_PER_BLOCK;
   auto const blocks = (num_rows + threads - 1) / threads;
   int num_child_fields = static_cast<int>(child_field_indices.size());
 
@@ -3113,12 +3090,6 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         struct_children.push_back(cudf::make_lists_column(
           num_rows, std::move(list_offsets_col), std::move(child_col), 0, rmm::device_buffer{}, stream, mr));
       } else {
-        rmm::device_uvector<repeated_occurrence> d_rep_occs(total_rep_count, stream, mr);
-        scan_repeated_in_nested_kernel<<<blocks, threads, 0, stream.value()>>>(
-          message_data, list_offsets, base_offset, d_parent_locs.data(), num_rows,
-          d_rep_schema.data(), 1, d_rep_info.data(), 1, d_rep_indices.data(),
-          d_rep_occs.data(), d_error.data());
-
         rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
         thrust::exclusive_scan(rmm::exec_policy(stream),
                                d_rep_counts.begin(), d_rep_counts.end(),
@@ -3126,38 +3097,49 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows, &total_rep_count,
           sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
 
+        rmm::device_uvector<repeated_occurrence> d_rep_occs(total_rep_count, stream, mr);
+        scan_repeated_in_nested_kernel<<<blocks, threads, 0, stream.value()>>>(
+          message_data, list_offsets, base_offset, d_parent_locs.data(), num_rows,
+          d_rep_schema.data(), 1, list_offs.data(), 1, d_rep_indices.data(),
+          d_rep_occs.data(), d_error.data());
+
         std::unique_ptr<cudf::column> child_values;
         if (elem_type_id == cudf::type_id::INT32) {
           rmm::device_uvector<int32_t> values(total_rep_count, stream, mr);
-          extract_repeated_in_nested_varint_kernel<int32_t, false><<<(total_rep_count + 255) / 256, 256, 0, stream.value()>>>(
+          extract_repeated_in_nested_varint_kernel<int32_t, false><<<
+            (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, stream.value()>>>(
             message_data, list_offsets, base_offset, d_parent_locs.data(),
             d_rep_occs.data(), total_rep_count, values.data(), d_error.data());
           child_values = std::make_unique<cudf::column>(
             cudf::data_type{cudf::type_id::INT32}, total_rep_count, values.release(), rmm::device_buffer{}, 0);
         } else if (elem_type_id == cudf::type_id::INT64) {
           rmm::device_uvector<int64_t> values(total_rep_count, stream, mr);
-          extract_repeated_in_nested_varint_kernel<int64_t, false><<<(total_rep_count + 255) / 256, 256, 0, stream.value()>>>(
+          extract_repeated_in_nested_varint_kernel<int64_t, false><<<
+            (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, stream.value()>>>(
             message_data, list_offsets, base_offset, d_parent_locs.data(),
             d_rep_occs.data(), total_rep_count, values.data(), d_error.data());
           child_values = std::make_unique<cudf::column>(
             cudf::data_type{cudf::type_id::INT64}, total_rep_count, values.release(), rmm::device_buffer{}, 0);
         } else if (elem_type_id == cudf::type_id::BOOL8) {
           rmm::device_uvector<uint8_t> values(total_rep_count, stream, mr);
-          extract_repeated_in_nested_varint_kernel<uint8_t, false><<<(total_rep_count + 255) / 256, 256, 0, stream.value()>>>(
+          extract_repeated_in_nested_varint_kernel<uint8_t, false><<<
+            (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, stream.value()>>>(
             message_data, list_offsets, base_offset, d_parent_locs.data(),
             d_rep_occs.data(), total_rep_count, values.data(), d_error.data());
           child_values = std::make_unique<cudf::column>(
             cudf::data_type{cudf::type_id::BOOL8}, total_rep_count, values.release(), rmm::device_buffer{}, 0);
         } else if (elem_type_id == cudf::type_id::FLOAT32) {
           rmm::device_uvector<float> values(total_rep_count, stream, mr);
-          extract_repeated_in_nested_fixed_kernel<float, WT_32BIT><<<(total_rep_count + 255) / 256, 256, 0, stream.value()>>>(
+          extract_repeated_in_nested_fixed_kernel<float, WT_32BIT><<<
+            (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, stream.value()>>>(
             message_data, list_offsets, base_offset, d_parent_locs.data(),
             d_rep_occs.data(), total_rep_count, values.data(), d_error.data());
           child_values = std::make_unique<cudf::column>(
             cudf::data_type{cudf::type_id::FLOAT32}, total_rep_count, values.release(), rmm::device_buffer{}, 0);
         } else if (elem_type_id == cudf::type_id::FLOAT64) {
           rmm::device_uvector<double> values(total_rep_count, stream, mr);
-          extract_repeated_in_nested_fixed_kernel<double, WT_64BIT><<<(total_rep_count + 255) / 256, 256, 0, stream.value()>>>(
+          extract_repeated_in_nested_fixed_kernel<double, WT_64BIT><<<
+            (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, stream.value()>>>(
             message_data, list_offsets, base_offset, d_parent_locs.data(),
             d_rep_occs.data(), total_rep_count, values.data(), d_error.data());
           child_values = std::make_unique<cudf::column>(
@@ -3180,7 +3162,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
 
           rmm::device_uvector<char> chars(total_chars, stream, mr);
           if (total_chars > 0) {
-            extract_repeated_in_nested_string_kernel<<<(total_rep_count + 255) / 256, 256, 0, stream.value()>>>(
+            extract_repeated_in_nested_string_kernel<<<
+              (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_parent_locs.data(),
               d_rep_occs.data(), total_rep_count, str_offs.data(), chars.data(), d_error.data());
           }
@@ -3206,7 +3189,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
 
           rmm::device_uvector<char> bytes(total_bytes, stream, mr);
           if (total_bytes > 0) {
-            extract_repeated_in_nested_string_kernel<<<(total_rep_count + 255) / 256, 256, 0, stream.value()>>>(
+            extract_repeated_in_nested_string_kernel<<<
+              (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK, 0, stream.value()>>>(
               message_data, list_offsets, base_offset, d_parent_locs.data(),
               d_rep_occs.data(), total_rep_count, byte_offs.data(), bytes.data(), d_error.data());
           }
@@ -3229,8 +3213,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
           } else {
             rmm::device_uvector<cudf::size_type> d_virtual_row_offsets(total_rep_count, stream, mr);
             rmm::device_uvector<field_location> d_virtual_parent_locs(total_rep_count, stream, mr);
-            auto const rep_blk = (total_rep_count + 255) / 256;
-            compute_virtual_parents_for_nested_repeated_kernel<<<rep_blk, 256, 0, stream.value()>>>(
+            auto const rep_blk = (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+            compute_virtual_parents_for_nested_repeated_kernel<<<rep_blk, THREADS_PER_BLOCK, 0, stream.value()>>>(
               d_rep_occs.data(), list_offsets, d_parent_locs.data(),
               d_virtual_row_offsets.data(), d_virtual_parent_locs.data(), total_rep_count);
 
@@ -3741,7 +3725,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
       num_rows * sizeof(bool), stream.value()));
   }
 
-  auto const threads = 256;
+  auto const threads = THREADS_PER_BLOCK;
   auto const blocks = static_cast<int>((num_rows + threads - 1) / threads);
 
   // Allocate for counting repeated fields
@@ -4294,8 +4278,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
 
               // 1. Extract enum integer values from occurrences
               rmm::device_uvector<int32_t> enum_ints(total_count, stream, mr);
-              auto const rep_blocks = static_cast<int>((total_count + 255) / 256);
-              extract_repeated_varint_kernel<int32_t, false><<<rep_blocks, 256, 0, stream.value()>>>(
+              auto const rep_blocks = static_cast<int>((total_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+              extract_repeated_varint_kernel<int32_t, false><<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
                 msg_data, loffs, boff, d_occurrences.data(), total_count,
                 enum_ints.data(), d_error.data());
 
@@ -4336,7 +4320,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
 
               // 4. Compute per-element string lengths
               rmm::device_uvector<int32_t> elem_lengths(total_count, stream, mr);
-              compute_enum_string_lengths_kernel<<<rep_blocks, 256, 0, stream.value()>>>(
+              compute_enum_string_lengths_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
                 enum_ints.data(), elem_valid.data(), d_valid_enums.data(), d_name_offsets.data(),
                 static_cast<int>(valid_enums.size()), elem_lengths.data(), total_count);
 
@@ -4361,7 +4345,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(
               // 6. Copy string chars
               rmm::device_uvector<char> chars(total_chars, stream, mr);
               if (total_chars > 0) {
-                copy_enum_string_chars_kernel<<<rep_blocks, 256, 0, stream.value()>>>(
+                copy_enum_string_chars_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
                   enum_ints.data(), elem_valid.data(), d_valid_enums.data(), d_name_offsets.data(),
                   d_name_chars.data(), static_cast<int>(valid_enums.size()),
                   str_offsets.data(), chars.data(), total_count);
