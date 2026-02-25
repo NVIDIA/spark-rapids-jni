@@ -41,7 +41,7 @@ ARG GIT_VERSION=2.53.0
 ARG PARALLEL_LEVEL
 
 # Install the dependencies for building git
-RUN dnf install -y libcurl-devel openssl-devel && dnf clean all
+RUN dnf install -y libcurl-devel openssl-devel pcre2-devel && dnf clean all
 
 RUN mkdir -p /tmp/git-src && cd /tmp/git-src && \
     wget -O "git-${GIT_VERSION}.tar.xz" "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz" && \
