@@ -267,13 +267,8 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column>&& input
   auto const sizes_itr = thrust::make_constant_iterator(num_percentages);
   auto offsets         = std::get<0>(
     cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + num_histograms, stream, mr));
-  auto output = cudf::make_lists_column(num_histograms,
-                                        std::move(offsets),
-                                        std::move(input),
-                                        null_count,
-                                        std::move(null_mask),
-                                        stream,
-                                        mr);
+  auto output = cudf::make_lists_column(
+    num_histograms, std::move(offsets), std::move(input), null_count, std::move(null_mask));
   if (null_count > 0) { return cudf::purge_nonempty_nulls(output->view(), stream, mr); }
 
   return output;
@@ -387,13 +382,8 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     auto const sizes_itr = thrust::make_constant_iterator(1);
     auto offsets         = std::get<0>(
       cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + num_elements, stream, mr));
-    return cudf::make_lists_column(num_elements,
-                                   std::move(offsets),
-                                   std::move(structs_histogram),
-                                   0,
-                                   rmm::device_buffer{},
-                                   stream,
-                                   mr);
+    return cudf::make_lists_column(
+      num_elements, std::move(offsets), std::move(structs_histogram), 0, rmm::device_buffer{});
   };
 
   if (output_as_lists) {

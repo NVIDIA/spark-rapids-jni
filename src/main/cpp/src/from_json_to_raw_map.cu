@@ -151,8 +151,7 @@ std::unique_ptr<cudf::column> make_empty_map(rmm::cuda_stream_view stream,
   auto child =
     cudf::make_structs_column(0, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
   auto offsets = cudf::make_empty_column(cudf::data_type(cudf::type_id::INT32));
-  return cudf::make_lists_column(
-    0, std::move(offsets), std::move(child), 0, rmm::device_buffer{}, stream, mr);
+  return cudf::make_lists_column(0, std::move(offsets), std::move(child), 0, rmm::device_buffer{});
 }
 
 // Concatenating all input strings into one string, for which each input string is appended by a

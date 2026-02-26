@@ -1262,9 +1262,7 @@ static std::unique_ptr<column> fixed_width_convert_to_rows(
                            std::move(offsets),
                            std::move(data),
                            0,
-                           rmm::device_buffer{0, cudf::get_default_stream(), mr},
-                           stream,
-                           mr);
+                           rmm::device_buffer{0, cudf::get_default_stream(), mr});
 }
 
 static inline bool are_all_fixed_width(std::vector<data_type> const& schema)
@@ -1978,9 +1976,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
                                             std::move(offsets),
                                             std::move(data),
                                             0,
-                                            rmm::device_buffer{0, cudf::get_default_stream(), mr},
-                                            stream,
-                                            mr);
+                                            rmm::device_buffer{0, cudf::get_default_stream(), mr});
                  });
 
   return ret;

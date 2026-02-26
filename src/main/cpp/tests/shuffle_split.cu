@@ -294,24 +294,12 @@ TEST_F(ShuffleSplitTests, Lists)
     cudf::test::strings_column_wrapper strings0{{"*", "*", "****", "", "*", ""},
                                                 {1, 1, 1, 1, 1, 0}};
     cudf::test::fixed_width_column_wrapper<int> offsets0{0, 1, 2, 3, 6};
-    auto col0 = cudf::make_lists_column(4,
-                                        offsets0.release(),
-                                        strings0.release(),
-                                        0,
-                                        {},
-                                        cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource_ref());
+    auto col0 = cudf::make_lists_column(4, offsets0.release(), strings0.release(), 0, {});
 
     cudf::test::strings_column_wrapper strings1{{"", "", "", "", "", "", ""},
                                                 {0, 0, 0, 0, 0, 0, 0}};
     cudf::test::fixed_width_column_wrapper<int> offsets1{0, 4, 4, 7, 7};
-    auto col1 = cudf::make_lists_column(4,
-                                        offsets1.release(),
-                                        strings1.release(),
-                                        0,
-                                        {},
-                                        cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource_ref());
+    auto col1 = cudf::make_lists_column(4, offsets1.release(), strings1.release(), 0, {});
 
     cudf::table_view tbl{{*col0, *col1}};
     run_split(tbl, {});
@@ -456,26 +444,14 @@ TEST_F(ShuffleSplitTests, EmptyOffsets)
   // list<string> with empty strings
   cudf::test::strings_column_wrapper strings0{};
   cudf::test::fixed_width_column_wrapper<int> offsets0{0, 0, 0};
-  auto col0 = cudf::make_lists_column(2,
-                                      offsets0.release(),
-                                      strings0.release(),
-                                      0,
-                                      {},
-                                      cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource_ref());
+  auto col0 = cudf::make_lists_column(2, offsets0.release(), strings0.release(), 0, {});
   cudf::lists_column_view lcv(*col0);
   CUDF_EXPECTS(lcv.child().num_children() == 0, "String column is expected to have no offsets");
 
   // list<list<int>> with empty inner list
   cudf::test::lists_column_wrapper<int> list0{};
   cudf::test::fixed_width_column_wrapper<int> offsets1{0, 0, 0};
-  auto col1 = cudf::make_lists_column(2,
-                                      offsets1.release(),
-                                      list0.release(),
-                                      0,
-                                      {},
-                                      cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource_ref());
+  auto col1 = cudf::make_lists_column(2, offsets1.release(), list0.release(), 0, {});
 
   // list<struct<int, int>>
   cudf::test::fixed_width_column_wrapper<int> ints0{-210, 311};
@@ -485,13 +461,7 @@ TEST_F(ShuffleSplitTests, EmptyOffsets)
   inner_children.push_back(ints1.release());
   cudf::test::structs_column_wrapper inner_struct(std::move(inner_children));
   cudf::test::fixed_width_column_wrapper<int> offsets2{0, 1, 2};
-  auto col2 = cudf::make_lists_column(2,
-                                      offsets2.release(),
-                                      inner_struct.release(),
-                                      0,
-                                      {},
-                                      cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource_ref());
+  auto col2 = cudf::make_lists_column(2, offsets2.release(), inner_struct.release(), 0, {});
 
   cudf::table_view tbl{{*col0, *col1, *col2, *col1}};
   auto result = run_split(tbl, {});

@@ -417,9 +417,7 @@ std::unique_ptr<cudf::column> map_zip(
                            std::make_unique<column>(search_keys_list.offsets()),
                            std::move(map_structs),
                            null_count,
-                           std::move(result_mask),
-                           stream,
-                           mr);
+                           std::move(result_mask));
 }
 
 }  // namespace spark_rapids_jni
