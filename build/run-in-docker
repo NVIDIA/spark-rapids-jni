@@ -33,8 +33,10 @@ GIT_COMMON_DIR_REL=$(git rev-parse --git-common-dir)
 GIT_COMMON_DIR=$(realpath "$GIT_COMMON_DIR_REL")
 WORKDIR=${WORKDIR:-$REPODIR}
 TZ=${TZ:-UTC}
+PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc)}
 
 CUDA_VERSION=${CUDA_VERSION:-12.9.1}
+OS_RELEASE=${OS_RELEASE:-8}
 DOCKER_CMD=${DOCKER_CMD:-docker}
 DOCKER_BUILD_EXTRA_ARGS=${DOCKER_BUILD_EXTRA_ARGS:-""}
 if [ "$(uname -m)" == "aarch64" ]; then
@@ -46,22 +48,30 @@ DOCKER_RUN_EXTRA_ARGS=${DOCKER_RUN_EXTRA_ARGS:-""}
 LOCAL_CCACHE_DIR=${LOCAL_CCACHE_DIR:-"$HOME/.ccache"}
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 
-if [ "$JNI_DOCKER_DEV_BUILD" == "ON" ]; then
-  echo "Building docker image for local development, gcc-toolset is enabled by default..."
-  JNI_DOCKER_IMAGE="spark-rapids-jni-build:${CUDA_VERSION}-devel-rockylinux8"
-else
-  echo "Building docker image for production, gcc-toolset is NOT enabled by default..."
-  JNI_DOCKER_IMAGE="spark-rapids-jni-build:${CUDA_VERSION}-rockylinux8"
-fi
-
 # ensure directories exist
 mkdir -p "$LOCAL_CCACHE_DIR" "$LOCAL_MAVEN_REPO"
 
+echo "Building docker image for CICD environment..."
+JNI_DOCKER_CICD_IMAGE="spark-rapids-jni-build:${CUDA_VERSION}-rockylinux${OS_RELEASE}"
 $DOCKER_CMD build $DOCKER_BUILD_EXTRA_ARGS -f $REPODIR/ci/Dockerfile \
   --build-arg CUDA_VERSION=$CUDA_VERSION \
-  --build-arg DEV_BUILD=$JNI_DOCKER_DEV_BUILD \
-  -t $JNI_DOCKER_IMAGE \
+  --build-arg OS_RELEASE=$OS_RELEASE \
+  --build-arg PARALLEL_LEVEL=$PARALLEL_LEVEL \
+  -t $JNI_DOCKER_CICD_IMAGE \
   $REPODIR/build
+
+if [ "$JNI_DOCKER_DEV_BUILD" == "ON" ]; then
+  echo "Building docker image for local development, in which gcc-toolset is enabled by default..."
+  JNI_DOCKER_DEV_IMAGE=${JNI_DOCKER_CICD_IMAGE}-devel
+  $DOCKER_CMD build -f $REPODIR/build/Dockerfile.devel \
+  --build-arg JNI_DOCKER_CICD_IMAGE=$JNI_DOCKER_CICD_IMAGE \
+  --build-arg PARALLEL_LEVEL=$PARALLEL_LEVEL \
+  -t $JNI_DOCKER_DEV_IMAGE \
+  $REPODIR/build
+  JNI_DOCKER_IMAGE=$JNI_DOCKER_DEV_IMAGE
+else
+  JNI_DOCKER_IMAGE=$JNI_DOCKER_CICD_IMAGE
+fi
 
 if [[ "$DOCKER_CMD" == "docker" ]]; then
   DOCKER_GPU_OPTS=${DOCKER_GPU_OPTS:-"--gpus all"}
