@@ -60,6 +60,7 @@ public class Protobuf {
   public static final int WT_64BIT  = 1;
   public static final int WT_LEN    = 2;
   public static final int WT_32BIT  = 5;
+  private static final int MAX_FIELD_NUMBER = (1 << 29) - 1;
 
   /**
    * Decode protobuf messages into a STRUCT column using a flattened schema representation.
@@ -136,10 +137,10 @@ public class Protobuf {
 
     // Validate field numbers are positive and within protobuf spec range
     for (int i = 0; i < fieldNumbers.length; i++) {
-      if (fieldNumbers[i] <= 0 || fieldNumbers[i] > 536870911) {
+      if (fieldNumbers[i] <= 0 || fieldNumbers[i] > MAX_FIELD_NUMBER) {
         throw new IllegalArgumentException(
             "Invalid field number at index " + i + ": " + fieldNumbers[i] +
-            " (field numbers must be 1-536870911)");
+            " (field numbers must be 1-" + MAX_FIELD_NUMBER + ")");
       }
     }
 

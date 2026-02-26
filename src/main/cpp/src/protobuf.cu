@@ -49,6 +49,8 @@ namespace {
 constexpr int WT_VARINT = 0;
 constexpr int WT_64BIT  = 1;
 constexpr int WT_LEN    = 2;
+constexpr int WT_SGROUP = 3;
+constexpr int WT_EGROUP = 4;
 constexpr int WT_32BIT  = 5;
 
 // Protobuf varint encoding uses at most 10 bytes to represent a 64-bit value.
@@ -163,8 +165,17 @@ __device__ inline bool read_varint(uint8_t const* cur,
   return false;
 }
 
+__device__ inline void set_error_once(int* error_flag, int error_code)
+{
+  atomicCAS(error_flag, 0, error_code);
+}
+
+// Keep call sites concise while ensuring first-error-wins semantics.
+#define atomicExch(error_flag, error_code) set_error_once(error_flag, error_code)
+
 __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t const* end)
 {
+  auto const* start = cur;
   switch (wt) {
     case WT_VARINT: {
       // Need to scan to find the end of varint
@@ -191,6 +202,25 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
         return -1;
       return n + static_cast<int>(len);
     }
+    case WT_SGROUP: {
+      // Recursively skip until the matching end-group tag.
+      while (cur < end) {
+        uint64_t key;
+        int key_bytes;
+        if (!read_varint(cur, end, key, key_bytes)) return -1;
+        cur += key_bytes;
+
+        int inner_wt = static_cast<int>(key & 0x7);
+        if (inner_wt == WT_EGROUP) { return static_cast<int>(cur - start); }
+
+        int inner_size = get_wire_type_size(inner_wt, cur, end);
+        if (inner_size < 0 || cur + inner_size > end) return -1;
+        cur += inner_size;
+      }
+      return -1;
+    }
+    case WT_EGROUP:
+      return 0;
     default: return -1;
   }
 }
@@ -200,6 +230,12 @@ __device__ inline bool skip_field(uint8_t const* cur,
                                   int wt,
                                   uint8_t const*& out_cur)
 {
+  // End-group is handled by the parent group parser.
+  if (wt == WT_EGROUP) {
+    out_cur = cur;
+    return true;
+  }
+
   int size = get_wire_type_size(wt, cur, end);
   if (size < 0) return false;
   // Ensure we don't skip past the end of the buffer
@@ -2732,7 +2768,7 @@ template <typename T>
 std::unique_ptr<cudf::column> build_repeated_scalar_column(
   cudf::column_view const& binary_input,
   device_nested_field_descriptor const& field_desc,
-  std::vector<repeated_field_info> const& h_repeated_info,
+  rmm::device_uvector<int32_t> const& d_field_counts,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -2789,21 +2825,9 @@ std::unique_ptr<cudf::column> build_repeated_scalar_column(
     &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
 
-  // Build list offsets from per-row counts.
-  std::vector<int32_t> h_counts(num_rows);
-  for (int row = 0; row < num_rows; ++row) {
-    h_counts[row] = h_repeated_info[row].count;
-  }
-  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(counts.data(),
-                                h_counts.data(),
-                                num_rows * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
-
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
-    rmm::exec_policy(stream), counts.data(), counts.end(), list_offs.begin(), 0);
+    rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
   // Set last offset = total_count
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
@@ -2885,7 +2909,7 @@ std::unique_ptr<cudf::column> build_repeated_scalar_column(
 std::unique_ptr<cudf::column> build_repeated_string_column(
   cudf::column_view const& binary_input,
   device_nested_field_descriptor const& field_desc,
-  std::vector<repeated_field_info> const& h_repeated_info,
+  rmm::device_uvector<int32_t> const& d_field_counts,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -2942,21 +2966,9 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
     &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
 
-  // Build list offsets from per-row counts.
-  std::vector<int32_t> h_counts(num_rows);
-  for (int row = 0; row < num_rows; ++row) {
-    h_counts[row] = h_repeated_info[row].count;
-  }
-  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(counts.data(),
-                                h_counts.data(),
-                                num_rows * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
-
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
-    rmm::exec_policy(stream), counts.data(), counts.end(), list_offs.begin(), 0);
+    rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
   // Set last offset = total_count
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
@@ -3078,7 +3090,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
 std::unique_ptr<cudf::column> build_repeated_struct_column(
   cudf::column_view const& binary_input,
   device_nested_field_descriptor const& field_desc,
-  std::vector<repeated_field_info> const& h_repeated_info,
+  rmm::device_uvector<int32_t> const& d_field_counts,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -3156,21 +3168,9 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
 
-  // Build list offsets from per-row counts.
-  std::vector<int32_t> h_counts(num_rows);
-  for (int row = 0; row < num_rows; ++row) {
-    h_counts[row] = h_repeated_info[row].count;
-  }
-  rmm::device_uvector<int32_t> counts(num_rows, stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(counts.data(),
-                                h_counts.data(),
-                                num_rows * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
-
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
-    rmm::exec_policy(stream), counts.data(), counts.end(), list_offs.begin(), 0);
+    rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
   // Set last offset = total_count (already computed on caller side)
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
@@ -4750,14 +4750,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Process repeated fields
   if (num_repeated > 0) {
-    std::vector<repeated_field_info> h_repeated_info(static_cast<size_t>(num_rows) * num_repeated);
-    CUDF_CUDA_TRY(cudaMemcpyAsync(h_repeated_info.data(),
-                                  d_repeated_info.data(),
-                                  h_repeated_info.size() * sizeof(repeated_field_info),
-                                  cudaMemcpyDeviceToHost,
-                                  stream.value()));
-    stream.synchronize();
-
     cudf::lists_column_view const in_list_view(binary_input);
     auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
 
@@ -4775,12 +4767,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       int total_count =
         thrust::reduce(rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), 0);
-
-      // Still need host-side field_info for build_repeated_scalar_column
-      std::vector<repeated_field_info> field_info(num_rows);
-      for (int row = 0; row < num_rows; row++) {
-        field_info[row] = h_repeated_info[row * num_repeated + ri];
-      }
 
       if (total_count > 0) {
         // Build offsets for occurrence scanning on GPU (performance fix!)
@@ -4819,7 +4805,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             column_map[schema_idx] =
               build_repeated_scalar_column<int32_t>(binary_input,
                                                     h_device_schema[schema_idx],
-                                                    field_info,
+                                                    d_field_counts,
                                                     d_occurrences,
                                                     total_count,
                                                     num_rows,
@@ -4830,7 +4816,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             column_map[schema_idx] =
               build_repeated_scalar_column<int64_t>(binary_input,
                                                     h_device_schema[schema_idx],
-                                                    field_info,
+                                                    d_field_counts,
                                                     d_occurrences,
                                                     total_count,
                                                     num_rows,
@@ -4841,7 +4827,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             column_map[schema_idx] =
               build_repeated_scalar_column<uint32_t>(binary_input,
                                                      h_device_schema[schema_idx],
-                                                     field_info,
+                                                     d_field_counts,
                                                      d_occurrences,
                                                      total_count,
                                                      num_rows,
@@ -4852,7 +4838,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             column_map[schema_idx] =
               build_repeated_scalar_column<uint64_t>(binary_input,
                                                      h_device_schema[schema_idx],
-                                                     field_info,
+                                                     d_field_counts,
                                                      d_occurrences,
                                                      total_count,
                                                      num_rows,
@@ -4863,7 +4849,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             column_map[schema_idx] =
               build_repeated_scalar_column<float>(binary_input,
                                                   h_device_schema[schema_idx],
-                                                  field_info,
+                                                  d_field_counts,
                                                   d_occurrences,
                                                   total_count,
                                                   num_rows,
@@ -4874,7 +4860,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             column_map[schema_idx] =
               build_repeated_scalar_column<double>(binary_input,
                                                    h_device_schema[schema_idx],
-                                                   field_info,
+                                                   d_field_counts,
                                                    d_occurrences,
                                                    total_count,
                                                    num_rows,
@@ -4885,7 +4871,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             column_map[schema_idx] =
               build_repeated_scalar_column<uint8_t>(binary_input,
                                                     h_device_schema[schema_idx],
-                                                    field_info,
+                                                    d_field_counts,
                                                     d_occurrences,
                                                     total_count,
                                                     num_rows,
@@ -5056,7 +5042,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             } else {
               column_map[schema_idx] = build_repeated_string_column(binary_input,
                                                                     h_device_schema[schema_idx],
-                                                                    field_info,
+                                                                    d_field_counts,
                                                                     d_occurrences,
                                                                     total_count,
                                                                     num_rows,
@@ -5069,7 +5055,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::LIST:  // bytes as LIST<INT8>
             column_map[schema_idx] = build_repeated_string_column(binary_input,
                                                                   h_device_schema[schema_idx],
-                                                                  field_info,
+                                                                  d_field_counts,
                                                                   d_occurrences,
                                                                   total_count,
                                                                   num_rows,
@@ -5086,7 +5072,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             } else {
               column_map[schema_idx] = build_repeated_struct_column(binary_input,
                                                                     h_device_schema[schema_idx],
-                                                                    field_info,
+                                                                    d_field_counts,
                                                                     d_occurrences,
                                                                     total_count,
                                                                     num_rows,
