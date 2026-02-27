@@ -260,9 +260,7 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column>&& input
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
 {
-  if (input->size() == 0) {
-    return cudf::lists::detail::make_empty_lists_column(input->type(), stream, mr);
-  }
+  if (input->size() == 0) { return cudf::lists::detail::make_empty_lists_column(input->type()); }
 
   auto const sizes_itr = thrust::make_constant_iterator(num_percentages);
   auto offsets         = std::get<0>(
