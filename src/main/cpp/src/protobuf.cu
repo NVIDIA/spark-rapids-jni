@@ -170,12 +170,8 @@ __device__ inline void set_error_once(int* error_flag, int error_code)
   atomicCAS(error_flag, 0, error_code);
 }
 
-// Keep call sites concise while ensuring first-error-wins semantics.
-#define atomicExch(error_flag, error_code) set_error_once(error_flag, error_code)
-
 __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t const* end)
 {
-  auto const* start = cur;
   switch (wt) {
     case WT_VARINT: {
       // Need to scan to find the end of varint
@@ -203,6 +199,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
       return n + static_cast<int>(len);
     }
     case WT_SGROUP: {
+      auto const* start = cur;
       // Recursively skip until the matching end-group tag.
       while (cur < end) {
         uint64_t key;
@@ -278,7 +275,7 @@ __device__ inline bool check_message_bounds(int32_t start,
                                             int* error_flag)
 {
   if (start < 0 || end_pos < start || end_pos > total_size) {
-    atomicExch(error_flag, ERR_BOUNDS);
+    set_error_once(error_flag, ERR_BOUNDS);
     return false;
   }
   return true;
@@ -297,7 +294,7 @@ __device__ inline bool decode_tag(uint8_t const*& cur,
   uint64_t key;
   int key_bytes;
   if (!read_varint(cur, end, key, key_bytes)) {
-    atomicExch(error_flag, ERR_VARINT);
+    set_error_once(error_flag, ERR_VARINT);
     return false;
   }
 
@@ -305,7 +302,7 @@ __device__ inline bool decode_tag(uint8_t const*& cur,
   tag.field_number = static_cast<int>(key >> 3);
   tag.wire_type    = static_cast<int>(key & 0x7);
   if (tag.field_number == 0) {
-    atomicExch(error_flag, ERR_FIELD_NUMBER);
+    set_error_once(error_flag, ERR_FIELD_NUMBER);
     return false;
   }
   return true;
@@ -392,7 +389,7 @@ __global__ void scan_all_fields_kernel(
       if (field_descs[f].field_number == fn) {
         // Check wire type matches
         if (wt != field_descs[f].expected_wire_type) {
-          atomicExch(error_flag, ERR_WIRE_TYPE);
+          set_error_once(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
@@ -404,12 +401,12 @@ __global__ void scan_all_fields_kernel(
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, msg_end, len, len_bytes)) {
-            atomicExch(error_flag, ERR_VARINT);
+            set_error_once(error_flag, ERR_VARINT);
             return;
           }
           if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
               len > static_cast<uint64_t>(INT_MAX)) {
-            atomicExch(error_flag, ERR_OVERFLOW);
+            set_error_once(error_flag, ERR_OVERFLOW);
             return;
           }
           // Record offset pointing to the actual data (after length prefix)
@@ -418,7 +415,7 @@ __global__ void scan_all_fields_kernel(
           // For fixed-size and varint fields, record offset and compute length
           int field_size = get_wire_type_size(wt, cur, msg_end);
           if (field_size < 0) {
-            atomicExch(error_flag, ERR_FIELD_SIZE);
+            set_error_once(error_flag, ERR_FIELD_SIZE);
             return;
           }
           locations[row * num_fields + f] = {data_offset, field_size};
@@ -432,7 +429,7 @@ __global__ void scan_all_fields_kernel(
     // Skip to next field
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, ERR_SKIP);
+      set_error_once(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -506,7 +503,7 @@ __global__ void count_repeated_fields_kernel(
         bool is_packed = (wt == WT_LEN && expected_wt != WT_LEN);
 
         if (!is_packed && wt != expected_wt) {
-          atomicExch(error_flag, ERR_WIRE_TYPE);
+          set_error_once(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
@@ -515,7 +512,7 @@ __global__ void count_repeated_fields_kernel(
           uint64_t packed_len;
           int len_bytes;
           if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
-            atomicExch(error_flag, ERR_VARINT);
+            set_error_once(error_flag, ERR_VARINT);
             return;
           }
 
@@ -523,7 +520,7 @@ __global__ void count_repeated_fields_kernel(
           uint8_t const* packed_start = cur + len_bytes;
           uint8_t const* packed_end   = packed_start + packed_len;
           if (packed_end > msg_end) {
-            atomicExch(error_flag, ERR_OVERFLOW);
+            set_error_once(error_flag, ERR_OVERFLOW);
             return;
           }
 
@@ -535,7 +532,7 @@ __global__ void count_repeated_fields_kernel(
               uint64_t dummy;
               int vbytes;
               if (!read_varint(p, packed_end, dummy, vbytes)) {
-                atomicExch(error_flag, ERR_VARINT);
+                set_error_once(error_flag, ERR_VARINT);
                 return;
               }
               p += vbytes;
@@ -554,7 +551,7 @@ __global__ void count_repeated_fields_kernel(
           // Non-packed encoding: single element
           int32_t data_offset, data_length;
           if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
-            atomicExch(error_flag, ERR_FIELD_SIZE);
+            set_error_once(error_flag, ERR_FIELD_SIZE);
             return;
           }
 
@@ -569,14 +566,14 @@ __global__ void count_repeated_fields_kernel(
       int schema_idx = nested_field_indices[i];
       if (schema[schema_idx].field_number == fn && schema[schema_idx].depth == depth_level) {
         if (wt != WT_LEN) {
-          atomicExch(error_flag, ERR_WIRE_TYPE);
+          set_error_once(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
         uint64_t len;
         int len_bytes;
         if (!read_varint(cur, msg_end, len, len_bytes)) {
-          atomicExch(error_flag, ERR_VARINT);
+          set_error_once(error_flag, ERR_VARINT);
           return;
         }
 
@@ -588,7 +585,7 @@ __global__ void count_repeated_fields_kernel(
     // Skip to next field
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, ERR_SKIP);
+      set_error_once(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -645,14 +642,14 @@ __global__ void scan_repeated_field_occurrences_kernel(
         uint64_t packed_len;
         int len_bytes;
         if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
-          atomicExch(error_flag, ERR_VARINT);
+          set_error_once(error_flag, ERR_VARINT);
           return;
         }
 
         uint8_t const* packed_start = cur + len_bytes;
         uint8_t const* packed_end   = packed_start + packed_len;
         if (packed_end > msg_end) {
-          atomicExch(error_flag, ERR_OVERFLOW);
+          set_error_once(error_flag, ERR_OVERFLOW);
           return;
         }
 
@@ -665,7 +662,7 @@ __global__ void scan_repeated_field_occurrences_kernel(
             uint64_t dummy;
             int vbytes;
             if (!read_varint(p, packed_end, dummy, vbytes)) {
-              atomicExch(error_flag, ERR_VARINT);
+              set_error_once(error_flag, ERR_VARINT);
               return;
             }
             occurrences[write_idx] = {static_cast<int32_t>(row), elem_offset, vbytes};
@@ -695,7 +692,7 @@ __global__ void scan_repeated_field_occurrences_kernel(
         // Non-packed encoding: single element
         int32_t data_offset, data_length;
         if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
-          atomicExch(error_flag, ERR_FIELD_SIZE);
+          set_error_once(error_flag, ERR_FIELD_SIZE);
           return;
         }
 
@@ -708,7 +705,7 @@ __global__ void scan_repeated_field_occurrences_kernel(
     // Skip to next field
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, ERR_SKIP);
+      set_error_once(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -840,7 +837,7 @@ __global__ void extract_varint_kernel(uint8_t const* message_data,
   uint64_t v;
   int n;
   if (!read_varint(cur, cur_end, v, n)) {
-    atomicExch(error_flag, ERR_VARINT);
+    set_error_once(error_flag, ERR_VARINT);
     if (valid) valid[idx] = false;
     return;
   }
@@ -881,7 +878,7 @@ __global__ void extract_fixed_kernel(uint8_t const* message_data,
 
   if constexpr (WT == WT_32BIT) {
     if (loc.length < 4) {
-      atomicExch(error_flag, ERR_FIXED_LEN);
+      set_error_once(error_flag, ERR_FIXED_LEN);
       if (valid) valid[idx] = false;
       return;
     }
@@ -889,7 +886,7 @@ __global__ void extract_fixed_kernel(uint8_t const* message_data,
     memcpy(&value, &raw, sizeof(value));
   } else {
     if (loc.length < 8) {
-      atomicExch(error_flag, ERR_FIXED_LEN);
+      set_error_once(error_flag, ERR_FIXED_LEN);
       if (valid) valid[idx] = false;
       return;
     }
@@ -994,7 +991,7 @@ __global__ void extract_varint_from_locations_kernel(
   uint64_t v;
   int n;
   if (!read_varint(cur, cur_end, v, n)) {
-    atomicExch(error_flag, ERR_VARINT);
+    set_error_once(error_flag, ERR_VARINT);
     valid[row] = false;
     return;
   }
@@ -1043,7 +1040,7 @@ __global__ void extract_fixed_from_locations_kernel(uint8_t const* message_data,
   OutputType value;
   if constexpr (WT == WT_32BIT) {
     if (loc.length < 4) {
-      atomicExch(error_flag, ERR_FIXED_LEN);
+      set_error_once(error_flag, ERR_FIXED_LEN);
       valid[row] = false;
       return;
     }
@@ -1051,7 +1048,7 @@ __global__ void extract_fixed_from_locations_kernel(uint8_t const* message_data,
     memcpy(&value, &raw, sizeof(value));
   } else {
     if (loc.length < 8) {
-      atomicExch(error_flag, ERR_FIXED_LEN);
+      set_error_once(error_flag, ERR_FIXED_LEN);
       valid[row] = false;
       return;
     }
@@ -1090,7 +1087,7 @@ __global__ void extract_repeated_varint_kernel(uint8_t const* message_data,
   uint64_t v;
   int n;
   if (!read_varint(cur, cur_end, v, n)) {
-    atomicExch(error_flag, ERR_VARINT);
+    set_error_once(error_flag, ERR_VARINT);
     out[idx] = OutputType{};
     return;
   }
@@ -1121,7 +1118,7 @@ __global__ void extract_repeated_fixed_kernel(uint8_t const* message_data,
   OutputType value;
   if constexpr (WT == WT_32BIT) {
     if (occ.length < 4) {
-      atomicExch(error_flag, ERR_FIXED_LEN);
+      set_error_once(error_flag, ERR_FIXED_LEN);
       out[idx] = OutputType{};
       return;
     }
@@ -1129,7 +1126,7 @@ __global__ void extract_repeated_fixed_kernel(uint8_t const* message_data,
     memcpy(&value, &raw, sizeof(value));
   } else {
     if (occ.length < 8) {
-      atomicExch(error_flag, ERR_FIXED_LEN);
+      set_error_once(error_flag, ERR_FIXED_LEN);
       out[idx] = OutputType{};
       return;
     }
@@ -1184,7 +1181,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
     for (int f = 0; f < num_fields; f++) {
       if (field_descs[f].field_number == fn) {
         if (wt != field_descs[f].expected_wire_type) {
-          atomicExch(error_flag, ERR_WIRE_TYPE);
+          set_error_once(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
@@ -1194,12 +1191,12 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, nested_end, len, len_bytes)) {
-            atomicExch(error_flag, ERR_VARINT);
+            set_error_once(error_flag, ERR_VARINT);
             return;
           }
           if (len > static_cast<uint64_t>(nested_end - cur - len_bytes) ||
               len > static_cast<uint64_t>(INT_MAX)) {
-            atomicExch(error_flag, ERR_OVERFLOW);
+            set_error_once(error_flag, ERR_OVERFLOW);
             return;
           }
           output_locations[row * num_fields + f] = {data_offset + len_bytes,
@@ -1207,7 +1204,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
         } else {
           int field_size = get_wire_type_size(wt, cur, nested_end);
           if (field_size < 0) {
-            atomicExch(error_flag, ERR_FIELD_SIZE);
+            set_error_once(error_flag, ERR_FIELD_SIZE);
             return;
           }
           output_locations[row * num_fields + f] = {data_offset, field_size};
@@ -1217,7 +1214,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
 
     uint8_t const* next;
     if (!skip_field(cur, nested_end, wt, next)) {
-      atomicExch(error_flag, ERR_SKIP);
+      set_error_once(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -1413,7 +1410,7 @@ __global__ void scan_repeated_message_children_kernel(
       if (child_descs[f].field_number == fn) {
         bool is_packed = (wt == WT_LEN && child_descs[f].expected_wire_type != WT_LEN);
         if (!is_packed && wt != child_descs[f].expected_wire_type) {
-          atomicExch(error_flag, ERR_WIRE_TYPE);
+          set_error_once(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
@@ -1423,7 +1420,7 @@ __global__ void scan_repeated_message_children_kernel(
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, msg_end, len, len_bytes)) {
-            atomicExch(error_flag, ERR_VARINT);
+            set_error_once(error_flag, ERR_VARINT);
             return;
           }
           // Store offset (after length prefix) and length
@@ -1450,7 +1447,7 @@ __global__ void scan_repeated_message_children_kernel(
     // Skip to next field
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, ERR_SKIP);
+      set_error_once(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -1505,7 +1502,7 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
         bool is_packed  = (wt == WT_LEN && expected_wt != WT_LEN);
 
         if (!is_packed && wt != expected_wt) {
-          atomicExch(error_flag, ERR_WIRE_TYPE);
+          set_error_once(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
@@ -1513,13 +1510,13 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
           uint64_t packed_len;
           int len_bytes;
           if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
-            atomicExch(error_flag, ERR_VARINT);
+            set_error_once(error_flag, ERR_VARINT);
             return;
           }
           uint8_t const* packed_start = cur + len_bytes;
           uint8_t const* packed_end   = packed_start + packed_len;
           if (packed_end > msg_end) {
-            atomicExch(error_flag, ERR_OVERFLOW);
+            set_error_once(error_flag, ERR_OVERFLOW);
             return;
           }
 
@@ -1530,7 +1527,7 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
               uint64_t dummy;
               int vbytes;
               if (!read_varint(p, packed_end, dummy, vbytes)) {
-                atomicExch(error_flag, ERR_VARINT);
+                set_error_once(error_flag, ERR_VARINT);
                 return;
               }
               p += vbytes;
@@ -1538,13 +1535,13 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
             }
           } else if (expected_wt == WT_32BIT) {
             if ((packed_len % 4) != 0) {
-              atomicExch(error_flag, ERR_FIXED_LEN);
+              set_error_once(error_flag, ERR_FIXED_LEN);
               return;
             }
             count = static_cast<int>(packed_len / 4);
           } else if (expected_wt == WT_64BIT) {
             if ((packed_len % 8) != 0) {
-              atomicExch(error_flag, ERR_FIXED_LEN);
+              set_error_once(error_flag, ERR_FIXED_LEN);
               return;
             }
             count = static_cast<int>(packed_len / 8);
@@ -1554,7 +1551,7 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
         } else {
           int32_t data_offset, data_len;
           if (!get_field_data_location(cur, msg_end, wt, data_offset, data_len)) {
-            atomicExch(error_flag, ERR_FIELD_SIZE);
+            set_error_once(error_flag, ERR_FIELD_SIZE);
             return;
           }
           repeated_info[row * num_repeated + ri].count++;
@@ -1565,7 +1562,7 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
 
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, ERR_SKIP);
+      set_error_once(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -1619,7 +1616,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
         bool is_packed  = (wt == WT_LEN && expected_wt != WT_LEN);
 
         if (!is_packed && wt != expected_wt) {
-          atomicExch(error_flag, ERR_WIRE_TYPE);
+          set_error_once(error_flag, ERR_WIRE_TYPE);
           return;
         }
 
@@ -1627,13 +1624,13 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
           uint64_t packed_len;
           int len_bytes;
           if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
-            atomicExch(error_flag, ERR_VARINT);
+            set_error_once(error_flag, ERR_VARINT);
             return;
           }
           uint8_t const* packed_start = cur + len_bytes;
           uint8_t const* packed_end   = packed_start + packed_len;
           if (packed_end > msg_end) {
-            atomicExch(error_flag, ERR_OVERFLOW);
+            set_error_once(error_flag, ERR_OVERFLOW);
             return;
           }
 
@@ -1644,7 +1641,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
               uint64_t dummy;
               int vbytes;
               if (!read_varint(p, packed_end, dummy, vbytes)) {
-                atomicExch(error_flag, ERR_VARINT);
+                set_error_once(error_flag, ERR_VARINT);
                 return;
               }
               occurrences[occ_offset + occ_idx] = {row, elem_offset, vbytes};
@@ -1653,7 +1650,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
             }
           } else if (expected_wt == WT_32BIT) {
             if ((packed_len % 4) != 0) {
-              atomicExch(error_flag, ERR_FIXED_LEN);
+              set_error_once(error_flag, ERR_FIXED_LEN);
               return;
             }
             for (uint64_t i = 0; i < packed_len; i += 4) {
@@ -1663,7 +1660,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
             }
           } else if (expected_wt == WT_64BIT) {
             if ((packed_len % 8) != 0) {
-              atomicExch(error_flag, ERR_FIXED_LEN);
+              set_error_once(error_flag, ERR_FIXED_LEN);
               return;
             }
             for (uint64_t i = 0; i < packed_len; i += 8) {
@@ -1679,7 +1676,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
             uint64_t len;
             int len_bytes;
             if (!read_varint(cur, msg_end, len, len_bytes)) {
-              atomicExch(error_flag, ERR_VARINT);
+              set_error_once(error_flag, ERR_VARINT);
               return;
             }
             data_offset += len_bytes;
@@ -1702,7 +1699,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
 
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
-      atomicExch(error_flag, ERR_SKIP);
+      set_error_once(error_flag, ERR_SKIP);
       return;
     }
     cur = next;
@@ -1752,7 +1749,7 @@ __global__ void extract_repeated_msg_child_varint_kernel(uint8_t const* message_
   uint64_t val;
   int vbytes;
   if (!read_varint(cur, varint_end, val, vbytes)) {
-    atomicExch(error_flag, ERR_VARINT);
+    set_error_once(error_flag, ERR_VARINT);
     valid[idx] = false;
     return;
   }
@@ -2151,7 +2148,7 @@ __global__ void extract_nested_varint_kernel(uint8_t const* message_data,
   uint64_t v;
   int n;
   if (!read_varint(cur, cur_end, v, n)) {
-    atomicExch(error_flag, ERR_VARINT);
+    set_error_once(error_flag, ERR_VARINT);
     valid[row] = false;
     return;
   }
@@ -2201,7 +2198,7 @@ __global__ void extract_nested_fixed_kernel(uint8_t const* message_data,
   OutputType value;
   if constexpr (WT == WT_32BIT) {
     if (field_loc.length < 4) {
-      atomicExch(error_flag, ERR_FIXED_LEN);
+      set_error_once(error_flag, ERR_FIXED_LEN);
       valid[row] = false;
       return;
     }
@@ -2209,7 +2206,7 @@ __global__ void extract_nested_fixed_kernel(uint8_t const* message_data,
     memcpy(&value, &raw, sizeof(value));
   } else {
     if (field_loc.length < 8) {
-      atomicExch(error_flag, ERR_FIXED_LEN);
+      set_error_once(error_flag, ERR_FIXED_LEN);
       valid[row] = false;
       return;
     }
@@ -2439,7 +2436,7 @@ __global__ void check_required_fields_kernel(
   for (int f = 0; f < num_fields; f++) {
     if (is_required[f] != 0 && locations[row * num_fields + f].offset < 0) {
       // Required field is missing - set error flag
-      atomicExch(error_flag, ERR_REQUIRED);
+      set_error_once(error_flag, ERR_REQUIRED);
       return;  // No need to check other fields for this row
     }
   }
