@@ -207,13 +207,8 @@ std::unique_ptr<cudf::column> legal_list_slice(lists_column_view const& input,
   // Assemble list column & return
   auto null_mask  = cudf::copy_bitmask(input.parent(), stream, mr);
   auto null_count = input.null_count();
-  return make_lists_column(num_rows,
-                           std::move(output_offset),
-                           std::move(child),
-                           null_count,
-                           std::move(null_mask),
-                           stream,
-                           mr);
+  return make_lists_column(
+    num_rows, std::move(output_offset), std::move(child), null_count, std::move(null_mask));
 }
 
 }  // namespace

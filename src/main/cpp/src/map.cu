@@ -59,9 +59,7 @@ std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& input,
                                  std::make_unique<cudf::column>(segments),  // copy segment offsets
                                  std::move(sorted->release().front()),      // child column
                                  input.null_count(),
-                                 cudf::copy_bitmask(input, stream, mr),
-                                 stream,
-                                 mr);
+                                 cudf::copy_bitmask(input, stream, mr));
 }
 
 }  // namespace spark_rapids_jni
