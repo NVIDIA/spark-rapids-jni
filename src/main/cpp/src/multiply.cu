@@ -17,10 +17,10 @@
 #include "exception_with_row_index_utilities.hpp"
 #include "multiply.hpp"
 #include "utilities.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/iterator.cuh>
 #include <cudf/transform.hpp>
 
 #include <rmm/device_uvector.hpp>
@@ -242,51 +242,56 @@ struct dispatch_multiply {
       auto const left_cdv  = cudf::column_device_view::create(*left_cv, stream);
       auto const right_cdv = cudf::column_device_view::create(*right_cv, stream);
       if (left_cv->has_nulls()) {
-        auto const left_accessor = cudf::detail::make_pair_iterator<T, true>(*left_cdv);
+        auto const left_accessor = spark_rapids_jni::util::make_pair_iterator<T, true>(*left_cdv);
         if (right_cv->has_nulls()) {
-          auto const right_accessor = cudf::detail::make_pair_iterator<T, true>(*right_cdv);
+          auto const right_accessor =
+            spark_rapids_jni::util::make_pair_iterator<T, true>(*right_cdv);
           return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
             type, num_rows, left_accessor, right_accessor, check_overflow, false, stream, mr);
         } else {
-          auto const right_accessor = cudf::detail::make_pair_iterator<T, false>(*right_cdv);
+          auto const right_accessor =
+            spark_rapids_jni::util::make_pair_iterator<T, false>(*right_cdv);
           return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
             type, num_rows, left_accessor, right_accessor, check_overflow, false, stream, mr);
         }
       } else {
-        auto const left_accessor = cudf::detail::make_pair_iterator<T, false>(*left_cdv);
+        auto const left_accessor = spark_rapids_jni::util::make_pair_iterator<T, false>(*left_cdv);
         if (right_cv->has_nulls()) {
-          auto const right_accessor = cudf::detail::make_pair_iterator<T, true>(*right_cdv);
+          auto const right_accessor =
+            spark_rapids_jni::util::make_pair_iterator<T, true>(*right_cdv);
           return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
             type, num_rows, left_accessor, right_accessor, check_overflow, false, stream, mr);
         } else {
-          auto const right_accessor = cudf::detail::make_pair_iterator<T, false>(*right_cdv);
+          auto const right_accessor =
+            spark_rapids_jni::util::make_pair_iterator<T, false>(*right_cdv);
           return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
             type, num_rows, left_accessor, right_accessor, check_overflow, true, stream, mr);
         }
       }
     } else if (left_cv != nullptr && right_scalar != nullptr) {
-      auto const right_accessor = cudf::detail::make_pair_iterator<T>(*right_scalar);
+      auto const right_accessor = spark_rapids_jni::util::make_pair_iterator<T>(*right_scalar);
       auto const left_cdv       = cudf::column_device_view::create(*left_cv, stream);
       bool const both_valid     = !left_cv->has_nulls() && right_scalar->is_valid();
       if (left_cv->has_nulls()) {
-        auto const left_accessor = cudf::detail::make_pair_iterator<T, true>(*left_cdv);
+        auto const left_accessor = spark_rapids_jni::util::make_pair_iterator<T, true>(*left_cdv);
         return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
           type, num_rows, left_accessor, right_accessor, check_overflow, false, stream, mr);
       } else {
-        auto const left_accessor = cudf::detail::make_pair_iterator<T, false>(*left_cdv);
+        auto const left_accessor = spark_rapids_jni::util::make_pair_iterator<T, false>(*left_cdv);
         return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
           type, num_rows, left_accessor, right_accessor, check_overflow, both_valid, stream, mr);
       }
     } else if (left_scalar != nullptr && right_cv != nullptr) {
-      auto const left_accessor = cudf::detail::make_pair_iterator<T>(*left_scalar);
+      auto const left_accessor = spark_rapids_jni::util::make_pair_iterator<T>(*left_scalar);
       auto const right_cdv     = cudf::column_device_view::create(*right_cv, stream);
       bool const both_valid    = left_scalar->is_valid() && !right_cv->has_nulls();
       if (right_cv->has_nulls()) {
-        auto const right_accessor = cudf::detail::make_pair_iterator<T, true>(*right_cdv);
+        auto const right_accessor = spark_rapids_jni::util::make_pair_iterator<T, true>(*right_cdv);
         return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
           type, num_rows, left_accessor, right_accessor, check_overflow, false, stream, mr);
       } else {
-        auto const right_accessor = cudf::detail::make_pair_iterator<T, false>(*right_cdv);
+        auto const right_accessor =
+          spark_rapids_jni::util::make_pair_iterator<T, false>(*right_cdv);
         return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
           type, num_rows, left_accessor, right_accessor, check_overflow, both_valid, stream, mr);
       }

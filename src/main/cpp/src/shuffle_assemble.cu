@@ -17,11 +17,11 @@
 #include "nvtx_ranges.hpp"
 #include "shuffle_split.hpp"
 #include "shuffle_split_detail.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/copy.hpp>
-#include <cudf/detail/iterator.cuh>
 #include <cudf/detail/utilities/batched_memset.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -320,11 +320,11 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
     [] __device__(bitmask_type const* const has_validity_buf, int col_index) -> bool {
       return has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
     });
-  auto column_keys = cudf::detail::make_counting_transform_iterator(
+  auto column_keys = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_type>([num_partitions] __device__(size_type i) {
       return i / num_partitions;
     }));
-  auto has_validity_values = cudf::detail::make_counting_transform_iterator(
+  auto has_validity_values = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<bool>([num_partitions,
                                       partitions        = partitions.data(),
@@ -436,11 +436,11 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
     });
 
   // compute row indices per column instance
-  auto col_inst_row_index = cudf::detail::make_counting_transform_iterator(
+  auto col_inst_row_index = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<int&>([col_instance_vertical] __device__(int i) -> int& {
       return col_instance_vertical(i).row_index;
     }));
-  auto col_inst_row_count = cudf::detail::make_counting_transform_iterator(
+  auto col_inst_row_count = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_type>([col_instance_vertical] __device__(int i) {
       return col_instance_vertical(i).num_rows;
     }));
@@ -451,11 +451,11 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
                                 col_inst_row_index);
 
   // compute char indices per column instance
-  auto col_inst_char_index = cudf::detail::make_counting_transform_iterator(
+  auto col_inst_char_index = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<int&>([col_instance_vertical] __device__(int i) -> int& {
       return col_instance_vertical(i).char_index;
     }));
-  auto col_inst_char_count = cudf::detail::make_counting_transform_iterator(
+  auto col_inst_char_count = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_type>([col_instance_vertical] __device__(int i) {
       return col_instance_vertical(i).num_chars;
     }));
@@ -645,7 +645,7 @@ rmm::device_uvector<std::invoke_result_t<GroupFunction>> transform_expand(
   auto temp_mr = cudf::get_current_device_resource_ref();
 
   auto value_count  = std::distance(first, last);
-  auto size_wrapper = cudf::detail::make_counting_transform_iterator(
+  auto size_wrapper = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_t>([value_count, first] __device__(size_t i) {
       return i >= value_count ? 0 : first[i];
     }));
@@ -789,7 +789,8 @@ constexpr std::size_t desired_assemble_batch_size = 1 * 1024 * 1024;
  */
 constexpr size_t size_to_batch_count(size_t bytes)
 {
-  return util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size;
+  return cudf::util::round_up_unsafe(bytes, desired_assemble_batch_size) /
+         desired_assemble_batch_size;
 }
 
 /**
@@ -1037,7 +1038,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
     //      validity  offsets  data
     // P0:  0 A       0 B      0 C
     // P1   0 D       0 E      0 E
-    auto section_keys = cudf::detail::make_counting_transform_iterator(
+    auto section_keys = spark_rapids_jni::util::make_counting_transform_iterator(
       0, cuda::proclaim_return_type<size_t>([num_columns] __device__(size_t i) {
         return (i / num_columns);
       }));
@@ -1088,11 +1089,11 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
     // compute: destination buffer offsets. see note above about ordering of dst_offsets.
     // Note: we're wasting a little work here as the work for validity has to be redone later.
     {
-      auto dst_buf_key = cudf::detail::make_counting_transform_iterator(
+      auto dst_buf_key = spark_rapids_jni::util::make_counting_transform_iterator(
         0, cuda::proclaim_return_type<size_t>([num_partitions] __device__(size_t i) {
           return i / num_partitions;
         }));
-      auto size_iter = cudf::detail::make_counting_transform_iterator(
+      auto size_iter = spark_rapids_jni::util::make_counting_transform_iterator(
         0,
         cuda::proclaim_return_type<size_t>([src_sizes_unpadded = src_sizes_unpadded.begin(),
                                             num_partitions,
@@ -1179,7 +1180,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
       }
       return src_sizes_unpadded[src_buf_index];
     });
-  auto batch_count_iter = cudf::detail::make_counting_transform_iterator(
+  auto batch_count_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<size_t>(
       [batch_src_buf_size, src_buf_to_type] __device__(size_t src_buf_index) {
@@ -1566,7 +1567,7 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
 
   // main data copy. everything except validity and offsets
   {
-    auto input_iter = cudf::detail::make_counting_transform_iterator(
+    auto input_iter = spark_rapids_jni::util::make_counting_transform_iterator(
       0,
       cuda::proclaim_return_type<void*>(
         [batches = batches.begin(), num_columns = column_info.size()] __device__(size_t i) {
@@ -1574,7 +1575,7 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
                    ? reinterpret_cast<void*>(const_cast<uint8_t*>(batches[i].src))
                    : nullptr;
         }));
-    auto output_iter = cudf::detail::make_counting_transform_iterator(
+    auto output_iter = spark_rapids_jni::util::make_counting_transform_iterator(
       0,
       cuda::proclaim_return_type<void*>(
         [batches = batches.begin(), num_columns = column_info.size()] __device__(size_t i) {
@@ -1582,7 +1583,7 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
                    ? reinterpret_cast<void*>(const_cast<uint8_t*>(batches[i].dst))
                    : nullptr;
         }));
-    auto size_iter = cudf::detail::make_counting_transform_iterator(
+    auto size_iter = spark_rapids_jni::util::make_counting_transform_iterator(
       0,
       cuda::proclaim_return_type<size_t>(
         [batches = batches.begin(), num_columns = column_info.size()] __device__(size_t i) {

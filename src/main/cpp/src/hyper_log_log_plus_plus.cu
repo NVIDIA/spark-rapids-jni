@@ -16,16 +16,18 @@
 #include "hash/hash.hpp"
 #include "hyper_log_log_plus_plus.hpp"
 #include "hyper_log_log_plus_plus_const.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/iterator.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/null_mask.hpp>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/structs/structs_column_view.hpp>
+#include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/span.hpp>
 
@@ -445,7 +447,7 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
 
   // 4. create output columns
   auto num_long_cols      = num_registers_per_sketch / REGISTERS_PER_LONG + 1;
-  auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
+  auto const results_iter = spark_rapids_jni::util::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(
       cudf::data_type{cudf::type_id::INT64}, num_groups, cudf::mask_state::UNALLOCATED, stream, mr);
   });
@@ -609,7 +611,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
       rmm::device_uvector<int32_t>(num_threads_per_col_phase1, stream, default_mr);
 
     cudf::structs_column_view scv(hll_input);
-    auto const input_iter = cudf::detail::make_counting_transform_iterator(
+    auto const input_iter = spark_rapids_jni::util::make_counting_transform_iterator(
       0, [&](int i) { return scv.get_sliced_child(i, stream).begin<int64_t>(); });
     auto input_cols = std::vector<int64_t const*>(input_iter, input_iter + num_long_cols);
     auto d_inputs   = cudf::detail::make_device_uvector(input_cols, stream, default_mr);
@@ -637,7 +639,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
   }
 
   // create output columns
-  auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
+  auto const results_iter = spark_rapids_jni::util::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(
       cudf::data_type{cudf::type_id::INT64}, num_groups, cudf::mask_state::UNALLOCATED, stream, mr);
   });
@@ -740,7 +742,7 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
 
   // 2. generate long columns, the size of each long column is 1
   auto num_long_cols      = num_registers_per_sketch / REGISTERS_PER_LONG + 1;
-  auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
+  auto const results_iter = spark_rapids_jni::util::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT64},
                                      1 /**num_groups*/,
                                      cudf::mask_state::UNALLOCATED,
@@ -804,14 +806,14 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
   int64_t num_registers_per_sketch = 1 << precision;
   auto num_long_cols               = num_registers_per_sketch / REGISTERS_PER_LONG + 1;
   cudf::structs_column_view scv(input);
-  auto const input_iter = cudf::detail::make_counting_transform_iterator(
+  auto const input_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0, [&](int i) { return scv.get_sliced_child(i, stream).begin<int64_t>(); });
   auto input_cols       = std::vector<int64_t const*>(input_iter, input_iter + num_long_cols);
   auto const default_mr = cudf::get_current_device_resource_ref();
   auto d_inputs         = cudf::detail::make_device_uvector(input_cols, stream, default_mr);
 
   // create one row output
-  auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
+  auto const results_iter = spark_rapids_jni::util::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT64},
                                      1 /** num_rows */,
                                      cudf::mask_state::UNALLOCATED,
@@ -951,7 +953,7 @@ std::unique_ptr<cudf::column> estimate_from_hll_sketches(cudf::column_view const
     CUDF_EXPECTS(input.child(i).type().id() == cudf::type_id::INT64,
                  "HyperLogLogPlusPlus buffer type must be a STRUCT of long columns.");
   }
-  auto const input_iter = cudf::detail::make_counting_transform_iterator(
+  auto const input_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0, [&](int i) { return input.child(i).begin<int64_t>(); });
   auto const h_input_ptrs =
     std::vector<int64_t const*>(input_iter, input_iter + input.num_children());

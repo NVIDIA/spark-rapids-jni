@@ -17,11 +17,11 @@
 #include "nvtx_ranges.hpp"
 #include "shuffle_split.hpp"
 #include "shuffle_split_detail.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/copy.hpp>
-#include <cudf/detail/iterator.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -709,18 +709,18 @@ void split_copy(src_buf_info const* src_bufs,
                 dst_buf_info const* d_dst_buf_info,
                 rmm::cuda_stream_view stream)
 {
-  auto input_iter = cudf::detail::make_counting_transform_iterator(
+  auto input_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<void*>([src_bufs, d_dst_buf_info] __device__(size_t i) {
       auto const& cinfo = d_dst_buf_info[i];
       return reinterpret_cast<void*>(
         const_cast<uint8_t*>(src_bufs[cinfo.src_buf_index].data + cinfo.src_offset));
     }));
-  auto output_iter = cudf::detail::make_counting_transform_iterator(
+  auto output_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<void*>([dst_buf, d_dst_buf_info] __device__(size_t i) {
       auto const& cinfo = d_dst_buf_info[i];
       return reinterpret_cast<void*>(dst_buf + cinfo.dst_offset);
     }));
-  auto size_iter = cudf::detail::make_counting_transform_iterator(
+  auto size_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_t>([d_dst_buf_info] __device__(size_t i) {
       auto const& cinfo = d_dst_buf_info[i];
       return cinfo.buf_size;
@@ -1008,13 +1008,13 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
   auto const per_partition_metadata_size =
     compute_per_partition_metadata_size(total_flattened_columns);
 
-  auto partition_keys = cudf::detail::make_counting_transform_iterator(
+  auto partition_keys = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_t>([bufs_per_partition] __device__(size_t buf_index) {
       return buf_index / bufs_per_partition;
     }));
 
   // - compute: unpadded section sizes (validity, offsets, data)
-  auto buf_sizes_by_type = cudf::detail::make_counting_transform_iterator(
+  auto buf_sizes_by_type = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<partition_size_info>([d_dst_buf_info] __device__(int index) {
       switch (d_dst_buf_info[index].type) {
         case buffer_type::VALIDITY:
@@ -1061,7 +1061,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
       }));
 
   // - compute partition start offsets and total output buffer size overall
-  auto partition_size_iter = cudf::detail::make_counting_transform_iterator(
+  auto partition_size_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<size_t>(
       [num_partitions, d_partition_sizes, per_partition_metadata_size] __device__(size_t i) {
@@ -1083,7 +1083,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
                   stream);
 
   // generate destination offsets for each of the source copies, by partition, by section.
-  auto buf_sizes = cudf::detail::make_counting_transform_iterator(
+  auto buf_sizes = spark_rapids_jni::util::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_t>([d_dst_buf_info] __device__(size_t i) {
       return d_dst_buf_info[i].buf_size;
     }));
