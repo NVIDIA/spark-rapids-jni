@@ -73,6 +73,10 @@ constexpr int ERR_REQUIRED     = 9;
 // Maximum supported nesting depth for recursive struct decoding.
 constexpr int MAX_NESTED_STRUCT_DECODE_DEPTH = 10;
 
+// Threshold for using a direct-mapped lookup table for field_number -> field_index.
+// Field numbers above this threshold fall back to linear search.
+constexpr int FIELD_LOOKUP_TABLE_MAX = 4096;
+
 /**
  * Structure to record field location within a message.
  * offset < 0 means field was not found.
@@ -333,6 +337,47 @@ __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
 }
 
 // ============================================================================
+// Field number lookup table helpers
+// ============================================================================
+
+/**
+ * Build a host-side direct-mapped lookup table: field_number -> field_index.
+ * Returns an empty vector if the max field number exceeds the threshold.
+ */
+inline std::vector<int> build_field_lookup_table(field_descriptor const* descs, int num_fields)
+{
+  int max_fn = 0;
+  for (int i = 0; i < num_fields; i++) {
+    max_fn = std::max(max_fn, descs[i].field_number);
+  }
+  if (max_fn > FIELD_LOOKUP_TABLE_MAX) return {};
+  std::vector<int> table(max_fn + 1, -1);
+  for (int i = 0; i < num_fields; i++) {
+    table[descs[i].field_number] = i;
+  }
+  return table;
+}
+
+/**
+ * O(1) lookup of field_number -> field_index using a direct-mapped table.
+ * Falls back to linear search when the table is empty (field numbers too large).
+ */
+__device__ inline int lookup_field(int field_number,
+                                   int const* lookup_table,
+                                   int lookup_table_size,
+                                   field_descriptor const* field_descs,
+                                   int num_fields)
+{
+  if (lookup_table != nullptr && field_number > 0 && field_number < lookup_table_size) {
+    return lookup_table[field_number];
+  }
+  for (int f = 0; f < num_fields; f++) {
+    if (field_descs[f].field_number == field_number) return f;
+  }
+  return -1;
+}
+
+// ============================================================================
 // Pass 1: Scan all fields kernel - records (offset, length) for each field
 // ============================================================================
 
@@ -342,13 +387,13 @@ __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
  *
  * For "last one wins" semantics (protobuf standard for repeated scalars),
  * we continue scanning even after finding a field.
- *
- * @note Time complexity: O(message_length * num_fields) per row.
  */
 __global__ void scan_all_fields_kernel(
   cudf::column_device_view const d_in,
   field_descriptor const* field_descs,  // [num_fields]
   int num_fields,
+  int const* field_lookup,              // direct-mapped lookup table (nullable)
+  int field_lookup_size,                // size of lookup table (0 if null)
   field_location* locations,            // [num_rows * num_fields] row-major
   int* error_flag)
 {
@@ -356,14 +401,11 @@ __global__ void scan_all_fields_kernel(
   cudf::detail::lists_column_device_view in{d_in};
   if (row >= in.size()) return;
 
-  // Initialize all field locations to "not found"
   for (int f = 0; f < num_fields; f++) {
     locations[row * num_fields + f] = {-1, 0};
   }
 
-  if (in.nullable() && in.is_null(row)) {
-    return;  // Null input row - all fields remain "not found"
-  }
+  if (in.nullable() && in.is_null(row)) { return; }
 
   auto const base   = in.offset_at(0);
   auto const child  = in.get_sliced_child();
@@ -376,52 +418,45 @@ __global__ void scan_all_fields_kernel(
   uint8_t const* cur     = bytes + start;
   uint8_t const* msg_end = bytes + end;
 
-  // Scan the message once, recording locations of all target fields
   while (cur < msg_end) {
     proto_tag tag;
     if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
-    // Check if this field is one we're looking for
-    for (int f = 0; f < num_fields; f++) {
-      if (field_descs[f].field_number == fn) {
-        // Check wire type matches
-        if (wt != field_descs[f].expected_wire_type) {
-          set_error_once(error_flag, ERR_WIRE_TYPE);
+    int f = lookup_field(fn, field_lookup, field_lookup_size, field_descs, num_fields);
+    if (f >= 0) {
+      if (wt != field_descs[f].expected_wire_type) {
+        set_error_once(error_flag, ERR_WIRE_TYPE);
+        return;
+      }
+
+      // Record the location (relative to message start)
+      int data_offset = static_cast<int>(cur - bytes - start);
+
+      if (wt == WT_LEN) {
+        // For length-delimited, record offset after length prefix and the data length
+        uint64_t len;
+        int len_bytes;
+        if (!read_varint(cur, msg_end, len, len_bytes)) {
+          set_error_once(error_flag, ERR_VARINT);
           return;
         }
-
-        // Record the location (relative to message start)
-        int data_offset = static_cast<int>(cur - bytes - start);
-
-        if (wt == WT_LEN) {
-          // For length-delimited, record offset after length prefix and the data length
-          uint64_t len;
-          int len_bytes;
-          if (!read_varint(cur, msg_end, len, len_bytes)) {
-            set_error_once(error_flag, ERR_VARINT);
-            return;
-          }
-          if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
-              len > static_cast<uint64_t>(INT_MAX)) {
-            set_error_once(error_flag, ERR_OVERFLOW);
-            return;
-          }
-          // Record offset pointing to the actual data (after length prefix)
-          locations[row * num_fields + f] = {data_offset + len_bytes, static_cast<int32_t>(len)};
-        } else {
-          // For fixed-size and varint fields, record offset and compute length
-          int field_size = get_wire_type_size(wt, cur, msg_end);
-          if (field_size < 0) {
-            set_error_once(error_flag, ERR_FIELD_SIZE);
-            return;
-          }
-          locations[row * num_fields + f] = {data_offset, field_size};
+        if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
+            len > static_cast<uint64_t>(INT_MAX)) {
+          set_error_once(error_flag, ERR_OVERFLOW);
+          return;
         }
-        // "Last one wins" is preserved across later message tags, no need to keep scanning
-        // descriptors for the same tag once matched.
-        break;
+        // Record offset pointing to the actual data (after length prefix)
+        locations[row * num_fields + f] = {data_offset + len_bytes, static_cast<int32_t>(len)};
+      } else {
+        // For fixed-size and varint fields, record offset and compute length
+        int field_size = get_wire_type_size(wt, cur, msg_end);
+        if (field_size < 0) {
+          set_error_once(error_flag, ERR_FIELD_SIZE);
+          return;
+        }
+        locations[row * num_fields + f] = {data_offset, field_size};
       }
     }
 
@@ -538,9 +573,17 @@ __global__ void count_repeated_fields_kernel(
               count++;
             }
           } else if (expected_wt == WT_32BIT) {
-            count = static_cast<int>(packed_len) / 4;
+            if ((packed_len % 4) != 0) {
+              set_error_once(error_flag, ERR_FIXED_LEN);
+              return;
+            }
+            count = static_cast<int>(packed_len / 4);
           } else if (expected_wt == WT_64BIT) {
-            count = static_cast<int>(packed_len) / 8;
+            if ((packed_len % 8) != 0) {
+              set_error_once(error_flag, ERR_FIXED_LEN);
+              return;
+            }
+            count = static_cast<int>(packed_len / 8);
           }
 
           repeated_info[row * num_repeated_fields + i].count += count;
@@ -2095,6 +2138,21 @@ __global__ void compute_msg_locations_from_occurrences_kernel(
 }
 
 /**
+ * Extract a single field's locations from a 2D strided array on the GPU.
+ * Replaces a D2H + CPU loop + H2D pattern for nested message location extraction.
+ */
+__global__ void extract_strided_locations_kernel(field_location const* nested_locations,
+                                                 int field_idx,
+                                                 int num_fields,
+                                                 field_location* parent_locs,
+                                                 int num_rows)
+{
+  int row = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row >= num_rows) return;
+  parent_locs[row] = nested_locations[row * num_fields + field_idx];
+}
+
+/**
  * Functor to extract count from repeated_field_info with strided access.
  * Used for extracting counts for a specific repeated field from 2D array.
  */
@@ -2812,12 +2870,179 @@ namespace spark_rapids_jni {
 
 namespace {
 
+template <typename LocationProvider>
+std::unique_ptr<cudf::column> extract_typed_column(
+  cudf::data_type dt,
+  int encoding,
+  uint8_t const* message_data,
+  LocationProvider const& loc_provider,
+  int num_items,
+  int blocks,
+  int threads_per_block,
+  bool has_default,
+  int64_t default_int,
+  double default_float,
+  bool default_bool,
+  std::vector<uint8_t> const& default_string,
+  int schema_idx,
+  std::vector<std::vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  rmm::device_uvector<bool>& d_row_has_invalid_enum,
+  rmm::device_uvector<int>& d_error,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  switch (dt.id()) {
+    case cudf::type_id::BOOL8: {
+      int64_t def_val = has_default ? (default_bool ? 1 : 0) : 0;
+      return extract_and_build_scalar_column<uint8_t>(
+        dt,
+        num_items,
+        [&](uint8_t* out_ptr, bool* valid_ptr) {
+          extract_varint_kernel<uint8_t, false, LocationProvider>
+            <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
+                                                               loc_provider,
+                                                               num_items,
+                                                               out_ptr,
+                                                               valid_ptr,
+                                                               d_error.data(),
+                                                               has_default,
+                                                               def_val);
+        },
+        stream,
+        mr);
+    }
+    case cudf::type_id::INT32: {
+      rmm::device_uvector<int32_t> out(num_items, stream, mr);
+      rmm::device_uvector<bool> valid((num_items > 0 ? num_items : 1), stream, mr);
+      extract_integer_into_buffers<int32_t, LocationProvider>(message_data,
+                                                              loc_provider,
+                                                              num_items,
+                                                              blocks,
+                                                              threads_per_block,
+                                                              has_default,
+                                                              default_int,
+                                                              encoding,
+                                                              true,
+                                                              out.data(),
+                                                              valid.data(),
+                                                              d_error.data(),
+                                                              stream);
+      if (schema_idx < static_cast<int>(enum_valid_values.size())) {
+        auto const& valid_enums = enum_valid_values[schema_idx];
+        if (!valid_enums.empty()) {
+          rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
+          CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
+                                        valid_enums.data(),
+                                        valid_enums.size() * sizeof(int32_t),
+                                        cudaMemcpyHostToDevice,
+                                        stream.value()));
+          validate_enum_values_kernel<<<blocks, threads_per_block, 0, stream.value()>>>(
+            out.data(),
+            valid.data(),
+            d_row_has_invalid_enum.data(),
+            d_valid_enums.data(),
+            static_cast<int>(valid_enums.size()),
+            num_items);
+        }
+      }
+      auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
+      return std::make_unique<cudf::column>(
+        dt, num_items, out.release(), std::move(mask), null_count);
+    }
+    case cudf::type_id::UINT32:
+      return extract_and_build_integer_column<uint32_t>(dt,
+                                                        message_data,
+                                                        loc_provider,
+                                                        num_items,
+                                                        blocks,
+                                                        threads_per_block,
+                                                        d_error,
+                                                        has_default,
+                                                        default_int,
+                                                        encoding,
+                                                        false,
+                                                        stream,
+                                                        mr);
+    case cudf::type_id::INT64:
+      return extract_and_build_integer_column<int64_t>(dt,
+                                                       message_data,
+                                                       loc_provider,
+                                                       num_items,
+                                                       blocks,
+                                                       threads_per_block,
+                                                       d_error,
+                                                       has_default,
+                                                       default_int,
+                                                       encoding,
+                                                       true,
+                                                       stream,
+                                                       mr);
+    case cudf::type_id::UINT64:
+      return extract_and_build_integer_column<uint64_t>(dt,
+                                                        message_data,
+                                                        loc_provider,
+                                                        num_items,
+                                                        blocks,
+                                                        threads_per_block,
+                                                        d_error,
+                                                        has_default,
+                                                        default_int,
+                                                        encoding,
+                                                        false,
+                                                        stream,
+                                                        mr);
+    case cudf::type_id::FLOAT32: {
+      float def_float_val = has_default ? static_cast<float>(default_float) : 0.0f;
+      return extract_and_build_scalar_column<float>(
+        dt,
+        num_items,
+        [&](float* out_ptr, bool* valid_ptr) {
+          extract_fixed_kernel<float, WT_32BIT, LocationProvider>
+            <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
+                                                               loc_provider,
+                                                               num_items,
+                                                               out_ptr,
+                                                               valid_ptr,
+                                                               d_error.data(),
+                                                               has_default,
+                                                               def_float_val);
+        },
+        stream,
+        mr);
+    }
+    case cudf::type_id::FLOAT64: {
+      double def_double = has_default ? default_float : 0.0;
+      return extract_and_build_scalar_column<double>(
+        dt,
+        num_items,
+        [&](double* out_ptr, bool* valid_ptr) {
+          extract_fixed_kernel<double, WT_64BIT, LocationProvider>
+            <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
+                                                               loc_provider,
+                                                               num_items,
+                                                               out_ptr,
+                                                               valid_ptr,
+                                                               d_error.data(),
+                                                               has_default,
+                                                               def_double);
+        },
+        stream,
+        mr);
+    }
+    default: return make_null_column(dt, num_items, stream, mr);
+  }
+}
+
 /**
  * Helper to build a repeated scalar column (LIST of scalar type).
  */
 template <typename T>
 std::unique_ptr<cudf::column> build_repeated_scalar_column(
   cudf::column_view const& binary_input,
+  uint8_t const* message_data,
+  cudf::size_type const* list_offsets,
+  cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
   rmm::device_uvector<int32_t> const& d_field_counts,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
@@ -2826,10 +3051,6 @@ std::unique_ptr<cudf::column> build_repeated_scalar_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  // Get input column's null mask to determine which output rows should be null
-  // Only rows where INPUT is null should produce null output
-  // Rows with valid input but count=0 should produce empty array []
-  cudf::lists_column_view const in_list(binary_input);
   auto const input_null_count = binary_input.null_count();
 
   if (total_count == 0) {
@@ -2868,26 +3089,16 @@ std::unique_ptr<cudf::column> build_repeated_scalar_column(
     }
   }
 
-  auto const* message_data = reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
-  auto const* list_offsets = in_list.offsets().data<cudf::size_type>();
-
-  cudf::size_type base_offset = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
-  stream.synchronize();
-
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
-  // Set last offset = total_count
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
                                 &total_count,
                                 sizeof(int32_t),
                                 cudaMemcpyHostToDevice,
                                 stream.value()));
 
-  // Extract values
   rmm::device_uvector<T> values(total_count, stream, mr);
   rmm::device_uvector<int> d_error(1, stream, mr);
   CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
@@ -2959,18 +3170,18 @@ std::unique_ptr<cudf::column> build_repeated_scalar_column(
  */
 std::unique_ptr<cudf::column> build_repeated_string_column(
   cudf::column_view const& binary_input,
+  uint8_t const* message_data,
+  cudf::size_type const* list_offsets,
+  cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
   rmm::device_uvector<int32_t> const& d_field_counts,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
-  bool is_bytes,  // true for bytes (LIST<UINT8>), false for string
+  bool is_bytes,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  // Get input column's null mask to determine which output rows should be null
-  // Only rows where INPUT is null should produce null output
-  // Rows with valid input but count=0 should produce empty array []
   auto const input_null_count = binary_input.null_count();
 
   if (total_count == 0) {
@@ -3008,20 +3219,10 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
     }
   }
 
-  cudf::lists_column_view const in_list(binary_input);
-  auto const* message_data = reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
-  auto const* list_offsets = in_list.offsets().data<cudf::size_type>();
-
-  cudf::size_type base_offset = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
-  stream.synchronize();
-
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
-  // Set last offset = total_count
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
                                 &total_count,
                                 sizeof(int32_t),
@@ -3165,14 +3366,16 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
  */
 std::unique_ptr<cudf::column> build_repeated_struct_column(
   cudf::column_view const& binary_input,
+  uint8_t const* message_data,
+  cudf::size_type const* list_offsets,
+  cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
   rmm::device_uvector<int32_t> const& d_field_counts,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
-  // Child field information
   std::vector<device_nested_field_descriptor> const& h_device_schema,
-  std::vector<int> const& child_field_indices,  // Indices of child fields in schema
+  std::vector<int> const& child_field_indices,
   std::vector<cudf::data_type> const& schema_output_types,
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
@@ -3239,20 +3442,10 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     }
   }
 
-  cudf::lists_column_view const in_list(binary_input);
-  auto const* message_data = reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
-  auto const* list_offsets = in_list.offsets().data<cudf::size_type>();
-
-  cudf::size_type base_offset = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
-  stream.synchronize();
-
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
-  // Set last offset = total_count (already computed on caller side)
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
                                 &total_count,
                                 sizeof(int32_t),
@@ -3356,128 +3549,39 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     }
 
     switch (dt.id()) {
-      case cudf::type_id::BOOL8: {
-        int64_t def_val = has_def ? (default_bools[child_schema_idx] ? 1 : 0) : 0;
-        RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
-                                                      0,
-                                                      d_msg_locs.data(),
-                                                      d_child_locs.data(),
-                                                      ci,
-                                                      num_child_fields};
-        struct_children.push_back(extract_and_build_scalar_column<uint8_t>(
-          dt,
-          total_count,
-          [&](uint8_t* out_ptr, bool* valid_ptr) {
-            extract_varint_kernel<uint8_t, false, RepeatedMsgChildLocationProvider>
-              <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                       loc_provider,
-                                                       total_count,
-                                                       out_ptr,
-                                                       valid_ptr,
-                                                       d_error.data(),
-                                                       has_def,
-                                                       def_val);
-          },
-          stream,
-          mr));
-        break;
-      }
-      case cudf::type_id::INT32: {
-        int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
-        RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
-                                                      0,
-                                                      d_msg_locs.data(),
-                                                      d_child_locs.data(),
-                                                      ci,
-                                                      num_child_fields};
-        struct_children.push_back(extract_and_build_integer_column<int32_t>(dt,
-                                                                            message_data,
-                                                                            loc_provider,
-                                                                            total_count,
-                                                                            blocks,
-                                                                            threads,
-                                                                            d_error,
-                                                                            has_def,
-                                                                            def_int,
-                                                                            enc,
-                                                                            true,
-                                                                            stream,
-                                                                            mr));
-        break;
-      }
-      case cudf::type_id::INT64: {
-        int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
-        RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
-                                                      0,
-                                                      d_msg_locs.data(),
-                                                      d_child_locs.data(),
-                                                      ci,
-                                                      num_child_fields};
-        struct_children.push_back(extract_and_build_integer_column<int64_t>(dt,
-                                                                            message_data,
-                                                                            loc_provider,
-                                                                            total_count,
-                                                                            blocks,
-                                                                            threads,
-                                                                            d_error,
-                                                                            has_def,
-                                                                            def_int,
-                                                                            enc,
-                                                                            true,
-                                                                            stream,
-                                                                            mr));
-        break;
-      }
-      case cudf::type_id::FLOAT32: {
-        float def_float = has_def ? static_cast<float>(default_floats[child_schema_idx]) : 0.0f;
-        RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
-                                                      0,
-                                                      d_msg_locs.data(),
-                                                      d_child_locs.data(),
-                                                      ci,
-                                                      num_child_fields};
-        struct_children.push_back(extract_and_build_scalar_column<float>(
-          dt,
-          total_count,
-          [&](float* out_ptr, bool* valid_ptr) {
-            extract_fixed_kernel<float, WT_32BIT, RepeatedMsgChildLocationProvider>
-              <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                       loc_provider,
-                                                       total_count,
-                                                       out_ptr,
-                                                       valid_ptr,
-                                                       d_error.data(),
-                                                       has_def,
-                                                       def_float);
-          },
-          stream,
-          mr));
-        break;
-      }
+      case cudf::type_id::BOOL8:
+      case cudf::type_id::INT32:
+      case cudf::type_id::UINT32:
+      case cudf::type_id::INT64:
+      case cudf::type_id::UINT64:
+      case cudf::type_id::FLOAT32:
       case cudf::type_id::FLOAT64: {
-        double def_double = has_def ? default_floats[child_schema_idx] : 0.0;
         RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
                                                       0,
                                                       d_msg_locs.data(),
                                                       d_child_locs.data(),
                                                       ci,
                                                       num_child_fields};
-        struct_children.push_back(extract_and_build_scalar_column<double>(
-          dt,
-          total_count,
-          [&](double* out_ptr, bool* valid_ptr) {
-            extract_fixed_kernel<double, WT_64BIT, RepeatedMsgChildLocationProvider>
-              <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                       loc_provider,
-                                                       total_count,
-                                                       out_ptr,
-                                                       valid_ptr,
-                                                       d_error.data(),
-                                                       has_def,
-                                                       def_double);
-          },
-          stream,
-          mr));
+        struct_children.push_back(
+          extract_typed_column(dt,
+                               enc,
+                               message_data,
+                               loc_provider,
+                               total_count,
+                               blocks,
+                               threads,
+                               has_def,
+                               has_def ? default_ints[child_schema_idx] : 0,
+                               has_def ? default_floats[child_schema_idx] : 0.0,
+                               has_def ? default_bools[child_schema_idx] : false,
+                               default_strings[child_schema_idx],
+                               child_schema_idx,
+                               enum_valid_values,
+                               enum_names,
+                               d_row_has_invalid_enum,
+                               d_error,
+                               stream,
+                               mr));
         break;
       }
       case cudf::type_id::STRING: {
@@ -3631,7 +3735,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   rmm::device_async_resource_ref mr,
   int depth)
 {
-  CUDF_EXPECTS(depth <= MAX_NESTED_STRUCT_DECODE_DEPTH,
+  CUDF_EXPECTS(depth < MAX_NESTED_STRUCT_DECODE_DEPTH,
                "Nested protobuf struct depth exceeds supported decode recursion limit");
 
   if (num_rows == 0) {
@@ -3718,174 +3822,39 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     }
 
     switch (dt.id()) {
-      case cudf::type_id::BOOL8: {
-        int64_t def_val = has_def ? (default_bools[child_schema_idx] ? 1 : 0) : 0;
-        NestedLocationProvider loc_provider{list_offsets,
-                                            base_offset,
-                                            d_parent_locs.data(),
-                                            d_child_locations.data(),
-                                            ci,
-                                            num_child_fields};
-        struct_children.push_back(extract_and_build_scalar_column<uint8_t>(
-          dt,
-          num_rows,
-          [&](uint8_t* out_ptr, bool* valid_ptr) {
-            extract_varint_kernel<uint8_t, false, NestedLocationProvider>
-              <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                       loc_provider,
-                                                       num_rows,
-                                                       out_ptr,
-                                                       valid_ptr,
-                                                       d_error.data(),
-                                                       has_def,
-                                                       def_val);
-          },
-          stream,
-          mr));
-        break;
-      }
-      case cudf::type_id::INT32: {
-        int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
-        NestedLocationProvider loc_provider{list_offsets,
-                                            base_offset,
-                                            d_parent_locs.data(),
-                                            d_child_locations.data(),
-                                            ci,
-                                            num_child_fields};
-        struct_children.push_back(extract_and_build_integer_column<int32_t>(dt,
-                                                                            message_data,
-                                                                            loc_provider,
-                                                                            num_rows,
-                                                                            blocks,
-                                                                            threads,
-                                                                            d_error,
-                                                                            has_def,
-                                                                            def_int,
-                                                                            enc,
-                                                                            true,
-                                                                            stream,
-                                                                            mr));
-        break;
-      }
-      case cudf::type_id::UINT32: {
-        int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
-        NestedLocationProvider loc_provider{list_offsets,
-                                            base_offset,
-                                            d_parent_locs.data(),
-                                            d_child_locations.data(),
-                                            ci,
-                                            num_child_fields};
-        struct_children.push_back(extract_and_build_integer_column<uint32_t>(dt,
-                                                                             message_data,
-                                                                             loc_provider,
-                                                                             num_rows,
-                                                                             blocks,
-                                                                             threads,
-                                                                             d_error,
-                                                                             has_def,
-                                                                             def_int,
-                                                                             enc,
-                                                                             false,
-                                                                             stream,
-                                                                             mr));
-        break;
-      }
-      case cudf::type_id::INT64: {
-        int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
-        NestedLocationProvider loc_provider{list_offsets,
-                                            base_offset,
-                                            d_parent_locs.data(),
-                                            d_child_locations.data(),
-                                            ci,
-                                            num_child_fields};
-        struct_children.push_back(extract_and_build_integer_column<int64_t>(dt,
-                                                                            message_data,
-                                                                            loc_provider,
-                                                                            num_rows,
-                                                                            blocks,
-                                                                            threads,
-                                                                            d_error,
-                                                                            has_def,
-                                                                            def_int,
-                                                                            enc,
-                                                                            true,
-                                                                            stream,
-                                                                            mr));
-        break;
-      }
-      case cudf::type_id::UINT64: {
-        int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
-        NestedLocationProvider loc_provider{list_offsets,
-                                            base_offset,
-                                            d_parent_locs.data(),
-                                            d_child_locations.data(),
-                                            ci,
-                                            num_child_fields};
-        struct_children.push_back(extract_and_build_integer_column<uint64_t>(dt,
-                                                                             message_data,
-                                                                             loc_provider,
-                                                                             num_rows,
-                                                                             blocks,
-                                                                             threads,
-                                                                             d_error,
-                                                                             has_def,
-                                                                             def_int,
-                                                                             enc,
-                                                                             false,
-                                                                             stream,
-                                                                             mr));
-        break;
-      }
-      case cudf::type_id::FLOAT32: {
-        float def_float = has_def ? static_cast<float>(default_floats[child_schema_idx]) : 0.0f;
-        NestedLocationProvider loc_provider{list_offsets,
-                                            base_offset,
-                                            d_parent_locs.data(),
-                                            d_child_locations.data(),
-                                            ci,
-                                            num_child_fields};
-        struct_children.push_back(extract_and_build_scalar_column<float>(
-          dt,
-          num_rows,
-          [&](float* out_ptr, bool* valid_ptr) {
-            extract_fixed_kernel<float, WT_32BIT, NestedLocationProvider>
-              <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                       loc_provider,
-                                                       num_rows,
-                                                       out_ptr,
-                                                       valid_ptr,
-                                                       d_error.data(),
-                                                       has_def,
-                                                       def_float);
-          },
-          stream,
-          mr));
-        break;
-      }
+      case cudf::type_id::BOOL8:
+      case cudf::type_id::INT32:
+      case cudf::type_id::UINT32:
+      case cudf::type_id::INT64:
+      case cudf::type_id::UINT64:
+      case cudf::type_id::FLOAT32:
       case cudf::type_id::FLOAT64: {
-        double def_double = has_def ? default_floats[child_schema_idx] : 0.0;
         NestedLocationProvider loc_provider{list_offsets,
                                             base_offset,
                                             d_parent_locs.data(),
                                             d_child_locations.data(),
                                             ci,
                                             num_child_fields};
-        struct_children.push_back(extract_and_build_scalar_column<double>(
-          dt,
-          num_rows,
-          [&](double* out_ptr, bool* valid_ptr) {
-            extract_fixed_kernel<double, WT_64BIT, NestedLocationProvider>
-              <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                       loc_provider,
-                                                       num_rows,
-                                                       out_ptr,
-                                                       valid_ptr,
-                                                       d_error.data(),
-                                                       has_def,
-                                                       def_double);
-          },
-          stream,
-          mr));
+        struct_children.push_back(
+          extract_typed_column(dt,
+                               enc,
+                               message_data,
+                               loc_provider,
+                               num_rows,
+                               blocks,
+                               threads,
+                               has_def,
+                               has_def ? default_ints[child_schema_idx] : 0,
+                               has_def ? default_floats[child_schema_idx] : 0.0,
+                               has_def ? default_bools[child_schema_idx] : false,
+                               default_strings[child_schema_idx],
+                               child_schema_idx,
+                               enum_valid_values,
+                               enum_names,
+                               d_row_has_invalid_enum,
+                               d_error,
+                               stream,
+                               mr));
         break;
       }
       case cudf::type_id::STRING: {
@@ -4591,8 +4560,24 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     rmm::device_uvector<field_location> d_locations(
       static_cast<size_t>(num_rows) * num_scalar, stream, mr);
 
+    auto h_field_lookup = build_field_lookup_table(h_field_descs.data(), num_scalar);
+    rmm::device_uvector<int> d_field_lookup(h_field_lookup.size(), stream, mr);
+    if (!h_field_lookup.empty()) {
+      CUDF_CUDA_TRY(cudaMemcpyAsync(d_field_lookup.data(),
+                                    h_field_lookup.data(),
+                                    h_field_lookup.size() * sizeof(int),
+                                    cudaMemcpyHostToDevice,
+                                    stream.value()));
+    }
+
     scan_all_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
-      *d_in, d_field_descs.data(), num_scalar, d_locations.data(), d_error.data());
+      *d_in,
+      d_field_descs.data(),
+      num_scalar,
+      h_field_lookup.empty() ? nullptr : d_field_lookup.data(),
+      static_cast<int>(h_field_lookup.size()),
+      d_locations.data(),
+      d_error.data());
     check_error_and_throw();
 
     // Check required fields (after scan pass)
@@ -4640,170 +4625,34 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       bool has_def   = schema[schema_idx].has_default_value;
 
       switch (dt.id()) {
-        case cudf::type_id::BOOL8: {
-          int64_t def_val = has_def ? (default_bools[schema_idx] ? 1 : 0) : 0;
-          TopLevelLocationProvider loc_provider{
-            list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          column_map[schema_idx] = extract_and_build_scalar_column<uint8_t>(
-            dt,
-            num_rows,
-            [&](uint8_t* out_ptr, bool* valid_ptr) {
-              extract_varint_kernel<uint8_t, false, TopLevelLocationProvider>
-                <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                         loc_provider,
-                                                         num_rows,
-                                                         out_ptr,
-                                                         valid_ptr,
-                                                         d_error.data(),
-                                                         has_def,
-                                                         def_val);
-            },
-            stream,
-            mr);
-          break;
-        }
-        case cudf::type_id::INT32: {
-          rmm::device_uvector<int32_t> out(num_rows, stream, mr);
-          rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
-          int64_t def_int = has_def ? default_ints[schema_idx] : 0;
-          TopLevelLocationProvider loc_provider{
-            list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          extract_integer_into_buffers<int32_t, TopLevelLocationProvider>(message_data,
-                                                                          loc_provider,
-                                                                          num_rows,
-                                                                          blocks,
-                                                                          threads,
-                                                                          has_def,
-                                                                          def_int,
-                                                                          enc,
-                                                                          true,
-                                                                          out.data(),
-                                                                          valid.data(),
-                                                                          d_error.data(),
-                                                                          stream);
-          // Enum validation: check if this INT32 field has valid enum values
-          if (schema_idx < static_cast<int>(enum_valid_values.size())) {
-            auto const& valid_enums = enum_valid_values[schema_idx];
-            if (!valid_enums.empty()) {
-              rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
-              CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
-                                            valid_enums.data(),
-                                            valid_enums.size() * sizeof(int32_t),
-                                            cudaMemcpyHostToDevice,
-                                            stream.value()));
-              validate_enum_values_kernel<<<blocks, threads, 0, stream.value()>>>(
-                out.data(),
-                valid.data(),
-                d_row_has_invalid_enum.data(),
-                d_valid_enums.data(),
-                static_cast<int>(valid_enums.size()),
-                num_rows);
-            }
-          }
-          auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
-          column_map[schema_idx]  = std::make_unique<cudf::column>(
-            dt, num_rows, out.release(), std::move(mask), null_count);
-          break;
-        }
-        case cudf::type_id::UINT32: {
-          int64_t def_int = has_def ? default_ints[schema_idx] : 0;
-          TopLevelLocationProvider loc_provider{
-            list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          column_map[schema_idx] = extract_and_build_integer_column<uint32_t>(dt,
-                                                                              message_data,
-                                                                              loc_provider,
-                                                                              num_rows,
-                                                                              blocks,
-                                                                              threads,
-                                                                              d_error,
-                                                                              has_def,
-                                                                              def_int,
-                                                                              enc,
-                                                                              false,
-                                                                              stream,
-                                                                              mr);
-          break;
-        }
-        case cudf::type_id::INT64: {
-          int64_t def_int = has_def ? default_ints[schema_idx] : 0;
-          TopLevelLocationProvider loc_provider{
-            list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          column_map[schema_idx] = extract_and_build_integer_column<int64_t>(dt,
-                                                                             message_data,
-                                                                             loc_provider,
-                                                                             num_rows,
-                                                                             blocks,
-                                                                             threads,
-                                                                             d_error,
-                                                                             has_def,
-                                                                             def_int,
-                                                                             enc,
-                                                                             true,
-                                                                             stream,
-                                                                             mr);
-          break;
-        }
-        case cudf::type_id::UINT64: {
-          int64_t def_int = has_def ? default_ints[schema_idx] : 0;
-          TopLevelLocationProvider loc_provider{
-            list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          column_map[schema_idx] = extract_and_build_integer_column<uint64_t>(dt,
-                                                                              message_data,
-                                                                              loc_provider,
-                                                                              num_rows,
-                                                                              blocks,
-                                                                              threads,
-                                                                              d_error,
-                                                                              has_def,
-                                                                              def_int,
-                                                                              enc,
-                                                                              false,
-                                                                              stream,
-                                                                              mr);
-          break;
-        }
-        case cudf::type_id::FLOAT32: {
-          float def_float = has_def ? static_cast<float>(default_floats[schema_idx]) : 0.0f;
-          TopLevelLocationProvider loc_provider{
-            list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          column_map[schema_idx] = extract_and_build_scalar_column<float>(
-            dt,
-            num_rows,
-            [&](float* out_ptr, bool* valid_ptr) {
-              extract_fixed_kernel<float, WT_32BIT, TopLevelLocationProvider>
-                <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                         loc_provider,
-                                                         num_rows,
-                                                         out_ptr,
-                                                         valid_ptr,
-                                                         d_error.data(),
-                                                         has_def,
-                                                         def_float);
-            },
-            stream,
-            mr);
-          break;
-        }
+        case cudf::type_id::BOOL8:
+        case cudf::type_id::INT32:
+        case cudf::type_id::UINT32:
+        case cudf::type_id::INT64:
+        case cudf::type_id::UINT64:
+        case cudf::type_id::FLOAT32:
         case cudf::type_id::FLOAT64: {
-          double def_double = has_def ? default_floats[schema_idx] : 0.0;
           TopLevelLocationProvider loc_provider{
             list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          column_map[schema_idx] = extract_and_build_scalar_column<double>(
-            dt,
-            num_rows,
-            [&](double* out_ptr, bool* valid_ptr) {
-              extract_fixed_kernel<double, WT_64BIT, TopLevelLocationProvider>
-                <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                                         loc_provider,
-                                                         num_rows,
-                                                         out_ptr,
-                                                         valid_ptr,
-                                                         d_error.data(),
-                                                         has_def,
-                                                         def_double);
-            },
-            stream,
-            mr);
+          column_map[schema_idx] = extract_typed_column(dt,
+                                                        enc,
+                                                        message_data,
+                                                        loc_provider,
+                                                        num_rows,
+                                                        blocks,
+                                                        threads,
+                                                        has_def,
+                                                        has_def ? default_ints[schema_idx] : 0,
+                                                        has_def ? default_floats[schema_idx] : 0.0,
+                                                        has_def ? default_bools[schema_idx] : false,
+                                                        default_strings[schema_idx],
+                                                        schema_idx,
+                                                        enum_valid_values,
+                                                        enum_names,
+                                                        d_row_has_invalid_enum,
+                                                        d_error,
+                                                        stream,
+                                                        mr);
           break;
         }
         case cudf::type_id::STRING: {
@@ -4910,6 +4759,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   if (num_repeated > 0) {
     cudf::lists_column_view const in_list_view(binary_input);
     auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
+    auto const* message_data =
+      reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
+    cudf::size_type base_offset = 0;
+    CUDF_CUDA_TRY(cudaMemcpyAsync(
+      &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
+    stream.synchronize();
 
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx    = repeated_field_indices[ri];
@@ -4923,8 +4778,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                         d_field_counts.data(),
                         extract_strided_count{d_repeated_info.data(), ri, num_repeated});
 
-      int total_count =
-        thrust::reduce(rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), 0);
+      int64_t total_count = thrust::reduce(
+        rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), int64_t{0});
 
       if (total_count > 0) {
         // Build offsets for occurrence scanning on GPU (performance fix!)
@@ -4962,6 +4817,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::INT32:
             column_map[schema_idx] =
               build_repeated_scalar_column<int32_t>(binary_input,
+                                                    message_data,
+                                                    list_offsets,
+                                                    base_offset,
                                                     h_device_schema[schema_idx],
                                                     d_field_counts,
                                                     d_occurrences,
@@ -4973,6 +4831,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::INT64:
             column_map[schema_idx] =
               build_repeated_scalar_column<int64_t>(binary_input,
+                                                    message_data,
+                                                    list_offsets,
+                                                    base_offset,
                                                     h_device_schema[schema_idx],
                                                     d_field_counts,
                                                     d_occurrences,
@@ -4984,6 +4845,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::UINT32:
             column_map[schema_idx] =
               build_repeated_scalar_column<uint32_t>(binary_input,
+                                                     message_data,
+                                                     list_offsets,
+                                                     base_offset,
                                                      h_device_schema[schema_idx],
                                                      d_field_counts,
                                                      d_occurrences,
@@ -4995,6 +4859,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::UINT64:
             column_map[schema_idx] =
               build_repeated_scalar_column<uint64_t>(binary_input,
+                                                     message_data,
+                                                     list_offsets,
+                                                     base_offset,
                                                      h_device_schema[schema_idx],
                                                      d_field_counts,
                                                      d_occurrences,
@@ -5006,6 +4873,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::FLOAT32:
             column_map[schema_idx] =
               build_repeated_scalar_column<float>(binary_input,
+                                                  message_data,
+                                                  list_offsets,
+                                                  base_offset,
                                                   h_device_schema[schema_idx],
                                                   d_field_counts,
                                                   d_occurrences,
@@ -5017,6 +4887,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::FLOAT64:
             column_map[schema_idx] =
               build_repeated_scalar_column<double>(binary_input,
+                                                   message_data,
+                                                   list_offsets,
+                                                   base_offset,
                                                    h_device_schema[schema_idx],
                                                    d_field_counts,
                                                    d_occurrences,
@@ -5028,6 +4901,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::BOOL8:
             column_map[schema_idx] =
               build_repeated_scalar_column<uint8_t>(binary_input,
+                                                    message_data,
+                                                    list_offsets,
+                                                    base_offset,
                                                     h_device_schema[schema_idx],
                                                     d_field_counts,
                                                     d_occurrences,
@@ -5047,23 +4923,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
               auto const& valid_enums = enum_valid_values[schema_idx];
               auto const& name_bytes  = enum_names[schema_idx];
 
-              cudf::lists_column_view const in_lv(binary_input);
-              auto const* msg_data = reinterpret_cast<uint8_t const*>(in_lv.child().data<int8_t>());
-              auto const* loffs    = in_lv.offsets().data<cudf::size_type>();
-
-              cudf::size_type boff = 0;
-              CUDF_CUDA_TRY(cudaMemcpyAsync(
-                &boff, loffs, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
-              stream.synchronize();
-
               // 1. Extract enum integer values from occurrences
               rmm::device_uvector<int32_t> enum_ints(total_count, stream, mr);
               auto const rep_blocks =
                 static_cast<int>((total_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
               extract_repeated_varint_kernel<int32_t, false>
-                <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(msg_data,
-                                                                       loffs,
-                                                                       boff,
+                <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(message_data,
+                                                                       list_offsets,
+                                                                       base_offset,
                                                                        d_occurrences.data(),
                                                                        total_count,
                                                                        enum_ints.data(),
@@ -5199,6 +5066,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
               }
             } else {
               column_map[schema_idx] = build_repeated_string_column(binary_input,
+                                                                    message_data,
+                                                                    list_offsets,
+                                                                    base_offset,
                                                                     h_device_schema[schema_idx],
                                                                     d_field_counts,
                                                                     d_occurrences,
@@ -5212,6 +5082,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           }
           case cudf::type_id::LIST:  // bytes as LIST<INT8>
             column_map[schema_idx] = build_repeated_string_column(binary_input,
+                                                                  message_data,
+                                                                  list_offsets,
+                                                                  base_offset,
                                                                   h_device_schema[schema_idx],
                                                                   d_field_counts,
                                                                   d_occurrences,
@@ -5231,6 +5104,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                 std::move(empty_struct_child), num_rows, stream, mr);
             } else {
               column_map[schema_idx] = build_repeated_struct_column(binary_input,
+                                                                    message_data,
+                                                                    list_offsets,
+                                                                    base_offset,
                                                                     h_device_schema[schema_idx],
                                                                     d_field_counts,
                                                                     d_occurrences,
@@ -5305,15 +5181,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Process nested struct fields (Phase 2)
   if (num_nested > 0) {
-    // Copy nested locations to host for processing
-    std::vector<field_location> h_nested_locations(static_cast<size_t>(num_rows) * num_nested);
-    CUDF_CUDA_TRY(cudaMemcpyAsync(h_nested_locations.data(),
-                                  d_nested_locations.data(),
-                                  h_nested_locations.size() * sizeof(field_location),
-                                  cudaMemcpyDeviceToHost,
-                                  stream.value()));
-    stream.synchronize();
-
     cudf::lists_column_view const in_list_view(binary_input);
     auto const* message_data =
       reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
@@ -5337,17 +5204,11 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         continue;
       }
 
-      // Prepare parent locations for this nested field
+      // Extract parent locations for this nested field directly on GPU
       rmm::device_uvector<field_location> d_parent_locs(num_rows, stream, mr);
-      std::vector<field_location> h_parent_locs(num_rows);
-      for (int row = 0; row < num_rows; row++) {
-        h_parent_locs[row] = h_nested_locations[row * num_nested + ni];
-      }
-      CUDF_CUDA_TRY(cudaMemcpyAsync(d_parent_locs.data(),
-                                    h_parent_locs.data(),
-                                    num_rows * sizeof(field_location),
-                                    cudaMemcpyHostToDevice,
-                                    stream.value()));
+      extract_strided_locations_kernel<<<blocks, threads, 0, stream.value()>>>(
+        d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows);
+
       column_map[parent_schema_idx] = build_nested_struct_column(message_data,
                                                                  list_offsets,
                                                                  base_offset,

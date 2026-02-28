@@ -63,34 +63,31 @@ public class Protobuf {
   private static final int MAX_FIELD_NUMBER = (1 << 29) - 1;
 
   /**
-   * Decode protobuf messages into a STRUCT column using a flattened schema representation.
-   *
-   * The schema is represented as parallel arrays where nested fields have parent indices
-   * pointing to their containing message field. For pure scalar schemas, all fields are
-   * top-level (parentIndices == -1, depthLevels == 0, isRepeated == false).
+   * Decode protobuf messages into a STRUCT column.
    *
    * @param binaryInput column of type LIST&lt;INT8/UINT8&gt; where each row is one protobuf message.
-   * @param fieldNumbers Protobuf field numbers for all fields in the flattened schema.
-   * @param parentIndices Parent field index for each field (-1 for top-level fields).
-   * @param depthLevels Nesting depth for each field (0 for top-level).
-   * @param wireTypes Expected wire type for each field (WT_VARINT, WT_64BIT, WT_LEN, WT_32BIT).
-   * @param outputTypeIds cudf native type ids for output columns.
-   * @param encodings Encoding info for each field (0=default, 1=fixed, 2=zigzag,
-   *                  3=enum-as-string).
-   * @param isRepeated Whether each field is a repeated field (array).
-   * @param isRequired Whether each field is required (proto2).
-   * @param hasDefaultValue Whether each field has a default value.
-   * @param defaultInts Default values for int/long/enum fields.
-   * @param defaultFloats Default values for float/double fields.
-   * @param defaultBools Default values for bool fields.
-   * @param defaultStrings Default values for string/bytes fields as UTF-8 bytes.
-   * @param enumValidValues Valid enum values for each field (null if not an enum).
-   * @param enumNames Enum value names for enum-as-string fields (null if not enum-as-string).
-   *                  For each field, this is a byte[][] containing UTF-8 enum names ordered by
-   *                  the same sorted order as enumValidValues for that field.
+   * @param schema descriptor containing flattened schema arrays (field numbers, types, defaults, etc.)
    * @param failOnErrors if true, throw an exception on malformed protobuf messages.
    * @return a cudf STRUCT column with nested structure.
    */
+  public static ColumnVector decodeToStruct(ColumnView binaryInput,
+                                            ProtobufSchemaDescriptor schema,
+                                            boolean failOnErrors) {
+    long handle = decodeToStruct(binaryInput.getNativeView(),
+        schema.fieldNumbers, schema.parentIndices, schema.depthLevels,
+        schema.wireTypes, schema.outputTypeIds, schema.encodings,
+        schema.isRepeated, schema.isRequired, schema.hasDefaultValue,
+        schema.defaultInts, schema.defaultFloats, schema.defaultBools,
+        schema.defaultStrings, schema.enumValidValues, schema.enumNames, failOnErrors);
+    return new ColumnVector(handle);
+  }
+
+  /**
+   * Decode protobuf messages using individual parallel arrays.
+   *
+   * @deprecated Use {@link #decodeToStruct(ColumnView, ProtobufSchemaDescriptor, boolean)} instead.
+   */
+  @Deprecated
   public static ColumnVector decodeToStruct(ColumnView binaryInput,
                                             int[] fieldNumbers,
                                             int[] parentIndices,
@@ -108,66 +105,20 @@ public class Protobuf {
                                             int[][] enumValidValues,
                                             byte[][][] enumNames,
                                             boolean failOnErrors) {
-    // Parameter validation
-    if (fieldNumbers == null || parentIndices == null || depthLevels == null ||
-        wireTypes == null || outputTypeIds == null || encodings == null ||
-        isRepeated == null || isRequired == null || hasDefaultValue == null ||
-        defaultInts == null || defaultFloats == null || defaultBools == null ||
-        defaultStrings == null || enumValidValues == null || enumNames == null) {
-      throw new IllegalArgumentException("Arrays must be non-null");
-    }
-
-    int numFields = fieldNumbers.length;
-    if (parentIndices.length != numFields ||
-        depthLevels.length != numFields ||
-        wireTypes.length != numFields ||
-        outputTypeIds.length != numFields ||
-        encodings.length != numFields ||
-        isRepeated.length != numFields ||
-        isRequired.length != numFields ||
-        hasDefaultValue.length != numFields ||
-        defaultInts.length != numFields ||
-        defaultFloats.length != numFields ||
-        defaultBools.length != numFields ||
-        defaultStrings.length != numFields ||
-        enumValidValues.length != numFields ||
-        enumNames.length != numFields) {
-      throw new IllegalArgumentException("All arrays must have the same length");
-    }
-
-    // Validate field numbers are positive and within protobuf spec range
-    for (int i = 0; i < fieldNumbers.length; i++) {
-      if (fieldNumbers[i] <= 0 || fieldNumbers[i] > MAX_FIELD_NUMBER) {
-        throw new IllegalArgumentException(
-            "Invalid field number at index " + i + ": " + fieldNumbers[i] +
-            " (field numbers must be 1-" + MAX_FIELD_NUMBER + ")");
-      }
-    }
-
-    // Validate encoding values
-    for (int i = 0; i < encodings.length; i++) {
-      int enc = encodings[i];
-      if (enc < ENC_DEFAULT || enc > ENC_ENUM_STRING) {
-        throw new IllegalArgumentException(
-            "Invalid encoding value at index " + i + ": " + enc +
-            " (expected " + ENC_DEFAULT + ", " + ENC_FIXED + ", " + ENC_ZIGZAG +
-            ", or " + ENC_ENUM_STRING + ")");
-      }
-    }
-
-    long handle = decodeToStruct(binaryInput.getNativeView(),
-                                 fieldNumbers, parentIndices, depthLevels,
-                                 wireTypes, outputTypeIds, encodings,
-                                 isRepeated, isRequired, hasDefaultValue,
-                                 defaultInts, defaultFloats, defaultBools,
-                                 defaultStrings, enumValidValues, enumNames, failOnErrors);
-    return new ColumnVector(handle);
+    return decodeToStruct(binaryInput,
+        new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels,
+            wireTypes, outputTypeIds, encodings, isRepeated, isRequired,
+            hasDefaultValue, defaultInts, defaultFloats, defaultBools,
+            defaultStrings, enumValidValues, enumNames),
+        failOnErrors);
   }
 
   /**
-   * Backward-compatible overload for callers that don't provide enum name mappings.
-   * This keeps existing JNI tests and call-sites source-compatible.
+   * Backward-compatible overload without enum name mappings.
+   *
+   * @deprecated Use {@link #decodeToStruct(ColumnView, ProtobufSchemaDescriptor, boolean)} instead.
    */
+  @Deprecated
   public static ColumnVector decodeToStruct(ColumnView binaryInput,
                                             int[] fieldNumbers,
                                             int[] parentIndices,

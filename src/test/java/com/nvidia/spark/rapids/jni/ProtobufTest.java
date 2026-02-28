@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
@@ -113,7 +114,7 @@ public class ProtobufTest {
 
   /** Create a protobuf tag (field number + wire type). */
   private static byte[] tag(int fieldNumber, int wireType) {
-    return encodeVarint((fieldNumber << 3) | wireType);
+    return encodeVarint(((long) fieldNumber << 3) | wireType);
   }
 
   // Wire type constants
@@ -2535,6 +2536,311 @@ public class ProtobufTest {
       assertEquals(DType.STRUCT, actual.getType());
       // The struct has 1 child: a LIST<STRING> column with ["RED", "BLUE", "GREEN"]
       assertEquals(1, actual.getNumChildren());
+    }
+  }
+
+  // ============================================================================
+  // Edge case and boundary tests
+  // ============================================================================
+
+  @Test
+  void testPackedFixedMisaligned() {
+    byte[] packedData = new byte[]{0x01, 0x02, 0x03, 0x04, 0x05};
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(packedData.length)),
+        box(packedData));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(RuntimeException.class, () -> {
+        try (ColumnVector result = Protobuf.decodeToStruct(
+            input.getColumn(0),
+            new int[]{1},
+            new int[]{-1},
+            new int[]{0},
+            new int[]{WT_32BIT},
+            new int[]{DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_FIXED},
+            new boolean[]{true},
+            new boolean[]{false},
+            new boolean[]{false},
+            new long[]{0},
+            new double[]{0.0},
+            new boolean[]{false},
+            new byte[][]{null},
+            new int[][]{null},
+            true)) {
+        }
+      });
+    }
+  }
+
+  @Test
+  void testPackedFixedMisaligned64() {
+    byte[] packedData = new byte[]{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(packedData.length)),
+        box(packedData));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(RuntimeException.class, () -> {
+        try (ColumnVector result = Protobuf.decodeToStruct(
+            input.getColumn(0),
+            new int[]{1},
+            new int[]{-1},
+            new int[]{0},
+            new int[]{WT_64BIT},
+            new int[]{DType.INT64.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_FIXED},
+            new boolean[]{true},
+            new boolean[]{false},
+            new boolean[]{false},
+            new long[]{0},
+            new double[]{0.0},
+            new boolean[]{false},
+            new byte[][]{null},
+            new int[][]{null},
+            true)) {
+        }
+      });
+    }
+  }
+
+  @Test
+  void testLargeRepeatedField() throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    for (int i = 0; i < 100000; i++) {
+      baos.write(tag(1, WT_VARINT));
+      baos.write(encodeVarint(i));
+    }
+    Byte[] row = box(baos.toByteArray());
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      try (ColumnVector list = result.getChildColumnView(0).copyToColumnVector()) {
+        assertEquals(DType.LIST, list.getType());
+      }
+    }
+  }
+
+  @Test
+  void testMixedPackedUnpacked() {
+    byte[] packedContent = concatBytes(encodeVarint(30), encodeVarint(40));
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(10)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(20)),
+        box(tag(1, WT_LEN)), box(encodeVarint(packedContent.length)), box(packedContent));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      try (ColumnVector list = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector vals = list.getChildColumnView(0).copyToColumnVector();
+           HostColumnVector hostVals = vals.copyToHost()) {
+        assertEquals(4, vals.getRowCount());
+        assertEquals(10, hostVals.getInt(0));
+        assertEquals(20, hostVals.getInt(1));
+        assertEquals(30, hostVals.getInt(2));
+        assertEquals(40, hostVals.getInt(3));
+      }
+    }
+  }
+
+  @Test
+  void testLargeFieldNumber() {
+    int maxFieldNumber = (1 << 29) - 1;
+    Byte[] row = concat(
+        box(tag(maxFieldNumber, WT_VARINT)),
+        box(encodeVarint(42)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{maxFieldNumber},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{false},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      try (ColumnVector child = result.getChildColumnView(0).copyToColumnVector();
+           HostColumnVector hostChild = child.copyToHost()) {
+        assertEquals(42, hostChild.getInt(0));
+      }
+    }
+  }
+
+  private void verifyDeepNesting(int numLevels) {
+    int numFields = 2 * numLevels - 1;
+
+    byte[] current = concatBytes(tag(1, WT_VARINT), encodeVarint(1));
+    for (int level = numLevels - 2; level >= 0; level--) {
+      current = concatBytes(
+          tag(1, WT_VARINT), encodeVarint(1),
+          tag(2, WT_LEN), encodeVarint(current.length), current);
+    }
+    Byte[] row = box(current);
+
+    int[] fieldNumbers = new int[numFields];
+    int[] parentIndices = new int[numFields];
+    int[] depthLevels = new int[numFields];
+    int[] wireTypes = new int[numFields];
+    int[] outputTypeIds = new int[numFields];
+    int[] encodings = new int[numFields];
+    boolean[] isRepeated = new boolean[numFields];
+    boolean[] isRequired = new boolean[numFields];
+    boolean[] hasDefaultValue = new boolean[numFields];
+    long[] defaultInts = new long[numFields];
+    double[] defaultFloats = new double[numFields];
+    boolean[] defaultBools = new boolean[numFields];
+    byte[][] defaultStrings = new byte[numFields][];
+    int[][] enumValidValues = new int[numFields][];
+
+    for (int level = 0; level < numLevels; level++) {
+      int intIdx = 2 * level;
+      int parentIdx = level == 0 ? -1 : 2 * (level - 1) + 1;
+
+      fieldNumbers[intIdx] = 1;
+      parentIndices[intIdx] = parentIdx;
+      depthLevels[intIdx] = level;
+      wireTypes[intIdx] = WT_VARINT;
+      outputTypeIds[intIdx] = DType.INT32.getTypeId().getNativeId();
+      encodings[intIdx] = Protobuf.ENC_DEFAULT;
+
+      if (level < numLevels - 1) {
+        int structIdx = 2 * level + 1;
+        fieldNumbers[structIdx] = 2;
+        parentIndices[structIdx] = parentIdx;
+        depthLevels[structIdx] = level;
+        wireTypes[structIdx] = WT_LEN;
+        outputTypeIds[structIdx] = DType.STRUCT.getTypeId().getNativeId();
+        encodings[structIdx] = Protobuf.ENC_DEFAULT;
+      }
+    }
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             fieldNumbers, parentIndices, depthLevels, wireTypes,
+             outputTypeIds, encodings, isRepeated, isRequired,
+             hasDefaultValue, defaultInts, defaultFloats, defaultBools,
+             defaultStrings, enumValidValues, false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+    }
+  }
+
+  @Test
+  void testDeepNesting9Levels() {
+    verifyDeepNesting(9);
+  }
+
+  @Test
+  void testDeepNesting10Levels() {
+    verifyDeepNesting(10);
+  }
+
+  @Test
+  void testZeroLengthNestedMessage() {
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(0)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1, 1},
+             new int[]{-1, 0},
+             new int[]{0, 1},
+             new int[]{WT_LEN, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new long[]{0, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             new int[][]{null, null},
+             false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+    }
+  }
+
+  @Test
+  void testEmptyPackedRepeated() {
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(0)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
     }
   }
 }
