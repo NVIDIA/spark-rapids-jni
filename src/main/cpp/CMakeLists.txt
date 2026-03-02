@@ -207,6 +207,7 @@ add_library(
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
+  src/ProtobufJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
@@ -254,6 +255,9 @@ add_library(
   src/multiply.cu
   src/number_converter.cu
   src/parse_uri.cu
+  src/protobuf.cu
+  src/protobuf_kernels.cu
+  src/protobuf_builders.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/round_float.cu
