@@ -573,12 +573,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                 static_cast<int>((total_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
               RepeatedLocationProvider rep_loc{list_offsets, base_offset, d_occurrences.data()};
               extract_varint_kernel<int32_t, false>
-                <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(message_data,
-                                                                       rep_loc,
-                                                                       total_count,
-                                                                       enum_ints.data(),
-                                                                       nullptr,
-                                                                       d_error.data());
+                <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+                  message_data, rep_loc, total_count, enum_ints.data(), nullptr, d_error.data());
 
               // 2. Build device-side enum lookup tables
               rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
@@ -639,9 +635,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                 total_count);
 
               // 5. Build string offsets
-              auto [str_offs_col, total_chars] =
-                cudf::strings::detail::make_offsets_child_column(
-                  elem_lengths.begin(), elem_lengths.end(), stream, mr);
+              auto [str_offs_col, total_chars] = cudf::strings::detail::make_offsets_child_column(
+                elem_lengths.begin(), elem_lengths.end(), stream, mr);
 
               // 6. Copy string chars
               rmm::device_uvector<char> chars(total_chars, stream, mr);

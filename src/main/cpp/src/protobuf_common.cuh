@@ -632,7 +632,6 @@ inline std::pair<rmm::device_buffer, cudf::size_type> make_null_mask_from_valid(
   return cudf::detail::valid_if(begin, end, pred, stream, mr);
 }
 
-
 template <typename T, typename LaunchFn>
 std::unique_ptr<cudf::column> extract_and_build_scalar_column(cudf::data_type dt,
                                                               int num_rows,
@@ -817,88 +816,150 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   return cudf::make_structs_column(0, std::move(children), 0, rmm::device_buffer{}, stream, mr);
 }
 
-
 // ============================================================================
 // Forward declarations of non-template __global__ kernels
 // ============================================================================
 
-__global__ void scan_all_fields_kernel(
-  cudf::column_device_view const d_in, field_descriptor const* field_descs, int num_fields,
-  int const* field_lookup, int field_lookup_size, field_location* locations, int* error_flag);
+__global__ void scan_all_fields_kernel(cudf::column_device_view const d_in,
+                                       field_descriptor const* field_descs,
+                                       int num_fields,
+                                       int const* field_lookup,
+                                       int field_lookup_size,
+                                       field_location* locations,
+                                       int* error_flag);
 
-__global__ void count_repeated_fields_kernel(
-  cudf::column_device_view const d_in, device_nested_field_descriptor const* schema,
-  int num_fields, int depth_level, repeated_field_info* repeated_info, int num_repeated_fields,
-  int const* repeated_field_indices, field_location* nested_locations, int num_nested_fields,
-  int const* nested_field_indices, int* error_flag);
+__global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in,
+                                             device_nested_field_descriptor const* schema,
+                                             int num_fields,
+                                             int depth_level,
+                                             repeated_field_info* repeated_info,
+                                             int num_repeated_fields,
+                                             int const* repeated_field_indices,
+                                             field_location* nested_locations,
+                                             int num_nested_fields,
+                                             int const* nested_field_indices,
+                                             int* error_flag);
 
-__global__ void scan_repeated_field_occurrences_kernel(
-  cudf::column_device_view const d_in, device_nested_field_descriptor const* schema,
-  int schema_idx, int depth_level, int32_t const* output_offsets,
-  repeated_occurrence* occurrences, int* error_flag);
+__global__ void scan_repeated_field_occurrences_kernel(cudf::column_device_view const d_in,
+                                                       device_nested_field_descriptor const* schema,
+                                                       int schema_idx,
+                                                       int depth_level,
+                                                       int32_t const* output_offsets,
+                                                       repeated_occurrence* occurrences,
+                                                       int* error_flag);
 
-__global__ void scan_nested_message_fields_kernel(
-  uint8_t const* message_data, cudf::size_type const* parent_row_offsets,
-  cudf::size_type parent_base_offset, field_location const* parent_locations,
-  int num_parent_rows, field_descriptor const* field_descs, int num_fields,
-  field_location* output_locations, int* error_flag);
+__global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
+                                                  cudf::size_type const* parent_row_offsets,
+                                                  cudf::size_type parent_base_offset,
+                                                  field_location const* parent_locations,
+                                                  int num_parent_rows,
+                                                  field_descriptor const* field_descs,
+                                                  int num_fields,
+                                                  field_location* output_locations,
+                                                  int* error_flag);
 
-__global__ void scan_repeated_message_children_kernel(
-  uint8_t const* message_data, int32_t const* msg_row_offsets, field_location const* msg_locs,
-  int num_occurrences, field_descriptor const* child_descs, int num_child_fields,
-  field_location* child_locs, int* error_flag);
+__global__ void scan_repeated_message_children_kernel(uint8_t const* message_data,
+                                                      int32_t const* msg_row_offsets,
+                                                      field_location const* msg_locs,
+                                                      int num_occurrences,
+                                                      field_descriptor const* child_descs,
+                                                      int num_child_fields,
+                                                      field_location* child_locs,
+                                                      int* error_flag);
 
-__global__ void count_repeated_in_nested_kernel(
-  uint8_t const* message_data, cudf::size_type const* row_offsets, cudf::size_type base_offset,
-  field_location const* parent_locs, int num_rows, device_nested_field_descriptor const* schema,
-  int num_fields, repeated_field_info* repeated_info, int num_repeated,
-  int const* repeated_indices, int* error_flag);
+__global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
+                                                cudf::size_type const* row_offsets,
+                                                cudf::size_type base_offset,
+                                                field_location const* parent_locs,
+                                                int num_rows,
+                                                device_nested_field_descriptor const* schema,
+                                                int num_fields,
+                                                repeated_field_info* repeated_info,
+                                                int num_repeated,
+                                                int const* repeated_indices,
+                                                int* error_flag);
 
-__global__ void scan_repeated_in_nested_kernel(
-  uint8_t const* message_data, cudf::size_type const* row_offsets, cudf::size_type base_offset,
-  field_location const* parent_locs, int num_rows, device_nested_field_descriptor const* schema,
-  int num_fields, int32_t const* occ_prefix_sums, int num_repeated,
-  int const* repeated_indices, repeated_occurrence* occurrences, int* error_flag);
+__global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
+                                               cudf::size_type const* row_offsets,
+                                               cudf::size_type base_offset,
+                                               field_location const* parent_locs,
+                                               int num_rows,
+                                               device_nested_field_descriptor const* schema,
+                                               int num_fields,
+                                               int32_t const* occ_prefix_sums,
+                                               int num_repeated,
+                                               int const* repeated_indices,
+                                               repeated_occurrence* occurrences,
+                                               int* error_flag);
 
-__global__ void compute_nested_struct_locations_kernel(
-  field_location const* child_locs, field_location const* msg_locs,
-  int32_t const* msg_row_offsets, int child_idx, int num_child_fields,
-  field_location* nested_locs, int32_t* nested_row_offsets, int total_count);
+__global__ void compute_nested_struct_locations_kernel(field_location const* child_locs,
+                                                       field_location const* msg_locs,
+                                                       int32_t const* msg_row_offsets,
+                                                       int child_idx,
+                                                       int num_child_fields,
+                                                       field_location* nested_locs,
+                                                       int32_t* nested_row_offsets,
+                                                       int total_count);
 
-__global__ void compute_grandchild_parent_locations_kernel(
-  field_location const* parent_locs, field_location const* child_locs,
-  int child_idx, int num_child_fields, field_location* gc_parent_abs, int num_rows);
+__global__ void compute_grandchild_parent_locations_kernel(field_location const* parent_locs,
+                                                           field_location const* child_locs,
+                                                           int child_idx,
+                                                           int num_child_fields,
+                                                           field_location* gc_parent_abs,
+                                                           int num_rows);
 
 __global__ void compute_virtual_parents_for_nested_repeated_kernel(
-  repeated_occurrence const* occurrences, cudf::size_type const* row_list_offsets,
-  field_location const* parent_locations, cudf::size_type* virtual_row_offsets,
-  field_location* virtual_parent_locs, int total_count);
-
-__global__ void compute_msg_locations_from_occurrences_kernel(
-  repeated_occurrence const* occurrences, cudf::size_type const* list_offsets,
-  cudf::size_type base_offset, field_location* msg_locs, int32_t* msg_row_offsets,
+  repeated_occurrence const* occurrences,
+  cudf::size_type const* row_list_offsets,
+  field_location const* parent_locations,
+  cudf::size_type* virtual_row_offsets,
+  field_location* virtual_parent_locs,
   int total_count);
 
-__global__ void extract_strided_locations_kernel(
-  field_location const* nested_locations, int field_idx, int num_fields,
-  field_location* parent_locs, int num_rows);
+__global__ void compute_msg_locations_from_occurrences_kernel(
+  repeated_occurrence const* occurrences,
+  cudf::size_type const* list_offsets,
+  cudf::size_type base_offset,
+  field_location* msg_locs,
+  int32_t* msg_row_offsets,
+  int total_count);
 
-__global__ void check_required_fields_kernel(
-  field_location const* locations, uint8_t const* is_required, int num_fields,
-  int num_rows, int* error_flag);
+__global__ void extract_strided_locations_kernel(field_location const* nested_locations,
+                                                 int field_idx,
+                                                 int num_fields,
+                                                 field_location* parent_locs,
+                                                 int num_rows);
 
-__global__ void validate_enum_values_kernel(
-  int32_t const* values, bool* valid, bool* row_has_invalid_enum,
-  int32_t const* valid_enum_values, int num_valid_values, int num_rows);
+__global__ void check_required_fields_kernel(field_location const* locations,
+                                             uint8_t const* is_required,
+                                             int num_fields,
+                                             int num_rows,
+                                             int* error_flag);
 
-__global__ void compute_enum_string_lengths_kernel(
-  int32_t const* values, bool const* valid, int32_t const* valid_enum_values,
-  int32_t const* enum_name_offsets, int num_valid_values, int32_t* lengths, int num_rows);
+__global__ void validate_enum_values_kernel(int32_t const* values,
+                                            bool* valid,
+                                            bool* row_has_invalid_enum,
+                                            int32_t const* valid_enum_values,
+                                            int num_valid_values,
+                                            int num_rows);
 
-__global__ void copy_enum_string_chars_kernel(
-  int32_t const* values, bool const* valid, int32_t const* valid_enum_values,
-  int32_t const* enum_name_offsets, uint8_t const* enum_name_chars, int num_valid_values,
-  int32_t const* output_offsets, char* out_chars, int num_rows);
+__global__ void compute_enum_string_lengths_kernel(int32_t const* values,
+                                                   bool const* valid,
+                                                   int32_t const* valid_enum_values,
+                                                   int32_t const* enum_name_offsets,
+                                                   int num_valid_values,
+                                                   int32_t* lengths,
+                                                   int num_rows);
+
+__global__ void copy_enum_string_chars_kernel(int32_t const* values,
+                                              bool const* valid,
+                                              int32_t const* valid_enum_values,
+                                              int32_t const* enum_name_offsets,
+                                              uint8_t const* enum_name_chars,
+                                              int num_valid_values,
+                                              int32_t const* output_offsets,
+                                              char* out_chars,
+                                              int num_rows);
 
 // ============================================================================
 // Forward declarations of builder/utility functions
@@ -1036,8 +1097,8 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
   extract_lengths_kernel<LengthProvider><<<blocks, threads, 0, stream.value()>>>(
     length_provider, num_rows, lengths.data(), has_default, def_len);
 
-  auto [offsets_col, total_size] = cudf::strings::detail::make_offsets_child_column(
-    lengths.begin(), lengths.end(), stream, mr);
+  auto [offsets_col, total_size] =
+    cudf::strings::detail::make_offsets_child_column(lengths.begin(), lengths.end(), stream, mr);
 
   rmm::device_uvector<char> chars(total_size, stream, mr);
   if (total_size > 0) {

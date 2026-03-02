@@ -253,7 +253,6 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
     0, std::move(offsets_col), std::move(element_col), 0, rmm::device_buffer{}, stream, mr);
 }
 
-
 std::unique_ptr<cudf::column> build_enum_string_column(
   rmm::device_uvector<int32_t>& enum_values,
   rmm::device_uvector<bool>& valid,
@@ -322,8 +321,8 @@ std::unique_ptr<cudf::column> build_enum_string_column(
     lengths.data(),
     num_rows);
 
-  auto [offsets_col, total_chars] = cudf::strings::detail::make_offsets_child_column(
-    lengths.begin(), lengths.end(), stream, mr);
+  auto [offsets_col, total_chars] =
+    cudf::strings::detail::make_offsets_child_column(lengths.begin(), lengths.end(), stream, mr);
 
   rmm::device_uvector<char> chars(total_chars, stream, mr);
   if (total_chars > 0) {
@@ -421,13 +420,13 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
   if (total_chars > 0) {
     RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
-    copy_varlen_data_kernel<RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
-      message_data,
-      loc_provider,
-      total_count,
-      str_offsets_col->view().data<int32_t>(),
-      chars.data(),
-      d_error.data());
+    copy_varlen_data_kernel<RepeatedLocationProvider>
+      <<<blocks, threads, 0, stream.value()>>>(message_data,
+                                               loc_provider,
+                                               total_count,
+                                               str_offsets_col->view().data<int32_t>(),
+                                               chars.data(),
+                                               d_error.data());
   }
 
   std::unique_ptr<cudf::column> child_col;
@@ -1299,33 +1298,31 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   std::unique_ptr<cudf::column> child_values;
   auto const rep_blocks =
     static_cast<int>((total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
-  NestedRepeatedLocationProvider nr_loc{
-    row_offsets, base_offset, parent_locs, d_rep_occs.data()};
+  NestedRepeatedLocationProvider nr_loc{row_offsets, base_offset, parent_locs, d_rep_occs.data()};
 
   if (elem_type_id == cudf::type_id::BOOL8 || elem_type_id == cudf::type_id::INT32 ||
       elem_type_id == cudf::type_id::UINT32 || elem_type_id == cudf::type_id::INT64 ||
       elem_type_id == cudf::type_id::UINT64 || elem_type_id == cudf::type_id::FLOAT32 ||
       elem_type_id == cudf::type_id::FLOAT64) {
-    child_values =
-      extract_typed_column(cudf::data_type{elem_type_id},
-                           schema[child_schema_idx].encoding,
-                           message_data,
-                           nr_loc,
-                           total_rep_count,
-                           rep_blocks,
-                           THREADS_PER_BLOCK,
-                           false,
-                           0,
-                           0.0,
-                           false,
-                           std::vector<uint8_t>{},
-                           child_schema_idx,
-                           enum_valid_values,
-                           enum_names,
-                           d_row_has_invalid_enum,
-                           d_error,
-                           stream,
-                           mr);
+    child_values = extract_typed_column(cudf::data_type{elem_type_id},
+                                        schema[child_schema_idx].encoding,
+                                        message_data,
+                                        nr_loc,
+                                        total_rep_count,
+                                        rep_blocks,
+                                        THREADS_PER_BLOCK,
+                                        false,
+                                        0,
+                                        0.0,
+                                        false,
+                                        std::vector<uint8_t>{},
+                                        child_schema_idx,
+                                        enum_valid_values,
+                                        enum_names,
+                                        d_row_has_invalid_enum,
+                                        d_error,
+                                        stream,
+                                        mr);
   } else if (elem_type_id == cudf::type_id::STRING || elem_type_id == cudf::type_id::LIST) {
     bool as_bytes = (elem_type_id == cudf::type_id::LIST);
     auto valid_fn = [] __device__(cudf::size_type) { return true; };
