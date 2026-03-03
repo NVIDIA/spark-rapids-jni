@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.HostMemoryBuffer;
 import ai.rapids.cudf.NativeDepsLoader;
 
 public class Hash {
@@ -160,6 +161,18 @@ public class Hash {
     return new ColumnVector(sha512NullsPreserved(column.getNativeView()));
   }
 
+  /**
+   * Return the CRC32 checksum of the data in the given HostMemoryBuffer, starting with the provided initial CRC value.
+   * The checksum is computed on the host (CPU) using zlib's crc32 function.
+   * 
+   * @param crc the initial CRC value
+   * @param buffer the HostMemoryBuffer containing the data to checksum
+   * @return the computed CRC32 checksum
+   */
+  public static long hostCrc32(long crc, HostMemoryBuffer buffer) {
+    return hostCrc32(crc, buffer.getAddress(), Math.toIntExact(buffer.getLength()));
+  }
+
   private static native int getMaxStackDepth();
 
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
@@ -173,4 +186,6 @@ public class Hash {
   private static native long sha256NullsPreserved(long columnHandle) throws CudfException;
   private static native long sha384NullsPreserved(long columnHandle) throws CudfException;
   private static native long sha512NullsPreserved(long columnHandle) throws CudfException;
+
+  private static native long hostCrc32(long crc, long bufferHandle, int len) throws CudfException;
 }

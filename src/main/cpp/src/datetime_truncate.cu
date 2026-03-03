@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,14 @@
  */
 
 #include "datetime_utils.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/string_view.hpp>
+#include <cudf/transform.hpp>
+#include <cudf/utilities/span.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -30,9 +31,9 @@
 
 #include <cuda/std/functional>
 #include <cuda/std/optional>
+#include <cuda/std/utility>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
-#include <thrust/pair.h>
 #include <thrust/transform.h>
 
 #include <type_traits>
@@ -172,7 +173,7 @@ struct truncate_date_fn {
   cudf::column_device_view datetime;
   FormatDeviceT format;
 
-  __device__ inline thrust::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
+  __device__ inline cuda::std::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
   {
     auto const datetime_idx = datetime.size() > 1 ? idx : 0;
     if (datetime.is_null(datetime_idx)) { return {Timestamp{}, false}; }
@@ -210,7 +211,7 @@ struct truncate_timestamp_fn {
   cudf::column_device_view datetime;
   FormatDeviceT format;
 
-  __device__ inline thrust::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
+  __device__ inline cuda::std::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
   {
     auto const datetime_idx = datetime.size() > 1 ? idx : 0;
     if (datetime.is_null(datetime_idx)) { return {Timestamp{}, false}; }
@@ -303,9 +304,10 @@ std::unique_ptr<cudf::column> truncate_datetime(cudf::column_view const& datetim
   }
 
   auto [null_mask, null_count] =
-    cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
-  output->set_null_mask(null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr},
-                        null_count);
+    cudf::bools_to_mask(cudf::device_span<bool const>(validity), stream, mr);
+  output->set_null_mask(
+    null_count > 0 ? std::move(*null_mask.release()) : rmm::device_buffer{0, stream, mr},
+    null_count);
   return output;
 }
 
@@ -380,7 +382,7 @@ std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
                                        rmm::cuda_stream_view stream,
                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::truncate(datetime, format, stream, mr);
 }
 
@@ -389,7 +391,7 @@ std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
                                        rmm::cuda_stream_view stream,
                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::truncate(datetime, format, stream, mr);
 }
 

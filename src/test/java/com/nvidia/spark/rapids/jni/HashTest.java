@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,18 +20,24 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.HostMemoryBuffer;
 import ai.rapids.cudf.HostColumnVector.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Random;
 import java.util.function.Function;
+import java.util.zip.CRC32;
 
 import static ai.rapids.cudf.AssertUtils.*;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class HashTest {
 // IEEE 754 NaN values
@@ -953,5 +959,71 @@ public class HashTest {
   @Test
   void testSha512NullsPreserved() {
     testSha2Impl(Hash::sha512NullsPreserved, "SHA-512");
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 10, 100, 256, 1000, 4096})
+  void testCrc32WithBinaryData(int size) {
+    Random random = new Random(17); // Fixed seed for reproducibility
+
+    byte[] binaryData = new byte[size];
+    random.nextBytes(binaryData);
+
+    CRC32 javaCrc32 = new CRC32();
+    javaCrc32.update(binaryData);
+    long expected = javaCrc32.getValue();
+
+    try (HostMemoryBuffer buffer = HostMemoryBuffer.allocate(binaryData.length)) {
+      buffer.setBytes(0, binaryData, 0, binaryData.length);
+      long actual = Hash.hostCrc32(0, buffer);
+
+      assertEquals(expected, actual, "CRC32 mismatch for binary data of size " + size);
+    }
+  }
+
+  @Test
+  void testCrc32IncrementalUpdate() {
+    Random random = new Random(17); // Fixed seed for reproducibility
+
+    int part1Size = random.nextInt(1024); // 0 to 1023 bytes
+    int part2Size = random.nextInt(1024);
+
+    byte[] bytes1 = new byte[part1Size];
+    byte[] bytes2 = new byte[part2Size];
+    random.nextBytes(bytes1);
+    random.nextBytes(bytes2);
+
+    CRC32 javaCrc32 = new CRC32();
+    javaCrc32.update(bytes1);
+    javaCrc32.update(bytes2);
+    long expected = javaCrc32.getValue();
+
+    // zlib's approach - update in parts using previous CRC value
+    try (HostMemoryBuffer buffer1 = HostMemoryBuffer.allocate(bytes1.length);
+         HostMemoryBuffer buffer2 = HostMemoryBuffer.allocate(bytes2.length)) {
+      buffer1.setBytes(0, bytes1, 0, part1Size);
+      buffer2.setBytes(0, bytes2, 0, part2Size);
+
+      // First update: compute CRC32 of part1
+      long actual = Hash.hostCrc32(0, buffer1);
+
+      // Second update: continue from previous CRC value
+      actual = Hash.hostCrc32(actual, buffer2);
+
+      assertEquals(expected, actual,
+        "CRC32 mismatch for incremental update");
+    }
+
+    // Also verify that single computation matches
+    byte[] combinedBytes = new byte[part1Size + part2Size];
+    System.arraycopy(bytes1, 0, combinedBytes, 0, part1Size);
+    System.arraycopy(bytes2, 0, combinedBytes, part1Size, part2Size);
+    try (HostMemoryBuffer buffer = HostMemoryBuffer.allocate(combinedBytes.length)) {
+      buffer.setBytes(0, combinedBytes, 0, combinedBytes.length);
+      long actual = Hash.hostCrc32(0, buffer);
+
+      assertEquals(expected, actual,
+        "CRC32 mismatch for single computation vs incremental");
+    }
   }
 }

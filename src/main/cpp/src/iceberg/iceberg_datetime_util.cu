@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
+#include "../nvtx_ranges.hpp"
 #include "datetime_utils.cuh"
 #include "iceberg_datetime_util.hpp"
 #include "integer_utils.cuh"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/types.hpp>
 
 #include <rmm/exec_policy.hpp>
@@ -142,7 +142,7 @@ std::unique_ptr<cudf::column> compute_years_from_epoch(cudf::column_view const& 
 
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
-                                              cudf::detail::copy_bitmask(input, stream, mr),
+                                              cudf::copy_bitmask(input, stream, mr),
                                               input.null_count(),
                                               stream,
                                               mr);
@@ -171,7 +171,7 @@ std::unique_ptr<cudf::column> compute_months_from_epoch(cudf::column_view const&
 
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
-                                              cudf::detail::copy_bitmask(input, stream, mr),
+                                              cudf::copy_bitmask(input, stream, mr),
                                               input.null_count(),
                                               stream,
                                               mr);
@@ -202,7 +202,7 @@ std::unique_ptr<cudf::column> compute_days_from_epoch(cudf::column_view const& i
 
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::TIMESTAMP_DAYS},
                                               input.size(),
-                                              cudf::detail::copy_bitmask(input, stream, mr),
+                                              cudf::copy_bitmask(input, stream, mr),
                                               input.null_count(),
                                               stream,
                                               mr);
@@ -231,7 +231,7 @@ std::unique_ptr<cudf::column> compute_hours_from_epoch(cudf::column_view const& 
 
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
-                                              cudf::detail::copy_bitmask(input, stream, mr),
+                                              cudf::copy_bitmask(input, stream, mr),
                                               input.null_count(),
                                               stream,
                                               mr);
@@ -253,7 +253,7 @@ std::unique_ptr<cudf::column> years_from_epoch(cudf::column_view const& input,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return compute_years_from_epoch(input, stream, mr);
 }
 
@@ -261,7 +261,7 @@ std::unique_ptr<cudf::column> months_from_epoch(cudf::column_view const& input,
                                                 rmm::cuda_stream_view stream,
                                                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return compute_months_from_epoch(input, stream, mr);
 }
 
@@ -269,7 +269,7 @@ std::unique_ptr<cudf::column> days_from_epoch(cudf::column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return compute_days_from_epoch(input, stream, mr);
 }
 
@@ -277,7 +277,7 @@ std::unique_ptr<cudf::column> hours_from_epoch(cudf::column_view const& input,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return compute_hours_from_epoch(input, stream, mr);
 }
 

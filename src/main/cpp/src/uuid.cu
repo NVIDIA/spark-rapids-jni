@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
+#include "nvtx_ranges.hpp"
 #include "uuid.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.hpp>
 #include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -186,7 +186,7 @@ std::unique_ptr<cudf::column> random_uuids(int row_count,
                                            rmm::device_async_resource_ref mr)
 
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return generate_uuids(row_count, seed, stream, mr);
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,16 @@
  */
 
 #include "list_slice.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/copy.hpp>
 #include <cudf/detail/gather.hpp>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/grid_1d.cuh>
+#include <cudf/null_mask.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -205,15 +205,10 @@ std::unique_ptr<cudf::column> legal_list_slice(lists_column_view const& input,
   auto child = std::move(child_table->release().front());
 
   // Assemble list column & return
-  auto null_mask  = cudf::detail::copy_bitmask(input.parent(), stream, mr);
+  auto null_mask  = cudf::copy_bitmask(input.parent(), stream, mr);
   auto null_count = input.null_count();
-  return make_lists_column(num_rows,
-                           std::move(output_offset),
-                           std::move(child),
-                           null_count,
-                           std::move(null_mask),
-                           stream,
-                           mr);
+  return make_lists_column(
+    num_rows, std::move(output_offset), std::move(child), null_count, std::move(null_mask));
 }
 
 }  // namespace
@@ -269,7 +264,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                                    int_iterator_from_column(*length_cdv),
                                                    stream);
   auto [null_mask, null_count] =
-    cudf::detail::bitmask_and(table_view{{input.parent(), length}}, stream, mr);
+    cudf::bitmask_and(table_view{{input.parent(), length}}, stream, mr);
   auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
@@ -302,9 +297,8 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                                    int_iterator_from_scalar(length),
                                                    stream);
 
-  auto [null_mask, null_count] =
-    cudf::detail::bitmask_and(table_view{{input.parent(), start}}, stream, mr);
-  auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
+  auto [null_mask, null_count] = cudf::bitmask_and(table_view{{input.parent(), start}}, stream, mr);
+  auto result                  = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
 }
@@ -343,7 +337,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                                    stream);
 
   auto [null_mask, null_count] =
-    cudf::detail::bitmask_and(table_view{{input.parent(), start, length}}, stream, mr);
+    cudf::bitmask_and(table_view{{input.parent(), start, length}}, stream, mr);
   auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
@@ -359,7 +353,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
@@ -370,7 +364,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
@@ -381,7 +375,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
@@ -392,7 +386,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 

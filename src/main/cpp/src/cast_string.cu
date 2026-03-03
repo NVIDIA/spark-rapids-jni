@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/null_mask.hpp>
@@ -29,7 +28,10 @@
 #include <cooperative_groups.h>
 #include <cub/warp/warp_reduce.cuh>
 #include <cuda/std/optional>
-#include <thrust/pair.h>
+#include <cuda/std/tuple>
+#include <cuda/std/utility>
+#include <thrust/find.h>
+#include <thrust/iterator/counting_iterator.h>
 
 using namespace cudf;
 
@@ -126,7 +128,7 @@ bool __device__ will_overflow(T const lhs, T const rhs, bool adding)
  * @return true if success, false if overflow
  */
 template <typename T>
-thrust::pair<bool, T> __device__
+cuda::std::pair<bool, T> __device__
 process_value(bool first_value, T current_val, T const new_digit, bool adding)
 {
   if (!first_value) {
@@ -248,7 +250,7 @@ CUDF_KERNEL void string_to_integer_kernel(T* out,
 }
 
 template <typename T>
-__device__ cuda::std::optional<thrust::tuple<bool, int, int>> validate_and_exponent(
+__device__ cuda::std::optional<cuda::std::tuple<bool, int, int>> validate_and_exponent(
   const char* chars, const int len, bool strip)
 {
   T exponent_val         = 0;
@@ -372,7 +374,7 @@ __device__ cuda::std::optional<thrust::tuple<bool, int, int>> validate_and_expon
   // adjust decimal location based on exponent
   decimal_location += exponent_val;
 
-  return thrust::make_tuple(positive, decimal_location, first_digit);
+  return cuda::std::tuple{positive, decimal_location, first_digit};
 }
 
 /**
@@ -444,7 +446,7 @@ CUDF_KERNEL void string_to_decimal_kernel(T* out,
     bool positive;
     int decimal_location;
     int first_digit;
-    thrust::tie(positive, decimal_location, first_digit) = *validated;
+    cuda::std::tie(positive, decimal_location, first_digit) = *validated;
 
     auto const max_digits_before_decimal                   = precision + scale;
     auto const significant_digits_before_decimal_in_string = count_significant_digits(
@@ -678,7 +680,7 @@ struct string_to_integer_impl {
       ansi_mode,
       strip);
 
-    auto null_count = cudf::detail::null_count(null_mask.data(), 0, string_col.size(), stream);
+    auto null_count = cudf::null_count(null_mask.data(), 0, string_col.size(), stream);
 
     auto col = std::make_unique<column>(data_type{type_to_id<T>()},
                                         string_col.size(),
@@ -748,7 +750,7 @@ struct string_to_decimal_impl {
       precision,
       strip);
 
-    auto null_count = cudf::detail::null_count(null_mask.data(), 0, string_col.size(), stream);
+    auto null_count = cudf::null_count(null_mask.data(), 0, string_col.size(), stream);
 
     auto col = std::make_unique<column>(
       dtype, string_col.size(), data.release(), null_mask.release(), null_count);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/labeling/label_segments.cuh>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/row_operator/equality.cuh>
 #include <cudf/lists/count_elements.hpp>
 #include <cudf/lists/gather.hpp>
@@ -418,9 +417,7 @@ std::unique_ptr<cudf::column> map_zip(
                            std::make_unique<column>(search_keys_list.offsets()),
                            std::move(map_structs),
                            null_count,
-                           std::move(result_mask),
-                           stream,
-                           mr);
+                           std::move(result_mask));
 }
 
 }  // namespace spark_rapids_jni

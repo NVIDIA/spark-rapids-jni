@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2025, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,7 +36,6 @@ profiles="source-javadoc"
 if [ "${ARM64}" == "true" ]; then
   profiles="${profiles},arm64"
   USE_GDS="OFF"
-  USE_SANITIZER="ON"
   # libcupti_static.a linked by cufaultinj and the profiler, does not exist in the arm64 CUDA toolkit
   BUILD_FAULTINJ="OFF"
   BUILD_PROFILER="OFF"
@@ -48,6 +47,8 @@ fi
 if [ "${CUDA_VER}" == "cuda13" ]; then
   BUILD_FAULTINJ="OFF"
   BUILD_PROFILER="OFF"
+  # Disable sanitizer https://github.com/NVIDIA/spark-rapids-jni/issues/4127
+  USE_SANITIZER="OFF"
 fi
 
 ${MVN} clean package ${MVN_MIRROR}  \

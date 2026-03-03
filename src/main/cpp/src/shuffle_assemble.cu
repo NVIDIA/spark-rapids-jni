@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "nvtx_ranges.hpp"
 #include "shuffle_split.hpp"
 #include "shuffle_split_detail.hpp"
 
@@ -21,8 +22,6 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/copy.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/batched_memset.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -31,6 +30,7 @@
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/types.hpp>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/span.hpp>
@@ -39,13 +39,13 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cub/device/device_memcpy.cuh>
+#include <cuda/functional>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
-#include <thrust/pair.h>
 #include <thrust/reduce.h>
 #include <thrust/scan.h>
 #include <thrust/transform.h>
@@ -212,10 +212,10 @@ __global__ void compute_offset_child_row_counts(
   if (threadIdx.x != 0) { return; }
   auto const partition_index            = blockIdx.x;
   partition_header const* const pheader = reinterpret_cast<partition_header const*>(
-    partitions.begin() + partition_offsets[partition_index]);
+    partitions.data() + partition_offsets[partition_index]);
   size_t const offsets_begin = partition_offsets[partition_index] + per_partition_metadata_size +
                                cudf::hashing::detail::swap_endian(pheader->validity_size);
-  size_type const* offsets = reinterpret_cast<size_type const*>(partitions.begin() + offsets_begin);
+  size_type const* offsets = reinterpret_cast<size_type const*>(partitions.data() + offsets_begin);
 
   // walk all of the offset-based columns and their children for this partition and apply offsets to
   // shift row counts and src row index.
@@ -237,8 +237,8 @@ __global__ void compute_offset_child_row_counts(
       // if I'm a root column, use the base partition row info
       // otherwise use the row info computed for me by my parent
       return offset_info.parent < 0 || base_num_rows == 0
-               ? std::pair<int, int>{base_num_rows, base_src_row_index}
-               : std::pair<int, int>{
+               ? std::pair<size_type, size_type>{base_num_rows, base_src_row_index}
+               : std::pair<size_type, size_type>{
                    column_instances[offset_info.parent + base_col_index].child_num_rows,
                    column_instances[offset_info.parent + base_col_index].child_src_row_index};
     }();
@@ -343,8 +343,8 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
                         has_validity_values,
                         thrust::make_discard_iterator(),
                         assemble_column_info_has_validity_output_iter{column_info.begin()},
-                        thrust::equal_to<size_type>{},
-                        thrust::logical_or<bool>{});
+                        cuda::std::equal_to<size_type>{},
+                        cuda::std::logical_or<bool>{});
 
   // compute everything else except row count (which will be done later after we have computed
   // column instance information)
@@ -1920,7 +1920,7 @@ shuffle_assemble_result shuffle_assemble(shuffle_split_metadata const& metadata,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto temp_mr = cudf::get_current_device_resource_ref();
 
@@ -1929,17 +1929,17 @@ shuffle_assemble_result shuffle_assemble(shuffle_split_metadata const& metadata,
                "Encountered an invalid offset buffer in shuffle_assemble");
   auto iter = thrust::make_transform_iterator(
     thrust::counting_iterator(size_t{0}),
-    cuda::proclaim_return_type<size_t>([partitions,
-                                        _partition_offsets] __device__(size_t pindex) -> size_t {
-      partition_header const* const pheader =
-        reinterpret_cast<partition_header const*>(partitions.begin() + _partition_offsets[pindex]);
-      return cudf::hashing::detail::swap_endian(pheader->num_rows) > 0 ? pindex + 1 : 0;
-    }));
+    cuda::proclaim_return_type<size_t>(
+      [partitions, _partition_offsets] __device__(size_t pindex) -> size_t {
+        partition_header const* const pheader =
+          reinterpret_cast<partition_header const*>(partitions.data() + _partition_offsets[pindex]);
+        return cudf::hashing::detail::swap_endian(pheader->num_rows) > 0 ? pindex + 1 : 0;
+      }));
   size_t const num_partitions_raw = thrust::reduce(rmm::exec_policy(stream, temp_mr),
                                                    iter,
                                                    iter + (_partition_offsets.size() - 1),
                                                    size_t{0},
-                                                   thrust::maximum<size_t>{});
+                                                   cuda::maximum<size_t>{});
   size_t const num_partitions     = num_partitions_raw == 0 ? 1 : num_partitions_raw;
 
   // if the input is empty, allocate minimal buffer and create column_views

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2019-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "nvtx_ranges.hpp"
 #include "substring_index.hpp"
 
 #include <cudf/column/column.hpp>
@@ -20,8 +21,6 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/indexalator.cuh>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/scalar/scalar_device_view.cuh>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/slice.hpp>
@@ -156,7 +155,7 @@ std::unique_ptr<column> substring_index(strings_column_view const& strings,
                                         size_type count,
                                         rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return detail::substring_index(strings,
                                  cudf::detail::make_pair_iterator<string_view>(delimiter),
                                  count,

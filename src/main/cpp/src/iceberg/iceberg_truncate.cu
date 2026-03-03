@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
+#include "../nvtx_ranges.hpp"
 #include "iceberg_truncate.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/lists/lists_column_view.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/detail/utf8.hpp>
 #include <cudf/strings/strings_column_view.hpp>
@@ -147,13 +147,9 @@ std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& in
   if (input.is_empty()) { return cudf::make_empty_column(input.type().id()); }
   auto input_type_id       = input.type().id();
   cudf::size_type num_rows = input.size();
-  auto output              = cudf::make_fixed_width_column(input.type(),
-                                              num_rows,
-                                              cudf::detail::copy_bitmask(input, stream, mr),
-                                              input.null_count(),
-                                              stream,
-                                              mr);
-  auto d_input             = cudf::column_device_view::create(input, stream);
+  auto output              = cudf::make_fixed_width_column(
+    input.type(), num_rows, cudf::copy_bitmask(input, stream, mr), input.null_count(), stream, mr);
+  auto d_input = cudf::column_device_view::create(input, stream);
 
   if (input_type_id == cudf::type_id::INT32 || input_type_id == cudf::type_id::DECIMAL32) {
     // treat DECIMAL32 column as int32 column
@@ -195,7 +191,7 @@ std::unique_ptr<cudf::column> truncate_string_impl(cudf::column_view const& inpu
                                    std::move(offsets),
                                    chars.release(),
                                    input.null_count(),
-                                   cudf::detail::copy_bitmask(input, stream, mr));
+                                   cudf::copy_bitmask(input, stream, mr));
 }
 
 std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& input,
@@ -212,8 +208,7 @@ std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& inpu
 
   auto const num_rows = input.size();
   if (num_rows == 0) {
-    return cudf::lists::detail::make_empty_lists_column(
-      cudf::data_type{cudf::type_id::UINT8}, stream, mr);
+    return cudf::lists::detail::make_empty_lists_column(cudf::data_type{cudf::type_id::UINT8});
   }
   CUDF_EXPECTS(!binary_col_child.nullable(), "Child column of binary column must be non-nullable");
 
@@ -239,7 +234,7 @@ std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& inpu
                                  std::move(new_offsets),
                                  std::move(new_child),
                                  input.null_count(),
-                                 cudf::detail::copy_bitmask(input, stream, mr));
+                                 cudf::copy_bitmask(input, stream, mr));
 }
 
 }  // anonymous namespace
@@ -249,7 +244,7 @@ std::unique_ptr<cudf::column> truncate_integral(cudf::column_view const& input,
                                                 rmm::cuda_stream_view stream,
                                                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return truncate_integral_impl(input, width, stream, mr);
 }
 
@@ -258,7 +253,7 @@ std::unique_ptr<cudf::column> truncate_string(cudf::column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return truncate_string_impl(input, truncate_length, stream, mr);
 }
 
@@ -267,7 +262,7 @@ std::unique_ptr<cudf::column> truncate_binary(cudf::column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   return truncate_binary_impl(input, truncate_length, stream, mr);
 }
 

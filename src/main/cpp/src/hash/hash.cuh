@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
+#include <cuda/std/iterator>
+#include <thrust/find.h>
 #include <thrust/reverse.h>
 
 namespace spark_rapids_jni {
@@ -70,8 +72,8 @@ __device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
 
   // If the value can be represented with a shorter than 16-byte integer, the
   // leading bytes of the little-endian value are truncated and are not hashed.
-  auto const reverse_begin = thrust::reverse_iterator(data + key_size);
-  auto const reverse_end   = thrust::reverse_iterator(data);
+  auto const reverse_begin = cuda::std::reverse_iterator(data + key_size);
+  auto const reverse_end   = cuda::std::reverse_iterator(data);
   auto const first_nonzero_byte =
     thrust::find_if_not(thrust::seq, reverse_begin, reverse_end, [zero_value](std::byte const& v) {
       return v == zero_value;

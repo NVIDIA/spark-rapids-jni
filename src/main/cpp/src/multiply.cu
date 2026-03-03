@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/valid_if.cuh>
+#include <cudf/transform.hpp>
 
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
@@ -213,8 +213,8 @@ std::unique_ptr<cudf::column> multiply_impl(cudf::data_type type,
 
   // collect null mask and set
   auto [null_mask, null_count] =
-    cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
-  if (null_count > 0) { result->set_null_mask(std::move(null_mask), null_count); }
+    cudf::bools_to_mask(cudf::device_span<bool const>(validity), stream, mr);
+  if (null_count > 0) { result->set_null_mask(std::move(*null_mask.release()), null_count); }
 
   return result;
 }

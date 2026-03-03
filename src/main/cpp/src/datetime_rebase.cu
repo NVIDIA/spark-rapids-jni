@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
  */
 
 #include "datetime_utils.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/null_mask.hpp>
 
 #include <rmm/exec_policy.hpp>
 #include <rmm/resource_ref.hpp>
@@ -61,7 +61,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const& 
 
   auto output = cudf::make_timestamp_column(input.type(),
                                             input.size(),
-                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            cudf::copy_bitmask(input, stream, mr),
                                             input.null_count(),
                                             stream,
                                             mr);
@@ -132,7 +132,7 @@ std::unique_ptr<cudf::column> julian_to_gregorian_days(cudf::column_view const& 
 
   auto output = cudf::make_timestamp_column(input.type(),
                                             input.size(),
-                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            cudf::copy_bitmask(input, stream, mr),
                                             input.null_count(),
                                             stream,
                                             mr);
@@ -232,7 +232,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
 
   auto output = cudf::make_timestamp_column(input.type(),
                                             input.size(),
-                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            cudf::copy_bitmask(input, stream, mr),
                                             input.null_count(),
                                             stream,
                                             mr);
@@ -295,7 +295,7 @@ std::unique_ptr<cudf::column> julian_to_gregorian_micros(cudf::column_view const
 
   auto output = cudf::make_timestamp_column(input.type(),
                                             input.size(),
-                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            cudf::copy_bitmask(input, stream, mr),
                                             input.null_count(),
                                             stream,
                                             mr);
@@ -343,7 +343,7 @@ std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const
                                                          rmm::cuda_stream_view stream,
                                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const type = input.type().id();
   CUDF_EXPECTS(
@@ -359,7 +359,7 @@ std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const
                                                          rmm::cuda_stream_view stream,
                                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const type = input.type().id();
   CUDF_EXPECTS(

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,28 +15,28 @@
  */
 
 #include "exception_with_row_index_utilities.hpp"
+#include "nvtx_ranges.hpp"
 #include "parse_uri.hpp"
 
 #include <cudf/detail/get_value.cuh>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
+#include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/convert/convert_urls.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/detail/utilities.cuh>
 #include <cudf/strings/string_view.cuh>
+#include <cudf/transform.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
 #include <cuda/std/optional>
-#include <thrust/pair.h>
+#include <cuda/std/utility>
 #include <thrust/tabulate.h>
 
 #include <memory>
@@ -95,7 +95,7 @@ constexpr bool is_hex(char c)
   return is_numeric(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-__device__ thrust::pair<bool, string_view::const_iterator> skip_and_validate_special(
+__device__ cuda::std::pair<bool, string_view::const_iterator> skip_and_validate_special(
   string_view::const_iterator iter,
   string_view::const_iterator end,
   bool allow_invalid_escapes = false)
@@ -909,8 +909,8 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
   // copy null mask
   rmm::device_buffer null_mask =
     input.parent().nullable()
-      ? cudf::detail::copy_bitmask(input.parent(), stream, mr)
-      : cudf::detail::create_null_mask(input.size(), mask_state::ALL_VALID, stream, mr);
+      ? cudf::copy_bitmask(input.parent(), stream, mr)
+      : cudf::create_null_mask(input.size(), mask_state::ALL_VALID, stream, mr);
 
   // count number of bytes in each string after parsing and store it in offsets_column
   auto offsets_view         = offsets_column->view();
@@ -981,16 +981,14 @@ void validate_input_uris(strings_column_view const& input, rmm::cuda_stream_view
     }));
 
   auto [validation_mask, null_count] =
-    cudf::detail::valid_if(validity_flags.begin(),
-                           validity_flags.end(),
-                           cuda::std::identity{},
-                           stream,
-                           rmm::mr::get_current_device_resource_ref());
+    cudf::bools_to_mask(cudf::device_span<bool const>(validity_flags),
+                        stream,
+                        rmm::mr::get_current_device_resource_ref());
 
   // Create validation column for throw_row_error_if_any
   auto validation_column = std::make_unique<column>(
     std::move(validity_flags),
-    null_count > 0 ? std::move(validation_mask) : rmm::device_buffer{0, stream},
+    null_count > 0 ? std::move(*validation_mask.release()) : rmm::device_buffer{0, stream},
     null_count);
   throw_row_error_if_any(input.parent(), validation_column->view(), stream);
 }
@@ -1004,7 +1002,7 @@ std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::PROTOCOL, std::nullopt, stream, mr);
 }
@@ -1014,7 +1012,7 @@ std::unique_ptr<column> parse_uri_to_host(strings_column_view const& input,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::HOST, std::nullopt, stream, mr);
 }
@@ -1024,7 +1022,7 @@ std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::QUERY, std::nullopt, stream, mr);
 }
@@ -1035,7 +1033,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
 
   // build string_column_view from incoming query_match string
@@ -1051,7 +1049,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   CUDF_EXPECTS(input.size() == query_match.size(), "Query column must be the same size as input!");
 
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
@@ -1063,7 +1061,7 @@ std::unique_ptr<column> parse_uri_to_path(strings_column_view const& input,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
   if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::PATH, std::nullopt, stream, mr);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,14 +18,14 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/assert.cuh>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 
 #include <cuda/std/functional>
+#include <cuda/std/utility>
 #include <thrust/count.h>
 #include <thrust/for_each.h>
-#include <thrust/pair.h>
 
 #include <cstdlib>  // For abs() function
 
@@ -62,7 +62,7 @@ CUDF_HOST_DEVICE bool is_invalid_base_range(int from_base, int to_base)
  * @brief Trims space characters (ASCII 32)
  * @return The first non-space index and last non-space index pair
  */
-__device__ thrust::pair<int, int> trim(char const* ptr, int len)
+__device__ cuda::std::pair<int, int> trim(char const* ptr, int len)
 {
   int first = 0;
   int last  = len - 1;
@@ -72,7 +72,7 @@ __device__ thrust::pair<int, int> trim(char const* ptr, int len)
   while (last > first && ptr[last] == ' ') {
     --last;
   }
-  return thrust::make_pair(first, last);
+  return {first, last};
 }
 
 /**
@@ -145,14 +145,14 @@ enum class result_type : int32_t { SUCCESS, OVERFLOW, NULL_VALUE };
  * @return result_type and length pair
  *
  */
-__device__ thrust::pair<result_type, int> convert(
+__device__ cuda::std::pair<result_type, int> convert(
   char const* ptr, int len, int from_base, int to_base, char* out, int out_len, ansi_mode ansi_type)
 {
   // trim spaces
   auto [first, last] = trim(ptr, len);
   if (last - first < 0) {
     // return null if the trimmed string is empty
-    return thrust::make_pair(result_type::NULL_VALUE, 0);
+    return {result_type::NULL_VALUE, 0};
   }
 
   // handle sign
@@ -177,7 +177,7 @@ __device__ thrust::pair<result_type, int> convert(
       // overflow since base is greater than 2 and v is considered as unsigned long
       if (ansi_type == ansi_mode::ON) {
         // overflow for ansi mode, which means throw exception
-        return thrust::make_pair(result_type::OVERFLOW, 0);
+        return {result_type::OVERFLOW, 0};
       } else {
         // overflow for non-ansi mode, use -1
         v = -1L;
@@ -193,7 +193,7 @@ __device__ thrust::pair<result_type, int> convert(
         // overflow since base is greater than 2 and v is considered as unsigned long
         if (ansi_type == ansi_mode::ON) {
           // overflow for ansi mode, which means throw exception
-          return thrust::make_pair(result_type::OVERFLOW, 0);
+          return {result_type::OVERFLOW, 0};
         } else {
           // overflow for non-ansi mode, use -1
           v = -1L;
@@ -239,7 +239,7 @@ __device__ thrust::pair<result_type, int> convert(
     if (out != nullptr) { out[out_idx] = '-'; }
     --out_idx;
   }
-  return thrust::make_pair(result_type::SUCCESS, out_len - 1 - out_idx);
+  return {result_type::SUCCESS, out_len - 1 - out_idx};
 }
 
 struct str_iter {
@@ -285,7 +285,7 @@ struct convert_fn {
   STR_ITERATOR input;
   FROM_BASE_ITERATOR from_base_iter;
   TO_BASE_ITERATOR to_base_iter;
-  int8_t* out_mask;
+  bool* out_mask;
 
   // For the first phase: calculate the d_sizes and out_mask of the converted strings
   cudf::size_type* d_sizes{};
@@ -304,7 +304,7 @@ struct convert_fn {
       if (input.is_null(idx)) {
         // if base is invalid, set null and zero length
         d_sizes[idx]  = 0;
-        out_mask[idx] = 0;
+        out_mask[idx] = false;
         return;
       }
 
@@ -313,7 +313,7 @@ struct convert_fn {
         if (from_base_iter.is_null(idx) || to_base_iter.is_null(idx)) {
           // if base is invalid, set null and zero length
           d_sizes[idx]  = 0;
-          out_mask[idx] = 0;
+          out_mask[idx] = false;
           return;
         }
 
@@ -325,7 +325,7 @@ struct convert_fn {
           // if base is invalid, return all nulls
           // first phase
           d_sizes[idx]  = 0;
-          out_mask[idx] = 0;
+          out_mask[idx] = false;
           return;
         }
       }
@@ -385,7 +385,7 @@ std::unique_ptr<cudf::column> convert_impl(cudf::size_type num_rows,
   }
 
   auto out_mask =
-    rmm::device_uvector<int8_t>(num_rows, stream, cudf::get_current_device_resource_ref());
+    rmm::device_uvector<bool>(num_rows, stream, cudf::get_current_device_resource_ref());
 
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
     convert_fn<STR_ITERATOR, FROM_BASE_ITERATOR, TO_BASE_ITERATOR>{
@@ -395,14 +395,15 @@ std::unique_ptr<cudf::column> convert_impl(cudf::size_type num_rows,
     mr);
 
   // make null mask and null count
-  auto [null_mask, null_count] = cudf::detail::valid_if(
-    out_mask.data(), out_mask.data() + out_mask.size(), cuda::std::identity{}, stream, mr);
+  auto [null_mask, null_count] =
+    cudf::bools_to_mask(cudf::device_span<bool const>(out_mask), stream, mr);
 
-  return cudf::make_strings_column(num_rows,
-                                   std::move(offsets),
-                                   chars.release(),
-                                   null_count,
-                                   null_count ? std::move(null_mask) : rmm::device_buffer{});
+  return cudf::make_strings_column(
+    num_rows,
+    std::move(offsets),
+    chars.release(),
+    null_count,
+    null_count ? std::move(*null_mask.release()) : rmm::device_buffer{});
 }
 
 /**

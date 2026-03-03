@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,16 @@
 
 #include "cast_string.hpp"
 #include "json_utils.hpp"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/io/json.hpp>
 #include <cudf/lists/lists_column_view.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/traits.hpp>
@@ -38,13 +38,13 @@
 #include <cub/device/device_segmented_reduce.cuh>
 #include <cuda/functional>
 #include <cuda/std/functional>
+#include <cuda/std/tuple>
+#include <cuda/std/utility>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
-#include <thrust/pair.h>
 #include <thrust/tabulate.h>
 #include <thrust/transform.h>
-#include <thrust/tuple.h>
 #include <thrust/uninitialized_fill.h>
 
 namespace spark_rapids_jni {
@@ -141,13 +141,13 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> generate_stru
       cudf::data_type{cudf::type_id::STRUCT}, -1, std::move(schema_cols_with_precisions)}};
 }
 
-using string_index_pair = thrust::pair<char const*, cudf::size_type>;
+using string_index_pair = cuda::std::pair<char const*, cudf::size_type>;
 
 std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& input,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::BOOL8}); }
@@ -161,14 +161,14 @@ std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& 
     cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
   auto const d_input_ptr = cudf::column_device_view::create(input, stream);
   auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
-  auto const output_it   = thrust::make_zip_iterator(
-    thrust::make_tuple(output->mutable_view().begin<bool>(), validity.begin()));
+  auto const output_it =
+    thrust::make_zip_iterator(output->mutable_view().begin<bool>(), validity.begin());
   thrust::tabulate(
     rmm::exec_policy_nosync(stream),
     output_it,
     output_it + string_count,
     [chars = input_sv.chars_begin(stream), offsets = offsets_it, is_valid = is_valid_it] __device__(
-      auto idx) -> thrust::tuple<bool, bool> {
+      auto idx) -> cuda::std::tuple<bool, bool> {
       if (is_valid[idx]) {
         auto const start_offset = offsets[idx];
         auto const end_offset   = offsets[idx + 1];
@@ -201,7 +201,7 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return cudf::make_empty_column(output_type); }
@@ -267,7 +267,7 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
 std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes_for_floats(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return {nullptr, false}; }
@@ -343,7 +343,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes_for_floats(
                                     std::move(offsets_column),
                                     chars_data.release(),
                                     input.null_count(),
-                                    cudf::detail::copy_bitmask(input, stream, mr)),
+                                    cudf::copy_bitmask(input, stream, mr)),
           true};
 }
 
@@ -353,7 +353,7 @@ std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& in
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return cudf::make_empty_column(output_type); }
@@ -380,7 +380,7 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return cudf::make_empty_column(output_type); }
@@ -397,7 +397,7 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
   rmm::device_uvector<int8_t> remove_counts(string_count, stream);
 
   {
-    using count_type    = thrust::tuple<int8_t, int8_t>;
+    using count_type    = cuda::std::tuple<int8_t, int8_t>;
     auto const check_it = cudf::detail::make_counting_transform_iterator(
       0,
       cuda::proclaim_return_type<count_type>(
@@ -409,8 +409,8 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
         }));
     auto const plus_op =
       cuda::proclaim_return_type<count_type>([] __device__(count_type lhs, count_type rhs) {
-        return count_type{thrust::get<0>(lhs) + thrust::get<0>(rhs),
-                          thrust::get<1>(lhs) + thrust::get<1>(rhs)};
+        return count_type{cuda::std::get<0>(lhs) + cuda::std::get<0>(rhs),
+                          cuda::std::get<1>(lhs) + cuda::std::get<1>(rhs)};
       });
 
     auto const out_count_it =
@@ -523,7 +523,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const string_count = input.size();
   if (string_count == 0) { return {nullptr, false}; }
@@ -594,7 +594,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
                                     std::move(offsets_column),
                                     chars_data.release(),
                                     input.null_count(),
-                                    cudf::detail::copy_bitmask(input.parent(), stream, mr)),
+                                    cudf::copy_bitmask(input.parent(), stream, mr)),
           true};
 }
 
@@ -606,7 +606,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
                                                 rmm::cuda_stream_view stream,
                                                 rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   using DecayInputT                  = std::decay_t<InputType>;
   auto constexpr input_is_const_cv   = std::is_same_v<DecayInputT, cudf::column_view>;
@@ -765,7 +765,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
       return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
                                             num_rows,
                                             rmm::device_buffer{},
-                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            cudf::copy_bitmask(input, stream, mr),
                                             null_count,
                                             std::move(new_children));
     }
@@ -787,7 +787,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
       return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
                                             num_rows,
                                             rmm::device_buffer{},
-                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            cudf::copy_bitmask(input, stream, mr),
                                             null_count,
                                             std::move(new_children));
     }
@@ -864,7 +864,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
 
   auto const valid_it          = should_be_nullified->view().begin<bool>();
   auto [null_mask, null_count] = cudf::detail::valid_if(
-    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not{}, stream, mr);
+    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not<bool>{}, stream, mr);
 
   // Do not use `cudf::make_structs_column` since we do not need to call `superimpose_nulls`
   // on the children columns.
@@ -895,7 +895,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   return detail::from_json_to_structs(input,
                                       col_names,
@@ -922,7 +922,7 @@ std::unique_ptr<cudf::column> convert_from_strings(cudf::strings_column_view con
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   [[maybe_unused]] auto const [schema, schema_with_precision] = detail::generate_struct_schema(
     /*dummy col_names*/ std::vector<std::string>(num_children.size(), std::string{}),
@@ -947,7 +947,7 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& inp
                                             rmm::cuda_stream_view stream,
                                             rmm::device_async_resource_ref mr)
 {
-  CUDF_FUNC_RANGE();
+  SRJ_FUNC_RANGE();
 
   auto const input_cv = input.parent();
   auto [removed_quotes, success] =
