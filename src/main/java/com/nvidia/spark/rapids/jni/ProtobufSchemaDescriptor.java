@@ -22,26 +22,31 @@ package com.nvidia.spark.rapids.jni;
  *
  * <p>Use this class instead of passing 15+ individual arrays through the JNI boundary.
  * Validation is performed once in the constructor.
+ *
+ * <p>The arrays are intentionally exposed as package-private (not public) to allow
+ * zero-copy access from {@link Protobuf} within the same package, while preventing
+ * external code from mutating the contents after construction. Callers outside this
+ * package should treat instances as opaque and immutable.
  */
 public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   private static final long serialVersionUID = 1L;
   private static final int MAX_FIELD_NUMBER = (1 << 29) - 1;
 
-  public final int[] fieldNumbers;
-  public final int[] parentIndices;
-  public final int[] depthLevels;
-  public final int[] wireTypes;
-  public final int[] outputTypeIds;
-  public final int[] encodings;
-  public final boolean[] isRepeated;
-  public final boolean[] isRequired;
-  public final boolean[] hasDefaultValue;
-  public final long[] defaultInts;
-  public final double[] defaultFloats;
-  public final boolean[] defaultBools;
-  public final byte[][] defaultStrings;
-  public final int[][] enumValidValues;
-  public final byte[][][] enumNames;
+  final int[] fieldNumbers;
+  final int[] parentIndices;
+  final int[] depthLevels;
+  final int[] wireTypes;
+  final int[] outputTypeIds;
+  final int[] encodings;
+  final boolean[] isRepeated;
+  final boolean[] isRequired;
+  final boolean[] hasDefaultValue;
+  final long[] defaultInts;
+  final double[] defaultFloats;
+  final boolean[] defaultBools;
+  final byte[][] defaultStrings;
+  final int[][] enumValidValues;
+  final byte[][][] enumNames;
 
   /**
    * @throws IllegalArgumentException if any array is null, arrays have mismatched lengths,
@@ -93,6 +98,16 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
       if (enc < Protobuf.ENC_DEFAULT || enc > Protobuf.ENC_ENUM_STRING) {
         throw new IllegalArgumentException(
             "Invalid encoding at index " + i + ": " + enc);
+      }
+      if (enumValidValues[i] != null) {
+        int[] ev = enumValidValues[i];
+        for (int j = 1; j < ev.length; j++) {
+          if (ev[j] < ev[j - 1]) {
+            throw new IllegalArgumentException(
+                "enumValidValues[" + i + "] must be sorted in ascending order " +
+                "(binary search requires it), but found " + ev[j - 1] + " before " + ev[j]);
+          }
+        }
       }
     }
 

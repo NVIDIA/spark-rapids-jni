@@ -112,6 +112,167 @@ __global__ void scan_all_fields_kernel(
 }
 
 // ============================================================================
+// Shared device functions for repeated field processing
+// ============================================================================
+
+/**
+ * Count a single repeated field occurrence (packed or unpacked).
+ * Updates info.count and info.total_length.
+ * Returns false on error (error_flag set), true on success.
+ */
+__device__ bool count_repeated_element(uint8_t const* cur,
+                                       uint8_t const* msg_end,
+                                       int wt,
+                                       int expected_wt,
+                                       repeated_field_info& info,
+                                       int* error_flag)
+{
+  bool is_packed = (wt == WT_LEN && expected_wt != WT_LEN);
+
+  if (!is_packed && wt != expected_wt) {
+    set_error_once(error_flag, ERR_WIRE_TYPE);
+    return false;
+  }
+
+  if (is_packed) {
+    uint64_t packed_len;
+    int len_bytes;
+    if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
+      set_error_once(error_flag, ERR_VARINT);
+      return false;
+    }
+    uint8_t const* packed_start = cur + len_bytes;
+    uint8_t const* packed_end   = packed_start + packed_len;
+    if (packed_end > msg_end) {
+      set_error_once(error_flag, ERR_OVERFLOW);
+      return false;
+    }
+
+    int count = 0;
+    if (expected_wt == WT_VARINT) {
+      uint8_t const* p = packed_start;
+      while (p < packed_end) {
+        uint64_t dummy;
+        int vbytes;
+        if (!read_varint(p, packed_end, dummy, vbytes)) {
+          set_error_once(error_flag, ERR_VARINT);
+          return false;
+        }
+        p += vbytes;
+        count++;
+      }
+    } else if (expected_wt == WT_32BIT) {
+      if ((packed_len % 4) != 0) {
+        set_error_once(error_flag, ERR_FIXED_LEN);
+        return false;
+      }
+      count = static_cast<int>(packed_len / 4);
+    } else if (expected_wt == WT_64BIT) {
+      if ((packed_len % 8) != 0) {
+        set_error_once(error_flag, ERR_FIXED_LEN);
+        return false;
+      }
+      count = static_cast<int>(packed_len / 8);
+    }
+
+    info.count += count;
+    info.total_length += static_cast<int32_t>(packed_len);
+  } else {
+    int32_t data_offset, data_length;
+    if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
+      set_error_once(error_flag, ERR_FIELD_SIZE);
+      return false;
+    }
+    info.count++;
+    info.total_length += data_length;
+  }
+  return true;
+}
+
+/**
+ * Record a single repeated field occurrence (packed or unpacked).
+ * Writes to occurrences[write_idx] and advances write_idx.
+ * Offsets are computed relative to msg_base.
+ * Returns false on error (error_flag set), true on success.
+ */
+__device__ bool scan_repeated_element(uint8_t const* cur,
+                                      uint8_t const* msg_end,
+                                      uint8_t const* msg_base,
+                                      int wt,
+                                      int expected_wt,
+                                      int32_t row,
+                                      repeated_occurrence* occurrences,
+                                      int& write_idx,
+                                      int* error_flag)
+{
+  bool is_packed = (wt == WT_LEN && expected_wt != WT_LEN);
+
+  if (!is_packed && wt != expected_wt) {
+    set_error_once(error_flag, ERR_WIRE_TYPE);
+    return false;
+  }
+
+  if (is_packed) {
+    uint64_t packed_len;
+    int len_bytes;
+    if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
+      set_error_once(error_flag, ERR_VARINT);
+      return false;
+    }
+    uint8_t const* packed_start = cur + len_bytes;
+    uint8_t const* packed_end   = packed_start + packed_len;
+    if (packed_end > msg_end) {
+      set_error_once(error_flag, ERR_OVERFLOW);
+      return false;
+    }
+
+    if (expected_wt == WT_VARINT) {
+      uint8_t const* p = packed_start;
+      while (p < packed_end) {
+        int32_t elem_offset = static_cast<int32_t>(p - msg_base);
+        uint64_t dummy;
+        int vbytes;
+        if (!read_varint(p, packed_end, dummy, vbytes)) {
+          set_error_once(error_flag, ERR_VARINT);
+          return false;
+        }
+        occurrences[write_idx] = {row, elem_offset, vbytes};
+        write_idx++;
+        p += vbytes;
+      }
+    } else if (expected_wt == WT_32BIT) {
+      if ((packed_len % 4) != 0) {
+        set_error_once(error_flag, ERR_FIXED_LEN);
+        return false;
+      }
+      for (uint64_t i = 0; i < packed_len; i += 4) {
+        occurrences[write_idx] = {row, static_cast<int32_t>(packed_start - msg_base + i), 4};
+        write_idx++;
+      }
+    } else if (expected_wt == WT_64BIT) {
+      if ((packed_len % 8) != 0) {
+        set_error_once(error_flag, ERR_FIXED_LEN);
+        return false;
+      }
+      for (uint64_t i = 0; i < packed_len; i += 8) {
+        occurrences[write_idx] = {row, static_cast<int32_t>(packed_start - msg_base + i), 8};
+        write_idx++;
+      }
+    }
+  } else {
+    int32_t data_offset, data_length;
+    if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
+      set_error_once(error_flag, ERR_FIELD_SIZE);
+      return false;
+    }
+    int32_t abs_offset     = static_cast<int32_t>(cur - msg_base) + data_offset;
+    occurrences[write_idx] = {row, abs_offset, data_length};
+    write_idx++;
+  }
+  return true;
+}
+
+// ============================================================================
 // Pass 1b: Count repeated fields kernel
 // ============================================================================
 
@@ -167,79 +328,16 @@ __global__ void count_repeated_fields_kernel(
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
-    // Check repeated fields at this depth
     for (int i = 0; i < num_repeated_fields; i++) {
       int schema_idx = repeated_field_indices[i];
       if (schema[schema_idx].field_number == fn && schema[schema_idx].depth == depth_level) {
-        int expected_wt = schema[schema_idx].wire_type;
-
-        // Handle both packed and unpacked encoding for repeated fields
-        // Packed encoding uses wire type LEN (2) even for scalar types
-        bool is_packed = (wt == WT_LEN && expected_wt != WT_LEN);
-
-        if (!is_packed && wt != expected_wt) {
-          set_error_once(error_flag, ERR_WIRE_TYPE);
+        if (!count_repeated_element(cur,
+                                    msg_end,
+                                    wt,
+                                    schema[schema_idx].wire_type,
+                                    repeated_info[row * num_repeated_fields + i],
+                                    error_flag)) {
           return;
-        }
-
-        if (is_packed) {
-          // Packed encoding: read length, then count elements inside
-          uint64_t packed_len;
-          int len_bytes;
-          if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
-            set_error_once(error_flag, ERR_VARINT);
-            return;
-          }
-
-          // Count elements based on type
-          uint8_t const* packed_start = cur + len_bytes;
-          uint8_t const* packed_end   = packed_start + packed_len;
-          if (packed_end > msg_end) {
-            set_error_once(error_flag, ERR_OVERFLOW);
-            return;
-          }
-
-          int count = 0;
-          if (expected_wt == WT_VARINT) {
-            // Count varints in the packed data
-            uint8_t const* p = packed_start;
-            while (p < packed_end) {
-              uint64_t dummy;
-              int vbytes;
-              if (!read_varint(p, packed_end, dummy, vbytes)) {
-                set_error_once(error_flag, ERR_VARINT);
-                return;
-              }
-              p += vbytes;
-              count++;
-            }
-          } else if (expected_wt == WT_32BIT) {
-            if ((packed_len % 4) != 0) {
-              set_error_once(error_flag, ERR_FIXED_LEN);
-              return;
-            }
-            count = static_cast<int>(packed_len / 4);
-          } else if (expected_wt == WT_64BIT) {
-            if ((packed_len % 8) != 0) {
-              set_error_once(error_flag, ERR_FIXED_LEN);
-              return;
-            }
-            count = static_cast<int>(packed_len / 8);
-          }
-
-          repeated_info[row * num_repeated_fields + i].count += count;
-          repeated_info[row * num_repeated_fields + i].total_length +=
-            static_cast<int32_t>(packed_len);
-        } else {
-          // Non-packed encoding: single element
-          int32_t data_offset, data_length;
-          if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
-            set_error_once(error_flag, ERR_FIELD_SIZE);
-            return;
-          }
-
-          repeated_info[row * num_repeated_fields + i].count++;
-          repeated_info[row * num_repeated_fields + i].total_length += data_length;
         }
       }
     }
@@ -317,71 +415,19 @@ __global__ void scan_repeated_field_occurrences_kernel(
     int wt = tag.wire_type;
 
     if (fn == target_fn) {
-      // Check for packed encoding: wire type LEN but expected non-LEN
       bool is_packed = (wt == WT_LEN && target_wt != WT_LEN);
-
-      if (is_packed) {
-        // Packed encoding: multiple elements in a length-delimited blob
-        uint64_t packed_len;
-        int len_bytes;
-        if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
-          set_error_once(error_flag, ERR_VARINT);
+      if (is_packed || wt == target_wt) {
+        if (!scan_repeated_element(cur,
+                                   msg_end,
+                                   bytes + start,
+                                   wt,
+                                   target_wt,
+                                   static_cast<int32_t>(row),
+                                   occurrences,
+                                   write_idx,
+                                   error_flag)) {
           return;
         }
-
-        uint8_t const* packed_start = cur + len_bytes;
-        uint8_t const* packed_end   = packed_start + packed_len;
-        if (packed_end > msg_end) {
-          set_error_once(error_flag, ERR_OVERFLOW);
-          return;
-        }
-
-        // Record each element in the packed blob
-        if (target_wt == WT_VARINT) {
-          // Varints: parse each one
-          uint8_t const* p = packed_start;
-          while (p < packed_end) {
-            int32_t elem_offset = static_cast<int32_t>(p - bytes - start);
-            uint64_t dummy;
-            int vbytes;
-            if (!read_varint(p, packed_end, dummy, vbytes)) {
-              set_error_once(error_flag, ERR_VARINT);
-              return;
-            }
-            occurrences[write_idx] = {static_cast<int32_t>(row), elem_offset, vbytes};
-            write_idx++;
-            p += vbytes;
-          }
-        } else if (target_wt == WT_32BIT) {
-          // Fixed 32-bit: each element is 4 bytes
-          uint8_t const* p = packed_start;
-          while (p + 4 <= packed_end) {
-            int32_t elem_offset    = static_cast<int32_t>(p - bytes - start);
-            occurrences[write_idx] = {static_cast<int32_t>(row), elem_offset, 4};
-            write_idx++;
-            p += 4;
-          }
-        } else if (target_wt == WT_64BIT) {
-          // Fixed 64-bit: each element is 8 bytes
-          uint8_t const* p = packed_start;
-          while (p + 8 <= packed_end) {
-            int32_t elem_offset    = static_cast<int32_t>(p - bytes - start);
-            occurrences[write_idx] = {static_cast<int32_t>(row), elem_offset, 8};
-            write_idx++;
-            p += 8;
-          }
-        }
-      } else if (wt == target_wt) {
-        // Non-packed encoding: single element
-        int32_t data_offset, data_length;
-        if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
-          set_error_once(error_flag, ERR_FIELD_SIZE);
-          return;
-        }
-
-        int32_t abs_offset     = static_cast<int32_t>(cur - bytes - start) + data_offset;
-        occurrences[write_idx] = {static_cast<int32_t>(row), abs_offset, data_length};
-        write_idx++;
       }
     }
 
@@ -608,68 +654,16 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
-    // Check if this is one of our repeated fields
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx = repeated_indices[ri];
       if (schema[schema_idx].field_number == fn && schema[schema_idx].is_repeated) {
-        int expected_wt = schema[schema_idx].wire_type;
-        bool is_packed  = (wt == WT_LEN && expected_wt != WT_LEN);
-
-        if (!is_packed && wt != expected_wt) {
-          set_error_once(error_flag, ERR_WIRE_TYPE);
+        if (!count_repeated_element(cur,
+                                    msg_end,
+                                    wt,
+                                    schema[schema_idx].wire_type,
+                                    repeated_info[row * num_repeated + ri],
+                                    error_flag)) {
           return;
-        }
-
-        if (is_packed) {
-          uint64_t packed_len;
-          int len_bytes;
-          if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
-            set_error_once(error_flag, ERR_VARINT);
-            return;
-          }
-          uint8_t const* packed_start = cur + len_bytes;
-          uint8_t const* packed_end   = packed_start + packed_len;
-          if (packed_end > msg_end) {
-            set_error_once(error_flag, ERR_OVERFLOW);
-            return;
-          }
-
-          int count = 0;
-          if (expected_wt == WT_VARINT) {
-            uint8_t const* p = packed_start;
-            while (p < packed_end) {
-              uint64_t dummy;
-              int vbytes;
-              if (!read_varint(p, packed_end, dummy, vbytes)) {
-                set_error_once(error_flag, ERR_VARINT);
-                return;
-              }
-              p += vbytes;
-              count++;
-            }
-          } else if (expected_wt == WT_32BIT) {
-            if ((packed_len % 4) != 0) {
-              set_error_once(error_flag, ERR_FIXED_LEN);
-              return;
-            }
-            count = static_cast<int>(packed_len / 4);
-          } else if (expected_wt == WT_64BIT) {
-            if ((packed_len % 8) != 0) {
-              set_error_once(error_flag, ERR_FIXED_LEN);
-              return;
-            }
-            count = static_cast<int>(packed_len / 8);
-          }
-          repeated_info[row * num_repeated + ri].count += count;
-          repeated_info[row * num_repeated + ri].total_length += static_cast<int32_t>(packed_len);
-        } else {
-          int32_t data_offset, data_len;
-          if (!get_field_data_location(cur, msg_end, wt, data_offset, data_len)) {
-            set_error_once(error_flag, ERR_FIELD_SIZE);
-            return;
-          }
-          repeated_info[row * num_repeated + ri].count++;
-          repeated_info[row * num_repeated + ri].total_length += data_len;
         }
       }
     }
@@ -684,7 +678,9 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
 }
 
 /**
- * Scan for repeated field occurrences within nested messages.
+ * Scan for repeated field occurrences of a single repeated field within nested
+ * messages. Must be launched once per repeated field — the caller passes
+ * exactly one schema index via repeated_indices[0].
  */
 __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
                                                cudf::size_type const* row_offsets,
@@ -692,9 +688,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
                                                field_location const* parent_locs,
                                                int num_rows,
                                                device_nested_field_descriptor const* schema,
-                                               int num_fields,
                                                int32_t const* occ_prefix_sums,
-                                               int num_repeated,
                                                int const* repeated_indices,
                                                repeated_occurrence* occurrences,
                                                int* error_flag)
@@ -705,16 +699,14 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
   auto const& parent_loc = parent_locs[row];
   if (parent_loc.offset < 0) return;
 
-  // Prefix sum gives the write start offset for this row.
-  int occ_offset = occ_prefix_sums[row];
-
   cudf::size_type row_off = row_offsets[row] - base_offset;
 
   uint8_t const* msg_start = message_data + row_off + parent_loc.offset;
   uint8_t const* msg_end   = msg_start + parent_loc.length;
   uint8_t const* cur       = msg_start;
 
-  int occ_idx = 0;
+  int write_idx  = occ_prefix_sums[row];
+  int schema_idx = repeated_indices[0];
 
   while (cur < msg_end) {
     proto_tag tag;
@@ -722,92 +714,17 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
-    // Check if this is one of our repeated fields.
-    for (int ri = 0; ri < num_repeated; ri++) {
-      int schema_idx = repeated_indices[ri];
-      if (schema[schema_idx].field_number == fn && schema[schema_idx].is_repeated) {
-        int expected_wt = schema[schema_idx].wire_type;
-        bool is_packed  = (wt == WT_LEN && expected_wt != WT_LEN);
-
-        if (!is_packed && wt != expected_wt) {
-          set_error_once(error_flag, ERR_WIRE_TYPE);
-          return;
-        }
-
-        if (is_packed) {
-          uint64_t packed_len;
-          int len_bytes;
-          if (!read_varint(cur, msg_end, packed_len, len_bytes)) {
-            set_error_once(error_flag, ERR_VARINT);
-            return;
-          }
-          uint8_t const* packed_start = cur + len_bytes;
-          uint8_t const* packed_end   = packed_start + packed_len;
-          if (packed_end > msg_end) {
-            set_error_once(error_flag, ERR_OVERFLOW);
-            return;
-          }
-
-          if (expected_wt == WT_VARINT) {
-            uint8_t const* p = packed_start;
-            while (p < packed_end) {
-              int32_t elem_offset = static_cast<int32_t>(p - msg_start);
-              uint64_t dummy;
-              int vbytes;
-              if (!read_varint(p, packed_end, dummy, vbytes)) {
-                set_error_once(error_flag, ERR_VARINT);
-                return;
-              }
-              occurrences[occ_offset + occ_idx] = {row, elem_offset, vbytes};
-              occ_idx++;
-              p += vbytes;
-            }
-          } else if (expected_wt == WT_32BIT) {
-            if ((packed_len % 4) != 0) {
-              set_error_once(error_flag, ERR_FIXED_LEN);
-              return;
-            }
-            for (uint64_t i = 0; i < packed_len; i += 4) {
-              occurrences[occ_offset + occ_idx] = {
-                row, static_cast<int32_t>(packed_start - msg_start + i), 4};
-              occ_idx++;
-            }
-          } else if (expected_wt == WT_64BIT) {
-            if ((packed_len % 8) != 0) {
-              set_error_once(error_flag, ERR_FIXED_LEN);
-              return;
-            }
-            for (uint64_t i = 0; i < packed_len; i += 8) {
-              occurrences[occ_offset + occ_idx] = {
-                row, static_cast<int32_t>(packed_start - msg_start + i), 8};
-              occ_idx++;
-            }
-          }
-        } else {
-          int32_t data_offset = static_cast<int32_t>(cur - msg_start);
-          int32_t data_len    = 0;
-          if (wt == WT_LEN) {
-            uint64_t len;
-            int len_bytes;
-            if (!read_varint(cur, msg_end, len, len_bytes)) {
-              set_error_once(error_flag, ERR_VARINT);
-              return;
-            }
-            data_offset += len_bytes;
-            data_len = static_cast<int32_t>(len);
-          } else if (wt == WT_VARINT) {
-            uint64_t dummy;
-            int vbytes;
-            if (read_varint(cur, msg_end, dummy, vbytes)) { data_len = vbytes; }
-          } else if (wt == WT_32BIT) {
-            data_len = 4;
-          } else if (wt == WT_64BIT) {
-            data_len = 8;
-          }
-
-          occurrences[occ_offset + occ_idx] = {row, data_offset, data_len};
-          occ_idx++;
-        }
+    if (schema[schema_idx].field_number == fn && schema[schema_idx].is_repeated) {
+      if (!scan_repeated_element(cur,
+                                 msg_end,
+                                 msg_start,
+                                 wt,
+                                 schema[schema_idx].wire_type,
+                                 static_cast<int32_t>(row),
+                                 occurrences,
+                                 write_idx,
+                                 error_flag)) {
+        return;
       }
     }
 

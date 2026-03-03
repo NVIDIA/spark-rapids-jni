@@ -131,14 +131,28 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // Error flag
   rmm::device_uvector<int> d_error(1, stream, mr);
   CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
+  auto error_message = [](int code) -> char const* {
+    switch (code) {
+      case ERR_BOUNDS: return "Protobuf decode error: message data out of bounds";
+      case ERR_VARINT: return "Protobuf decode error: invalid or truncated varint";
+      case ERR_FIELD_NUMBER: return "Protobuf decode error: invalid field number";
+      case ERR_WIRE_TYPE: return "Protobuf decode error: unexpected wire type";
+      case ERR_OVERFLOW: return "Protobuf decode error: length-delimited field overflows message";
+      case ERR_FIELD_SIZE: return "Protobuf decode error: invalid field size";
+      case ERR_SKIP: return "Protobuf decode error: unable to skip unknown field";
+      case ERR_FIXED_LEN:
+        return "Protobuf decode error: invalid fixed-width or packed field length";
+      case ERR_REQUIRED: return "Protobuf decode error: missing required field";
+      default: return "Protobuf decode error: unknown error";
+    }
+  };
   auto check_error_and_throw = [&]() {
     if (!fail_on_errors) return;
     int h_error = 0;
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       &h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));
     stream.synchronize();
-    CUDF_EXPECTS(h_error == 0,
-                 "Malformed protobuf message, unsupported wire type, or missing required field");
+    if (h_error != 0) { throw cudf::logic_error(error_message(h_error)); }
   };
 
   // Enum validation support (PERMISSIVE mode)
@@ -193,9 +207,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     check_error_and_throw();
   }
 
-  // For scalar fields at depth 0, use the existing scan_all_fields_kernel
-  // Use a map to store columns by schema index, then assemble in order at the end
-  std::map<int, std::unique_ptr<cudf::column>> column_map;
+  // Store decoded columns by schema index for ordered assembly at the end.
+  std::vector<std::unique_ptr<cudf::column>> column_map(num_fields);
 
   // Process scalar fields using existing infrastructure
   if (num_scalar > 0) {
@@ -558,140 +571,20 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                 schema_idx < static_cast<int>(enum_names.size()) &&
                 !enum_valid_values[schema_idx].empty() &&
                 enum_valid_values[schema_idx].size() == enum_names[schema_idx].size()) {
-              // Repeated enum-as-string: extract varints, then convert to strings.
-              auto const& valid_enums = enum_valid_values[schema_idx];
-              auto const& name_bytes  = enum_names[schema_idx];
-
-              // 1. Extract enum integer values from occurrences
-              rmm::device_uvector<int32_t> enum_ints(total_count, stream, mr);
-              auto const rep_blocks =
-                static_cast<int>((total_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
-              RepeatedLocationProvider rep_loc{list_offsets, base_offset, d_occurrences.data()};
-              extract_varint_kernel<int32_t, false>
-                <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-                  message_data, rep_loc, total_count, enum_ints.data(), nullptr, d_error.data());
-
-              // 2. Build device-side enum lookup tables
-              rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
-              CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
-                                            valid_enums.data(),
-                                            valid_enums.size() * sizeof(int32_t),
-                                            cudaMemcpyHostToDevice,
-                                            stream.value()));
-
-              std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
-              int32_t total_name_chars = 0;
-              for (size_t k = 0; k < name_bytes.size(); ++k) {
-                total_name_chars += static_cast<int32_t>(name_bytes[k].size());
-                h_name_offsets[k + 1] = total_name_chars;
-              }
-              std::vector<uint8_t> h_name_chars(total_name_chars);
-              int32_t cursor = 0;
-              for (auto const& nm : name_bytes) {
-                if (!nm.empty()) {
-                  std::copy(nm.data(), nm.data() + nm.size(), h_name_chars.data() + cursor);
-                  cursor += static_cast<int32_t>(nm.size());
-                }
-              }
-              rmm::device_uvector<int32_t> d_name_offsets(h_name_offsets.size(), stream, mr);
-              CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_offsets.data(),
-                                            h_name_offsets.data(),
-                                            h_name_offsets.size() * sizeof(int32_t),
-                                            cudaMemcpyHostToDevice,
-                                            stream.value()));
-              rmm::device_uvector<uint8_t> d_name_chars(total_name_chars, stream, mr);
-              if (total_name_chars > 0) {
-                CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_chars.data(),
-                                              h_name_chars.data(),
-                                              total_name_chars * sizeof(uint8_t),
-                                              cudaMemcpyHostToDevice,
-                                              stream.value()));
-              }
-
-              // 3. Validate enum values (sets row_has_invalid_enum for PERMISSIVE mode).
-              //    We also need per-element validity for string building.
-              rmm::device_uvector<bool> elem_valid(total_count, stream, mr);
-              thrust::fill(rmm::exec_policy(stream), elem_valid.data(), elem_valid.end(), true);
-              // validate_enum_values_kernel works on per-row basis; here we need per-element.
-              // Binary-search each element inline via the lengths kernel below.
-
-              // 4. Compute per-element string lengths
-              rmm::device_uvector<int32_t> elem_lengths(total_count, stream, mr);
-              compute_enum_string_lengths_kernel<<<rep_blocks,
-                                                   THREADS_PER_BLOCK,
-                                                   0,
-                                                   stream.value()>>>(
-                enum_ints.data(),
-                elem_valid.data(),
-                d_valid_enums.data(),
-                d_name_offsets.data(),
-                static_cast<int>(valid_enums.size()),
-                elem_lengths.data(),
-                total_count);
-
-              // 5. Build string offsets
-              auto [str_offs_col, total_chars] = cudf::strings::detail::make_offsets_child_column(
-                elem_lengths.begin(), elem_lengths.end(), stream, mr);
-
-              // 6. Copy string chars
-              rmm::device_uvector<char> chars(total_chars, stream, mr);
-              if (total_chars > 0) {
-                copy_enum_string_chars_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-                  enum_ints.data(),
-                  elem_valid.data(),
-                  d_valid_enums.data(),
-                  d_name_offsets.data(),
-                  d_name_chars.data(),
-                  static_cast<int>(valid_enums.size()),
-                  str_offs_col->view().data<int32_t>(),
-                  chars.data(),
-                  total_count);
-              }
-
-              // 7. Assemble LIST<STRING> column
-              auto child_col = cudf::make_strings_column(
-                total_count, std::move(str_offs_col), chars.release(), 0, rmm::device_buffer{});
-
-              // Build list offsets from per-row counts
-              rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
-              thrust::exclusive_scan(rmm::exec_policy(stream),
-                                     d_field_counts.begin(),
-                                     d_field_counts.end(),
-                                     list_offs.begin(),
-                                     0);
-              int32_t tc_i32 = static_cast<int32_t>(total_count);
-              CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
-                                            &tc_i32,
-                                            sizeof(int32_t),
-                                            cudaMemcpyHostToDevice,
-                                            stream.value()));
-
-              auto list_offs_col =
-                std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                               num_rows + 1,
-                                               list_offs.release(),
-                                               rmm::device_buffer{},
-                                               0);
-
-              auto input_null_count = binary_input.null_count();
-              if (input_null_count > 0) {
-                auto null_mask         = cudf::copy_bitmask(binary_input, stream, mr);
-                column_map[schema_idx] = cudf::make_lists_column(num_rows,
-                                                                 std::move(list_offs_col),
-                                                                 std::move(child_col),
-                                                                 input_null_count,
-                                                                 std::move(null_mask),
-                                                                 stream,
-                                                                 mr);
-              } else {
-                column_map[schema_idx] = cudf::make_lists_column(num_rows,
-                                                                 std::move(list_offs_col),
-                                                                 std::move(child_col),
-                                                                 0,
-                                                                 rmm::device_buffer{},
-                                                                 stream,
-                                                                 mr);
-              }
+              column_map[schema_idx] =
+                build_repeated_enum_string_column(binary_input,
+                                                  message_data,
+                                                  list_offsets,
+                                                  base_offset,
+                                                  d_field_counts,
+                                                  d_occurrences,
+                                                  total_count,
+                                                  num_rows,
+                                                  enum_valid_values[schema_idx],
+                                                  enum_names[schema_idx],
+                                                  d_error,
+                                                  stream,
+                                                  mr);
             } else {
               column_map[schema_idx] = build_repeated_string_column(binary_input,
                                                                     message_data,
@@ -854,9 +747,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   std::vector<std::unique_ptr<cudf::column>> top_level_children;
   for (int i = 0; i < num_fields; i++) {
     if (schema[i].parent_idx == -1) {  // Top-level field
-      auto it = column_map.find(i);
-      if (it != column_map.end()) {
-        top_level_children.push_back(std::move(it->second));
+      if (column_map[i]) {
+        top_level_children.push_back(std::move(column_map[i]));
       } else {
         if (schema[i].is_repeated) {
           auto const element_type = schema_output_types[i];
@@ -882,10 +774,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   CUDF_CUDA_TRY(
     cudaMemcpyAsync(&h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
-  if (fail_on_errors) {
-    CUDF_EXPECTS(h_error == 0,
-                 "Malformed protobuf message, unsupported wire type, or missing required field");
-  }
+  if (fail_on_errors && h_error != 0) { throw cudf::logic_error(error_message(h_error)); }
 
   // Build final struct with PERMISSIVE mode null mask for invalid enums
   cudf::size_type struct_null_count = 0;

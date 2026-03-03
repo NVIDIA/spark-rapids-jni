@@ -28,6 +28,8 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -169,6 +171,41 @@ public class ProtobufTest {
   }
 
   /**
+   * Test-only convenience: wrap raw parallel arrays into a ProtobufSchemaDescriptor
+   * and decode. Avoids verbose ProtobufSchemaDescriptor construction at every call site.
+   */
+  private static ColumnVector decodeRaw(ColumnView binaryInput,
+                                        int[] fieldNumbers, int[] parentIndices, int[] depthLevels,
+                                        int[] wireTypes, int[] outputTypeIds, int[] encodings,
+                                        boolean[] isRepeated, boolean[] isRequired,
+                                        boolean[] hasDefaultValue, long[] defaultInts,
+                                        double[] defaultFloats, boolean[] defaultBools,
+                                        byte[][] defaultStrings, int[][] enumValidValues,
+                                        boolean failOnErrors) {
+    return decodeRaw(binaryInput, fieldNumbers, parentIndices, depthLevels,
+        wireTypes, outputTypeIds, encodings, isRepeated, isRequired,
+        hasDefaultValue, defaultInts, defaultFloats, defaultBools,
+        defaultStrings, enumValidValues, new byte[fieldNumbers.length][][], failOnErrors);
+  }
+
+  private static ColumnVector decodeRaw(ColumnView binaryInput,
+                                        int[] fieldNumbers, int[] parentIndices, int[] depthLevels,
+                                        int[] wireTypes, int[] outputTypeIds, int[] encodings,
+                                        boolean[] isRepeated, boolean[] isRequired,
+                                        boolean[] hasDefaultValue, long[] defaultInts,
+                                        double[] defaultFloats, boolean[] defaultBools,
+                                        byte[][] defaultStrings, int[][] enumValidValues,
+                                        byte[][][] enumNames,
+                                        boolean failOnErrors) {
+    return Protobuf.decodeToStruct(binaryInput,
+        new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels,
+            wireTypes, outputTypeIds, encodings, isRepeated, isRequired,
+            hasDefaultValue, defaultInts, defaultFloats, defaultBools,
+            defaultStrings, enumValidValues, enumNames),
+        failOnErrors);
+  }
+
+  /**
    * Helper to decode all scalar fields using the unified API.
    * Builds a flat schema (parentIndices=-1, depth=0, isRepeated=false for all fields).
    */
@@ -197,9 +234,12 @@ public class ProtobufTest {
       wireTypes[i] = getWireType(typeIds[i], encodings[i]);
     }
 
-    return Protobuf.decodeToStruct(binaryInput, fieldNumbers, parentIndices, depthLevels,
-        wireTypes, typeIds, encodings, isRepeated, isRequired, hasDefaultValue,
-        defaultInts, defaultFloats, defaultBools, defaultStrings, enumValidValues, failOnErrors);
+    return Protobuf.decodeToStruct(binaryInput,
+        new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels,
+            wireTypes, typeIds, encodings, isRepeated, isRequired, hasDefaultValue,
+            defaultInts, defaultFloats, defaultBools, defaultStrings, enumValidValues,
+            new byte[fieldNumbers.length][][]),
+        failOnErrors);
   }
 
   /**
@@ -1663,7 +1703,7 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       // Use the new nested API for repeated fields
       // Field: ids (field_number=1, parent=-1, depth=0, wire_type=VARINT, type=INT32, repeated=true)
-      try (ColumnVector result = Protobuf.decodeToStruct(
+      try (ColumnVector result = decodeRaw(
           input.getColumn(0),
           new int[]{1},                    // fieldNumbers
           new int[]{-1},                   // parentIndices (-1 = top level)
@@ -1737,7 +1777,7 @@ public class ProtobufTest {
         box(tag(3, WT_LEN)), box(encodeVarint(r2Doubles.length)), box(r2Doubles));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1, row2}).build()) {
-      try (ColumnVector result = Protobuf.decodeToStruct(
+      try (ColumnVector result = decodeRaw(
           input.getColumn(0),
           new int[]{1, 2, 3, 4},
           new int[]{-1, -1, -1, -1},
@@ -1811,7 +1851,7 @@ public class ProtobufTest {
       // Flattened schema:
       // [0] inner: STRUCT, field_number=1, parent=-1, depth=0
       // [1] inner.x: INT32, field_number=1, parent=0, depth=1
-      try (ColumnVector result = Protobuf.decodeToStruct(
+      try (ColumnVector result = decodeRaw(
           input.getColumn(0),
           new int[]{1, 1},                 // fieldNumbers
           new int[]{-1, 0},                // parentIndices
@@ -1859,7 +1899,7 @@ public class ProtobufTest {
          ColumnVector expectedMiddle = ColumnVector.makeStruct(expectedInner, expectedM);
          ColumnVector expectedScore = ColumnVector.fromBoxedFloats(1.25f);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedMiddle, expectedScore);
-         ColumnVector actualStruct = Protobuf.decodeToStruct(
+         ColumnVector actualStruct = decodeRaw(
              input.getColumn(0),
              new int[]{1, 1, 1, 2, 3, 2, 2},  // fieldNumbers
              new int[]{-1, 0, 1, 1, 1, 0, -1},  // parentIndices
@@ -1901,7 +1941,7 @@ public class ProtobufTest {
         inner);
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              new int[]{1, 1},  // outer.inner, inner.ids
              new int[]{-1, 0},
@@ -1939,7 +1979,7 @@ public class ProtobufTest {
         box(tag(1, WT_VARINT)), box(encodeVarint(3)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              new int[]{1},
              new int[]{-1},
@@ -1972,7 +2012,7 @@ public class ProtobufTest {
         box(tag(1, WT_VARINT)), box(encodeVarint(33)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              new int[]{1},
              new int[]{-1},
@@ -2006,7 +2046,7 @@ public class ProtobufTest {
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector ignored = Protobuf.decodeToStruct(
+        try (ColumnVector ignored = decodeRaw(
             input.getColumn(0),
             new int[]{1, 1},
             new int[]{-1, 0},
@@ -2253,23 +2293,12 @@ public class ProtobufTest {
     boolean[] isRepeated = new boolean[numFields];
     java.util.Arrays.fill(parentIndices, -1);
     java.util.Arrays.fill(wireTypes, Protobuf.WT_VARINT);
-    return Protobuf.decodeToStruct(
-        binaryInput,
-        fieldNumbers,
-        parentIndices,
-        depthLevels,
-        wireTypes,
-        typeIds,
-        encodings,
-        isRepeated,
-        new boolean[numFields],
-        new boolean[numFields],
-        new long[numFields],
-        new double[numFields],
-        new boolean[numFields],
-        new byte[numFields][],
-        enumValidValues,
-        enumNames,
+    return Protobuf.decodeToStruct(binaryInput,
+        new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels,
+            wireTypes, typeIds, encodings, isRepeated,
+            new boolean[numFields], new boolean[numFields], new long[numFields],
+            new double[numFields], new boolean[numFields], new byte[numFields][],
+            enumValidValues, enumNames),
         failOnErrors);
   }
 
@@ -2318,8 +2347,8 @@ public class ProtobufTest {
              enumNames,
              false);
          HostColumnVector hostStruct = actual.copyToHost()) {
-      assert actual.getNullCount() == 1 : "Struct row should be null for unknown enum value";
-      assert hostStruct.isNull(0) : "Row 0 should be null";
+      assertEquals(1, actual.getNullCount(), "Struct row should be null for unknown enum value");
+      assertTrue(hostStruct.isNull(0), "Row 0 should be null");
     }
   }
 
@@ -2344,10 +2373,10 @@ public class ProtobufTest {
              enumNames,
              false);
          HostColumnVector hostStruct = actual.copyToHost()) {
-      assert actual.getNullCount() == 1 : "Only the unknown enum row should be null";
-      assert !hostStruct.isNull(0) : "Row 0 should be valid";
-      assert hostStruct.isNull(1) : "Row 1 should be null";
-      assert !hostStruct.isNull(2) : "Row 2 should be valid";
+      assertEquals(1, actual.getNullCount(), "Only the unknown enum row should be null");
+      assertTrue(!hostStruct.isNull(0), "Row 0 should be valid");
+      assertTrue(hostStruct.isNull(1), "Row 1 should be null");
+      assertTrue(!hostStruct.isNull(2), "Row 2 should be valid");
     }
   }
 
@@ -2390,8 +2419,8 @@ public class ProtobufTest {
              false);
          HostColumnVector hostStruct = actualStruct.copyToHost()) {
       // The struct itself should be null (not just the field)
-      assert actualStruct.getNullCount() == 1 : "Struct row should be null for unknown enum";
-      assert hostStruct.isNull(0) : "Row 0 should be null";
+      assertEquals(1, actualStruct.getNullCount(), "Struct row should be null for unknown enum");
+      assertTrue(hostStruct.isNull(0), "Row 0 should be null");
     }
   }
 
@@ -2414,11 +2443,11 @@ public class ProtobufTest {
              false);
          HostColumnVector hostStruct = actualStruct.copyToHost()) {
       // Check struct-level nulls
-      assert actualStruct.getNullCount() == 2 : "Should have 2 null rows (rows 1 and 3)";
-      assert !hostStruct.isNull(0) : "Row 0 should be valid";
-      assert hostStruct.isNull(1) : "Row 1 should be null (unknown enum 999)";
-      assert !hostStruct.isNull(2) : "Row 2 should be valid";
-      assert hostStruct.isNull(3) : "Row 3 should be null (unknown enum -1)";
+      assertEquals(2, actualStruct.getNullCount(), "Should have 2 null rows (rows 1 and 3)");
+      assertTrue(!hostStruct.isNull(0), "Row 0 should be valid");
+      assertTrue(hostStruct.isNull(1), "Row 1 should be null (unknown enum 999)");
+      assertTrue(!hostStruct.isNull(2), "Row 2 should be valid");
+      assertTrue(hostStruct.isNull(3), "Row 3 should be null (unknown enum -1)");
     }
   }
 
@@ -2441,8 +2470,8 @@ public class ProtobufTest {
              false);
          HostColumnVector hostStruct = actualStruct.copyToHost()) {
       // The entire struct row should be null
-      assert actualStruct.getNullCount() == 1 : "Struct row should be null";
-      assert hostStruct.isNull(0) : "Row 0 should be null due to unknown enum";
+      assertEquals(1, actualStruct.getNullCount(), "Struct row should be null");
+      assertTrue(hostStruct.isNull(0), "Row 0 should be null due to unknown enum");
     }
   }
 
@@ -2463,7 +2492,7 @@ public class ProtobufTest {
              new int[][]{{0, 1, 2}},  // valid enum values
              false)) {
       // Struct row should be valid (not null), only the field is null
-      assert actualStruct.getNullCount() == 0 : "Struct row should NOT be null for missing field";
+      assertEquals(0, actualStruct.getNullCount(), "Struct row should NOT be null for missing field");
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -2488,7 +2517,7 @@ public class ProtobufTest {
              new int[][]{{0, 1, 2}, null},  // first field is enum, second is regular int
              false)) {
       // Struct row should be valid with correct values
-      assert actualStruct.getNullCount() == 0 : "Struct row should be valid";
+      assertEquals(0, actualStruct.getNullCount(), "Struct row should be valid");
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -2514,7 +2543,7 @@ public class ProtobufTest {
         }
     };
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actual = Protobuf.decodeToStruct(
+         ColumnVector actual = decodeRaw(
              input.getColumn(0),
              new int[]{1},
              new int[]{-1},
@@ -2534,8 +2563,17 @@ public class ProtobufTest {
              false)) {
       assertNotNull(actual);
       assertEquals(DType.STRUCT, actual.getType());
-      // The struct has 1 child: a LIST<STRING> column with ["RED", "BLUE", "GREEN"]
       assertEquals(1, actual.getNumChildren());
+      try (ColumnView listCol = actual.getChildColumnView(0)) {
+        assertEquals(DType.LIST, listCol.getType());
+        try (ColumnView strChild = listCol.getChildColumnView(0);
+             HostColumnVector hostStrs = strChild.copyToHost()) {
+          assertEquals(3, hostStrs.getRowCount());
+          assertEquals("RED", hostStrs.getJavaString(0));
+          assertEquals("BLUE", hostStrs.getJavaString(1));
+          assertEquals("GREEN", hostStrs.getJavaString(2));
+        }
+      }
     }
   }
 
@@ -2553,7 +2591,7 @@ public class ProtobufTest {
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(RuntimeException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeRaw(
             input.getColumn(0),
             new int[]{1},
             new int[]{-1},
@@ -2585,7 +2623,7 @@ public class ProtobufTest {
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(RuntimeException.class, () -> {
-        try (ColumnVector result = Protobuf.decodeToStruct(
+        try (ColumnVector result = decodeRaw(
             input.getColumn(0),
             new int[]{1},
             new int[]{-1},
@@ -2617,7 +2655,7 @@ public class ProtobufTest {
     Byte[] row = box(baos.toByteArray());
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              new int[]{1},
              new int[]{-1},
@@ -2651,7 +2689,7 @@ public class ProtobufTest {
         box(tag(1, WT_LEN)), box(encodeVarint(packedContent.length)), box(packedContent));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              new int[]{1},
              new int[]{-1},
@@ -2690,7 +2728,7 @@ public class ProtobufTest {
         box(encodeVarint(42)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              new int[]{maxFieldNumber},
              new int[]{-1},
@@ -2765,7 +2803,7 @@ public class ProtobufTest {
     }
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              fieldNumbers, parentIndices, depthLevels, wireTypes,
              outputTypeIds, encodings, isRepeated, isRequired,
@@ -2793,7 +2831,7 @@ public class ProtobufTest {
         box(encodeVarint(0)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              new int[]{1, 1},
              new int[]{-1, 0},
@@ -2822,7 +2860,7 @@ public class ProtobufTest {
         box(encodeVarint(0)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(
+         ColumnVector result = decodeRaw(
              input.getColumn(0),
              new int[]{1},
              new int[]{-1},

@@ -343,6 +343,131 @@ std::unique_ptr<cudf::column> build_enum_string_column(
     num_rows, std::move(offsets_col), chars.release(), null_count, std::move(mask));
 }
 
+std::unique_ptr<cudf::column> build_repeated_enum_string_column(
+  cudf::column_view const& binary_input,
+  uint8_t const* message_data,
+  cudf::size_type const* list_offsets,
+  cudf::size_type base_offset,
+  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<repeated_occurrence>& d_occurrences,
+  int total_count,
+  int num_rows,
+  std::vector<int32_t> const& valid_enums,
+  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  rmm::device_uvector<int>& d_error,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const rep_blocks =
+    static_cast<int>((total_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+
+  // 1. Extract enum integer values from occurrences
+  rmm::device_uvector<int32_t> enum_ints(total_count, stream, mr);
+  RepeatedLocationProvider rep_loc{list_offsets, base_offset, d_occurrences.data()};
+  extract_varint_kernel<int32_t, false><<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    message_data, rep_loc, total_count, enum_ints.data(), nullptr, d_error.data());
+
+  // 2. Build device-side enum lookup tables
+  rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
+                                valid_enums.data(),
+                                valid_enums.size() * sizeof(int32_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
+  int32_t total_name_chars = 0;
+  for (size_t k = 0; k < enum_name_bytes.size(); ++k) {
+    total_name_chars += static_cast<int32_t>(enum_name_bytes[k].size());
+    h_name_offsets[k + 1] = total_name_chars;
+  }
+  std::vector<uint8_t> h_name_chars(total_name_chars);
+  int32_t cursor = 0;
+  for (auto const& nm : enum_name_bytes) {
+    if (!nm.empty()) {
+      std::copy(nm.data(), nm.data() + nm.size(), h_name_chars.data() + cursor);
+      cursor += static_cast<int32_t>(nm.size());
+    }
+  }
+  rmm::device_uvector<int32_t> d_name_offsets(h_name_offsets.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_offsets.data(),
+                                h_name_offsets.data(),
+                                h_name_offsets.size() * sizeof(int32_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+  rmm::device_uvector<uint8_t> d_name_chars(total_name_chars, stream, mr);
+  if (total_name_chars > 0) {
+    CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_chars.data(),
+                                  h_name_chars.data(),
+                                  total_name_chars * sizeof(uint8_t),
+                                  cudaMemcpyHostToDevice,
+                                  stream.value()));
+  }
+
+  // 3. Per-element validity
+  rmm::device_uvector<bool> elem_valid(total_count, stream, mr);
+  thrust::fill(rmm::exec_policy(stream), elem_valid.data(), elem_valid.end(), true);
+
+  // 4. Compute per-element string lengths
+  rmm::device_uvector<int32_t> elem_lengths(total_count, stream, mr);
+  compute_enum_string_lengths_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    enum_ints.data(),
+    elem_valid.data(),
+    d_valid_enums.data(),
+    d_name_offsets.data(),
+    static_cast<int>(valid_enums.size()),
+    elem_lengths.data(),
+    total_count);
+
+  // 5. Build string offsets
+  auto [str_offs_col, total_chars] = cudf::strings::detail::make_offsets_child_column(
+    elem_lengths.begin(), elem_lengths.end(), stream, mr);
+
+  // 6. Copy string chars
+  rmm::device_uvector<char> chars(total_chars, stream, mr);
+  if (total_chars > 0) {
+    copy_enum_string_chars_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+      enum_ints.data(),
+      elem_valid.data(),
+      d_valid_enums.data(),
+      d_name_offsets.data(),
+      d_name_chars.data(),
+      static_cast<int>(valid_enums.size()),
+      str_offs_col->view().data<int32_t>(),
+      chars.data(),
+      total_count);
+  }
+
+  // 7. Assemble strings child column
+  auto child_col = cudf::make_strings_column(
+    total_count, std::move(str_offs_col), chars.release(), 0, rmm::device_buffer{});
+
+  // 8. Build LIST<STRING> column with list offsets from per-row counts
+  rmm::device_uvector<int32_t> lo(num_rows + 1, stream, mr);
+  thrust::exclusive_scan(
+    rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), lo.begin(), 0);
+  int32_t tc_i32 = static_cast<int32_t>(total_count);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(
+    lo.data() + num_rows, &tc_i32, sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
+
+  auto list_offs_col = std::make_unique<cudf::column>(
+    cudf::data_type{cudf::type_id::INT32}, num_rows + 1, lo.release(), rmm::device_buffer{}, 0);
+
+  auto input_null_count = binary_input.null_count();
+  if (input_null_count > 0) {
+    auto null_mask = cudf::copy_bitmask(binary_input, stream, mr);
+    return cudf::make_lists_column(num_rows,
+                                   std::move(list_offs_col),
+                                   std::move(child_col),
+                                   input_null_count,
+                                   std::move(null_mask),
+                                   stream,
+                                   mr);
+  }
+  return cudf::make_lists_column(
+    num_rows, std::move(list_offs_col), std::move(child_col), 0, rmm::device_buffer{}, stream, mr);
+}
+
 std::unique_ptr<cudf::column> build_repeated_string_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
@@ -1288,9 +1413,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                                                          parent_locs,
                                                                          num_parent_rows,
                                                                          d_rep_schema.data(),
-                                                                         1,
                                                                          list_offs.data(),
-                                                                         1,
                                                                          d_rep_indices.data(),
                                                                          d_rep_occs.data(),
                                                                          d_error.data());

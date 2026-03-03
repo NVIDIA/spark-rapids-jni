@@ -82,65 +82,6 @@ public class Protobuf {
     return new ColumnVector(handle);
   }
 
-  /**
-   * Decode protobuf messages using individual parallel arrays.
-   *
-   * @deprecated Use {@link #decodeToStruct(ColumnView, ProtobufSchemaDescriptor, boolean)} instead.
-   */
-  @Deprecated
-  public static ColumnVector decodeToStruct(ColumnView binaryInput,
-                                            int[] fieldNumbers,
-                                            int[] parentIndices,
-                                            int[] depthLevels,
-                                            int[] wireTypes,
-                                            int[] outputTypeIds,
-                                            int[] encodings,
-                                            boolean[] isRepeated,
-                                            boolean[] isRequired,
-                                            boolean[] hasDefaultValue,
-                                            long[] defaultInts,
-                                            double[] defaultFloats,
-                                            boolean[] defaultBools,
-                                            byte[][] defaultStrings,
-                                            int[][] enumValidValues,
-                                            byte[][][] enumNames,
-                                            boolean failOnErrors) {
-    return decodeToStruct(binaryInput,
-        new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels,
-            wireTypes, outputTypeIds, encodings, isRepeated, isRequired,
-            hasDefaultValue, defaultInts, defaultFloats, defaultBools,
-            defaultStrings, enumValidValues, enumNames),
-        failOnErrors);
-  }
-
-  /**
-   * Backward-compatible overload without enum name mappings.
-   *
-   * @deprecated Use {@link #decodeToStruct(ColumnView, ProtobufSchemaDescriptor, boolean)} instead.
-   */
-  @Deprecated
-  public static ColumnVector decodeToStruct(ColumnView binaryInput,
-                                            int[] fieldNumbers,
-                                            int[] parentIndices,
-                                            int[] depthLevels,
-                                            int[] wireTypes,
-                                            int[] outputTypeIds,
-                                            int[] encodings,
-                                            boolean[] isRepeated,
-                                            boolean[] isRequired,
-                                            boolean[] hasDefaultValue,
-                                            long[] defaultInts,
-                                            double[] defaultFloats,
-                                            boolean[] defaultBools,
-                                            byte[][] defaultStrings,
-                                            int[][] enumValidValues,
-                                            boolean failOnErrors) {
-    return decodeToStruct(binaryInput, fieldNumbers, parentIndices, depthLevels, wireTypes,
-        outputTypeIds, encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
-        defaultFloats, defaultBools, defaultStrings, enumValidValues,
-        new byte[fieldNumbers.length][][], failOnErrors);
-  }
-
   private static native long decodeToStruct(long binaryInputView,
                                             int[] fieldNumbers,
                                             int[] parentIndices,

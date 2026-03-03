@@ -895,9 +895,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
                                                field_location const* parent_locs,
                                                int num_rows,
                                                device_nested_field_descriptor const* schema,
-                                               int num_fields,
                                                int32_t const* occ_prefix_sums,
-                                               int num_repeated,
                                                int const* repeated_indices,
                                                repeated_occurrence* occurrences,
                                                int* error_flag);
@@ -997,6 +995,21 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   rmm::device_async_resource_ref mr);
 
 // Complex builder forward declarations
+std::unique_ptr<cudf::column> build_repeated_enum_string_column(
+  cudf::column_view const& binary_input,
+  uint8_t const* message_data,
+  cudf::size_type const* list_offsets,
+  cudf::size_type base_offset,
+  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<repeated_occurrence>& d_occurrences,
+  int total_count,
+  int num_rows,
+  std::vector<int32_t> const& valid_enums,
+  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  rmm::device_uvector<int>& d_error,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
+
 std::unique_ptr<cudf::column> build_repeated_string_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
