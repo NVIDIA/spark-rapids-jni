@@ -16,6 +16,8 @@
 
 #include "protobuf_common.cuh"
 
+#include <limits>
+
 using namespace spark_rapids_jni::protobuf_detail;
 
 namespace spark_rapids_jni {
@@ -79,6 +81,16 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     return cudf::make_structs_column(
       0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
   }
+
+  // Extract shared input data pointers (used by scalar, repeated, and nested sections)
+  cudf::lists_column_view const in_list_view(binary_input);
+  auto const* message_data = reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
+  auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
+
+  cudf::size_type base_offset = 0;
+  CUDF_CUDA_TRY(cudaMemcpyAsync(
+    &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
+  stream.synchronize();
 
   // Copy schema to device
   std::vector<device_nested_field_descriptor> h_device_schema(num_fields);
@@ -251,17 +263,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       }
     }
 
-    // Extract scalar values (reusing existing extraction logic)
-    cudf::lists_column_view const in_list_view(binary_input);
-    auto const* message_data =
-      reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
-    auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
-
-    cudf::size_type base_offset = 0;
-    CUDF_CUDA_TRY(cudaMemcpyAsync(
-      &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
-    stream.synchronize();
-
     for (int i = 0; i < num_scalar; i++) {
       int schema_idx = scalar_field_indices[i];
       auto const dt  = schema_output_types[schema_idx];
@@ -401,15 +402,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Process repeated fields
   if (num_repeated > 0) {
-    cudf::lists_column_view const in_list_view(binary_input);
-    auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
-    auto const* message_data =
-      reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
-    cudf::size_type base_offset = 0;
-    CUDF_CUDA_TRY(cudaMemcpyAsync(
-      &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
-    stream.synchronize();
-
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx    = repeated_field_indices[ri];
       auto element_type = schema_output_types[schema_idx];
@@ -424,6 +416,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       int64_t total_count = thrust::reduce(
         rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), int64_t{0});
+      CUDF_EXPECTS(total_count <= std::numeric_limits<int32_t>::max(),
+                   "Total repeated element count exceeds INT32_MAX");
 
       if (total_count > 0) {
         // Build offsets for occurrence scanning on GPU (performance fix!)
@@ -434,8 +428,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                d_occ_offsets.data(),
                                0);
         // Set last element
+        int32_t total_count_i32 = static_cast<int32_t>(total_count);
         CUDF_CUDA_TRY(cudaMemcpyAsync(d_occ_offsets.data() + num_rows,
-                                      &total_count,
+                                      &total_count_i32,
                                       sizeof(int32_t),
                                       cudaMemcpyHostToDevice,
                                       stream.value()));
@@ -664,8 +659,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                      d_field_counts.end(),
                                      list_offs.begin(),
                                      0);
+              int32_t tc_i32 = static_cast<int32_t>(total_count);
               CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
-                                            &total_count,
+                                            &tc_i32,
                                             sizeof(int32_t),
                                             cudaMemcpyHostToDevice,
                                             stream.value()));
@@ -813,16 +809,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Process nested struct fields (Phase 2)
   if (num_nested > 0) {
-    cudf::lists_column_view const in_list_view(binary_input);
-    auto const* message_data =
-      reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
-    auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
-
-    cudf::size_type base_offset = 0;
-    CUDF_CUDA_TRY(cudaMemcpyAsync(
-      &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
-    stream.synchronize();
-
     for (int ni = 0; ni < num_nested; ni++) {
       int parent_schema_idx = nested_field_indices[ni];
 

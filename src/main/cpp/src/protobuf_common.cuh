@@ -490,9 +490,19 @@ __global__ void extract_varint_kernel(uint8_t const* message_data,
   int32_t data_offset = 0;
   auto loc            = loc_provider.get(idx, data_offset);
 
+  // For BOOL8 (uint8_t), protobuf spec says any non-zero varint is true.
+  // A raw static_cast<uint8_t> would silently truncate values >= 256 to 0.
+  auto const write_value = [](OutputType* dst, uint64_t val) {
+    if constexpr (std::is_same_v<OutputType, uint8_t>) {
+      *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
+    } else {
+      *dst = static_cast<OutputType>(val);
+    }
+  };
+
   if (loc.offset < 0) {
     if (has_default) {
-      out[idx] = static_cast<OutputType>(default_value);
+      write_value(&out[idx], static_cast<uint64_t>(default_value));
       if (valid) valid[idx] = true;
     } else {
       if (valid) valid[idx] = false;
@@ -512,7 +522,7 @@ __global__ void extract_varint_kernel(uint8_t const* message_data,
   }
 
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  out[idx] = static_cast<OutputType>(v);
+  write_value(&out[idx], v);
   if (valid) valid[idx] = true;
 }
 
