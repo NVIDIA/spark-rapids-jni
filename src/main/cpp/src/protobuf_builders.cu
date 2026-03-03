@@ -479,6 +479,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   int total_count,
   int num_rows,
   bool is_bytes,
+  rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -541,8 +542,6 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
     str_lengths.begin(), str_lengths.end(), stream, mr);
 
   rmm::device_uvector<char> chars(total_chars, stream, mr);
-  rmm::device_uvector<int> d_error(1, stream, mr);
-  CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
   if (total_chars > 0) {
     RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
     copy_varlen_data_kernel<RepeatedLocationProvider>

@@ -1021,6 +1021,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   int total_count,
   int num_rows,
   bool is_bytes,
+  rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr);
 
@@ -1339,6 +1340,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
+  rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1391,8 +1393,6 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                 stream.value()));
 
   rmm::device_uvector<T> values(total_count, stream, mr);
-  rmm::device_uvector<int> d_error(1, stream, mr);
-  CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
 
   auto const threads = THREADS_PER_BLOCK;
   auto const blocks  = (total_count + threads - 1) / threads;

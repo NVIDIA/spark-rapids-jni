@@ -459,8 +459,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           d_occurrences.data(),
           d_error.data());
 
+        check_error_and_throw();
+
         // Build the appropriate column type based on element type
-        // For now, support scalar repeated fields
         auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
 
         // The output_type in schema is the LIST type, but we need element type
@@ -477,6 +478,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                     d_occurrences,
                                                     total_count,
                                                     num_rows,
+                                                    d_error,
                                                     stream,
                                                     mr);
             break;
@@ -491,6 +493,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                     d_occurrences,
                                                     total_count,
                                                     num_rows,
+                                                    d_error,
                                                     stream,
                                                     mr);
             break;
@@ -505,6 +508,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                      d_occurrences,
                                                      total_count,
                                                      num_rows,
+                                                     d_error,
                                                      stream,
                                                      mr);
             break;
@@ -519,6 +523,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                      d_occurrences,
                                                      total_count,
                                                      num_rows,
+                                                     d_error,
                                                      stream,
                                                      mr);
             break;
@@ -533,6 +538,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                   d_occurrences,
                                                   total_count,
                                                   num_rows,
+                                                  d_error,
                                                   stream,
                                                   mr);
             break;
@@ -547,6 +553,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                    d_occurrences,
                                                    total_count,
                                                    num_rows,
+                                                   d_error,
                                                    stream,
                                                    mr);
             break;
@@ -561,6 +568,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                     d_occurrences,
                                                     total_count,
                                                     num_rows,
+                                                    d_error,
                                                     stream,
                                                     mr);
             break;
@@ -596,6 +604,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                     total_count,
                                                                     num_rows,
                                                                     false,
+                                                                    d_error,
                                                                     stream,
                                                                     mr);
             }
@@ -612,6 +621,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                   total_count,
                                                                   num_rows,
                                                                   true,
+                                                                  d_error,
                                                                   stream,
                                                                   mr);
             break;
