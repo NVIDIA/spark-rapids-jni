@@ -180,6 +180,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
         default_string_values.emplace_back(reinterpret_cast<uint8_t*>(bytes),
                                            reinterpret_cast<uint8_t*>(bytes) + len);
         env->ReleaseByteArrayElements(byte_arr, bytes, JNI_ABORT);
+        env->DeleteLocalRef(byte_arr);
       }
     }
 
@@ -197,6 +198,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
         if (ints == nullptr) { return 0; }
         enum_values.emplace_back(ints, ints + len);
         env->ReleaseIntArrayElements(int_arr, ints, JNI_ABORT);
+        env->DeleteLocalRef(int_arr);
       }
     }
 
@@ -226,9 +228,11 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
             names_for_field.emplace_back(reinterpret_cast<uint8_t*>(bytes),
                                          reinterpret_cast<uint8_t*>(bytes) + len);
             env->ReleaseByteArrayElements(name_bytes, bytes, JNI_ABORT);
+            env->DeleteLocalRef(name_bytes);
           }
         }
         enum_name_values.push_back(std::move(names_for_field));
+        env->DeleteLocalRef(names_arr);
       }
     }
 
