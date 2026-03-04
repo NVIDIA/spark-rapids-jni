@@ -441,6 +441,79 @@ __global__ void scan_repeated_field_occurrences_kernel(
   }
 }
 
+/**
+ * Combined occurrence scan: scans each message ONCE and writes occurrences for ALL
+ * repeated fields simultaneously. Replaces N separate scan_repeated_field_occurrences_kernel
+ * launches with a single kernel, eliminating N-1 redundant full-message scans.
+ */
+__global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view const d_in,
+                                                     device_nested_field_descriptor const* schema,
+                                                     int depth_level,
+                                                     repeated_field_scan_desc const* scan_descs,
+                                                     int num_scan_fields,
+                                                     int* error_flag)
+{
+  auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
+  cudf::detail::lists_column_device_view in{d_in};
+  if (row >= in.size()) return;
+
+  if (in.nullable() && in.is_null(row)) { return; }
+
+  auto const base   = in.offset_at(0);
+  auto const child  = in.get_sliced_child();
+  auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
+  int32_t start     = in.offset_at(row) - base;
+  int32_t end       = in.offset_at(row + 1) - base;
+  if (!check_message_bounds(start, end, child.size(), error_flag)) { return; }
+
+  uint8_t const* cur     = bytes + start;
+  uint8_t const* msg_end = bytes + end;
+
+  // Per-field write indices, initialized from the pre-computed offsets.
+  // Use a fixed-size stack array to avoid dynamic allocation.
+  // MAX_REPEATED_SCAN_FIELDS should be generous enough for practical schemas.
+  constexpr int MAX_STACK_FIELDS = 128;
+  int write_idx[MAX_STACK_FIELDS];
+  int actual_fields = num_scan_fields < MAX_STACK_FIELDS ? num_scan_fields : MAX_STACK_FIELDS;
+  for (int f = 0; f < actual_fields; f++) {
+    write_idx[f] = scan_descs[f].row_offsets[row];
+  }
+
+  while (cur < msg_end) {
+    proto_tag tag;
+    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
+
+    for (int f = 0; f < actual_fields; f++) {
+      if (scan_descs[f].field_number == fn) {
+        int target_wt  = scan_descs[f].wire_type;
+        bool is_packed = (wt == WT_LEN && target_wt != WT_LEN);
+        if (is_packed || wt == target_wt) {
+          if (!scan_repeated_element(cur,
+                                     msg_end,
+                                     bytes + start,
+                                     wt,
+                                     target_wt,
+                                     static_cast<int32_t>(row),
+                                     scan_descs[f].occurrences,
+                                     write_idx[f],
+                                     error_flag)) {
+            return;
+          }
+        }
+      }
+    }
+
+    uint8_t const* next;
+    if (!skip_field(cur, msg_end, wt, next)) {
+      set_error_once(error_flag, ERR_SKIP);
+      return;
+    }
+    cur = next;
+  }
+}
+
 // ============================================================================
 // Nested message scanning kernels
 // ============================================================================

@@ -116,6 +116,17 @@ struct repeated_occurrence {
 };
 
 /**
+ * Per-field descriptor passed to the combined occurrence scan kernel.
+ * Contains device pointers so the kernel can write to each field's output.
+ */
+struct repeated_field_scan_desc {
+  int field_number;
+  int wire_type;
+  int32_t const* row_offsets;        // Pre-computed prefix-sum offsets [num_rows + 1]
+  repeated_occurrence* occurrences;  // Output buffer [total_count]
+};
+
+/**
  * Device-side descriptor for nested schema fields.
  */
 struct device_nested_field_descriptor {
@@ -857,6 +868,13 @@ __global__ void scan_repeated_field_occurrences_kernel(cudf::column_device_view 
                                                        int32_t const* output_offsets,
                                                        repeated_occurrence* occurrences,
                                                        int* error_flag);
+
+__global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view const d_in,
+                                                     device_nested_field_descriptor const* schema,
+                                                     int depth_level,
+                                                     repeated_field_scan_desc const* scan_descs,
+                                                     int num_scan_fields,
+                                                     int* error_flag);
 
 __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
                                                   cudf::size_type const* parent_row_offsets,

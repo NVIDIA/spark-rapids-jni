@@ -139,17 +139,12 @@ std::unique_ptr<cudf::column> make_binary_column(std::vector<std::vector<uint8_t
   stream.synchronize();
 
   auto child_col = std::make_unique<cudf::column>(
-    cudf::data_type{cudf::type_id::UINT8},
-    total_bytes,
-    std::move(d_data),
-    rmm::device_buffer{},
-    0);
-  auto offsets_col = std::make_unique<cudf::column>(
-    cudf::data_type{cudf::type_id::INT32},
-    static_cast<cudf::size_type>(h_offsets.size()),
-    std::move(d_offsets),
-    rmm::device_buffer{},
-    0);
+    cudf::data_type{cudf::type_id::UINT8}, total_bytes, std::move(d_data), rmm::device_buffer{}, 0);
+  auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
+                                                    static_cast<cudf::size_type>(h_offsets.size()),
+                                                    std::move(d_offsets),
+                                                    rmm::device_buffer{},
+                                                    0);
 
   return cudf::make_lists_column(static_cast<cudf::size_type>(messages.size()),
                                  std::move(offsets_col),
@@ -187,14 +182,14 @@ struct FlatScalarCase {
                                  cudf::type_id::FLOAT32,
                                  cudf::type_id::FLOAT64,
                                  cudf::type_id::BOOL8};
-    int wt_for_type[] = {0 /*WT_VARINT*/, 0, 5 /*WT_32BIT*/, 1 /*WT_64BIT*/, 0};
+    int wt_for_type[]         = {0 /*WT_VARINT*/, 0, 5 /*WT_32BIT*/, 1 /*WT_64BIT*/, 0};
 
     int fn = 1;
     for (int i = 0; i < num_int_fields; i++, fn++) {
-      int ti     = i % 5;
-      auto ty    = int_types[ti];
-      int wt     = wt_for_type[ti];
-      int enc    = spark_rapids_jni::ENC_DEFAULT;
+      int ti  = i % 5;
+      auto ty = int_types[ti];
+      int wt  = wt_for_type[ti];
+      int enc = spark_rapids_jni::ENC_DEFAULT;
       if (ty == cudf::type_id::FLOAT32) enc = spark_rapids_jni::ENC_FIXED;
       if (ty == cudf::type_id::FLOAT64) enc = spark_rapids_jni::ENC_FIXED;
       ctx.schema.push_back({fn, -1, 0, wt, ty, enc, false, false, false});
@@ -284,8 +279,7 @@ struct NestedMessageCase {
 
     for (int i = 0; i < num_inner_fields; i++) {
       int ti = i % 3;
-      ctx.schema.push_back(
-        {i + 1, 2, 1, inner_wt[ti], inner_types[ti], 0, false, false, false});
+      ctx.schema.push_back({i + 1, 2, 1, inner_wt[ti], inner_types[ti], 0, false, false, false});
     }
 
     size_t n = ctx.schema.size();
@@ -310,7 +304,8 @@ struct NestedMessageCase {
 
     auto random_string = [&](int len) {
       std::string s(len, ' ');
-      for (int c = 0; c < len; c++) s[c] = alphabet[rng() % alphabet.size()];
+      for (int c = 0; c < len; c++)
+        s[c] = alphabet[rng() % alphabet.size()];
       return s;
     };
 
@@ -393,7 +388,8 @@ struct RepeatedFieldCase {
 
     auto random_string = [&](int len) {
       std::string s(len, ' ');
-      for (int c = 0; c < len; c++) s[c] = alphabet[rng() % alphabet.size()];
+      for (int c = 0; c < len; c++)
+        s[c] = alphabet[rng() % alphabet.size()];
       return s;
     };
 
@@ -414,7 +410,8 @@ struct RepeatedFieldCase {
       {
         int n = vary(avg_tags_per_row);
         std::vector<int32_t> tags(n);
-        for (auto& t : tags) t = int_dist(rng);
+        for (auto& t : tags)
+          t = int_dist(rng);
         if (n > 0) encode_packed_repeated_int32(buf, 2, tags);
       }
 
@@ -442,6 +439,98 @@ struct RepeatedFieldCase {
   }
 };
 
+// Case 4: Many repeated fields — stress-tests per-repeated-field sync overhead.
+//   message WideRepeatedMessage {
+//     int32              id = 1;
+//     repeated int32     r_int_1 = 2;
+//     repeated int32     r_int_2 = 3;
+//     ...
+//     repeated string    r_str_1 = N;
+//     repeated string    r_str_2 = N+1;
+//     ...
+//   }
+struct ManyRepeatedFieldsCase {
+  int num_repeated_int;
+  int num_repeated_str;
+
+  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  {
+    spark_rapids_jni::ProtobufDecodeContext ctx;
+    ctx.fail_on_errors = true;
+
+    int fn = 1;
+    // idx 0: id (scalar)
+    ctx.schema.push_back({fn++, -1, 0, 0, cudf::type_id::INT32, 0, false, false, false});
+
+    for (int i = 0; i < num_repeated_int; i++) {
+      ctx.schema.push_back({fn++, -1, 0, 0, cudf::type_id::INT32, 0, true, false, false});
+    }
+    for (int i = 0; i < num_repeated_str; i++) {
+      ctx.schema.push_back({fn++, -1, 0, 2, cudf::type_id::STRING, 0, true, false, false});
+    }
+
+    size_t n = ctx.schema.size();
+    for (auto const& f : ctx.schema) {
+      ctx.schema_output_types.emplace_back(f.output_type);
+    }
+    ctx.default_ints.resize(n, 0);
+    ctx.default_floats.resize(n, 0.0);
+    ctx.default_bools.resize(n, false);
+    ctx.default_strings.resize(n);
+    ctx.enum_valid_values.resize(n);
+    ctx.enum_names.resize(n);
+    return ctx;
+  }
+
+  std::vector<std::vector<uint8_t>> generate_messages(int num_rows,
+                                                      int avg_elems_per_field,
+                                                      std::mt19937& rng) const
+  {
+    std::vector<std::vector<uint8_t>> messages(num_rows);
+    std::uniform_int_distribution<int32_t> int_dist(0, 100000);
+    std::uniform_int_distribution<int> str_len_dist(3, 15);
+    std::string alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+    auto random_string = [&](int len) {
+      std::string s(len, ' ');
+      for (int c = 0; c < len; c++)
+        s[c] = alphabet[rng() % alphabet.size()];
+      return s;
+    };
+    auto vary = [&](int avg) -> int {
+      int lo = std::max(0, avg / 2);
+      int hi = avg + avg / 2;
+      return std::uniform_int_distribution<int>(lo, std::max(lo, hi))(rng);
+    };
+
+    for (int r = 0; r < num_rows; r++) {
+      auto& buf = messages[r];
+      int fn    = 1;
+
+      encode_varint_field(buf, fn++, int_dist(rng));
+
+      for (int i = 0; i < num_repeated_int; i++) {
+        int cur_fn = fn++;
+        int n      = vary(avg_elems_per_field);
+        if (n > 0) {
+          std::vector<int32_t> vals(n);
+          for (auto& v : vals)
+            v = int_dist(rng);
+          encode_packed_repeated_int32(buf, cur_fn, vals);
+        }
+      }
+      for (int i = 0; i < num_repeated_str; i++) {
+        int cur_fn = fn++;
+        int n      = vary(avg_elems_per_field);
+        for (int j = 0; j < n; j++) {
+          encode_string_field(buf, cur_fn, random_string(str_len_dist(rng)));
+        }
+      }
+    }
+    return messages;
+  }
+};
+
 }  // anonymous namespace
 
 // ===========================================================================
@@ -449,20 +538,21 @@ struct RepeatedFieldCase {
 // ===========================================================================
 static void BM_protobuf_flat_scalars(nvbench::state& state)
 {
-  auto const num_rows    = static_cast<int>(state.get_int64("num_rows"));
-  auto const num_fields  = static_cast<int>(state.get_int64("num_fields"));
-  int const num_str      = std::max(1, num_fields / 10);
-  int const num_int      = num_fields - num_str;
+  auto const num_rows   = static_cast<int>(state.get_int64("num_rows"));
+  auto const num_fields = static_cast<int>(state.get_int64("num_fields"));
+  int const num_str     = std::max(1, num_fields / 10);
+  int const num_int     = num_fields - num_str;
 
   FlatScalarCase flat_case{num_int, num_str};
   auto ctx = flat_case.build_context();
 
   std::mt19937 rng(42);
-  auto messages    = flat_case.generate_messages(num_rows, rng);
-  auto binary_col  = make_binary_column(messages);
+  auto messages   = flat_case.generate_messages(num_rows, rng);
+  auto binary_col = make_binary_column(messages);
 
   size_t total_bytes = 0;
-  for (auto const& m : messages) total_bytes += m.size();
+  for (auto const& m : messages)
+    total_bytes += m.size();
 
   auto stream = cudf::get_default_stream();
   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
@@ -484,18 +574,19 @@ NVBENCH_BENCH(BM_protobuf_flat_scalars)
 // ===========================================================================
 static void BM_protobuf_nested(nvbench::state& state)
 {
-  auto const num_rows       = static_cast<int>(state.get_int64("num_rows"));
-  auto const inner_fields   = static_cast<int>(state.get_int64("inner_fields"));
+  auto const num_rows     = static_cast<int>(state.get_int64("num_rows"));
+  auto const inner_fields = static_cast<int>(state.get_int64("inner_fields"));
 
   NestedMessageCase nested_case{inner_fields};
   auto ctx = nested_case.build_context();
 
   std::mt19937 rng(42);
-  auto messages    = nested_case.generate_messages(num_rows, rng);
-  auto binary_col  = make_binary_column(messages);
+  auto messages   = nested_case.generate_messages(num_rows, rng);
+  auto binary_col = make_binary_column(messages);
 
   size_t total_bytes = 0;
-  for (auto const& m : messages) total_bytes += m.size();
+  for (auto const& m : messages)
+    total_bytes += m.size();
 
   auto stream = cudf::get_default_stream();
   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
@@ -524,11 +615,12 @@ static void BM_protobuf_repeated(nvbench::state& state)
   auto ctx = rep_case.build_context();
 
   std::mt19937 rng(42);
-  auto messages    = rep_case.generate_messages(num_rows, rng);
-  auto binary_col  = make_binary_column(messages);
+  auto messages   = rep_case.generate_messages(num_rows, rng);
+  auto binary_col = make_binary_column(messages);
 
   size_t total_bytes = 0;
-  for (auto const& m : messages) total_bytes += m.size();
+  for (auto const& m : messages)
+    total_bytes += m.size();
 
   auto stream = cudf::get_default_stream();
   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
@@ -544,3 +636,40 @@ NVBENCH_BENCH(BM_protobuf_repeated)
   .set_name("Protobuf Repeated Fields")
   .add_int64_axis("num_rows", {10'000, 100'000})
   .add_int64_axis("avg_items", {1, 5, 20});
+
+// ===========================================================================
+// Benchmark 4: Many repeated fields — measures per-field sync overhead at scale
+// ===========================================================================
+static void BM_protobuf_many_repeated(nvbench::state& state)
+{
+  auto const num_rows       = static_cast<int>(state.get_int64("num_rows"));
+  auto const num_rep_fields = static_cast<int>(state.get_int64("num_rep_fields"));
+
+  int const num_rep_str = std::max(1, num_rep_fields / 5);
+  int const num_rep_int = num_rep_fields - num_rep_str;
+
+  ManyRepeatedFieldsCase many_case{num_rep_int, num_rep_str};
+  auto ctx = many_case.build_context();
+
+  std::mt19937 rng(42);
+  auto messages   = many_case.generate_messages(num_rows, /*avg_elems=*/3, rng);
+  auto binary_col = make_binary_column(messages);
+
+  size_t total_bytes = 0;
+  for (auto const& m : messages)
+    total_bytes += m.size();
+
+  auto stream = cudf::get_default_stream();
+  state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
+    auto result = spark_rapids_jni::decode_protobuf_to_struct(binary_col->view(), ctx, stream);
+  });
+
+  state.add_element_count(num_rows, "Rows");
+  state.add_global_memory_reads<nvbench::int8_t>(total_bytes);
+}
+
+NVBENCH_BENCH(BM_protobuf_many_repeated)
+  .set_name("Protobuf Many Repeated Fields")
+  .add_int64_axis("num_rows", {10'000, 100'000})
+  .add_int64_axis("num_rep_fields", {10, 30, 50});

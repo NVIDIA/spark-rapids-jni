@@ -141,15 +141,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       default: return "Protobuf decode error: unknown error";
     }
   };
-  auto check_error_and_throw = [&]() {
-    if (!fail_on_errors) return;
-    int h_error = 0;
-    CUDF_CUDA_TRY(cudaMemcpyAsync(
-      &h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));
-    stream.synchronize();
-    if (h_error != 0) { throw cudf::logic_error(error_message(h_error)); }
-  };
-
   // Enum validation support (PERMISSIVE mode)
   bool has_enum_fields = std::any_of(
     enum_valid_values.begin(), enum_valid_values.end(), [](auto const& v) { return !v.empty(); });
@@ -199,7 +190,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                          num_nested,
                                                                          d_nested_indices.data(),
                                                                          d_error.data());
-    check_error_and_throw();
   }
 
   // Store decoded columns by schema index for ordered assembly at the end.
@@ -242,7 +232,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       static_cast<int>(h_field_lookup.size()),
       d_locations.data(),
       d_error.data());
-    check_error_and_throw();
 
     // Check required fields (after scan pass)
     {
@@ -267,7 +256,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                       stream.value()));
         check_required_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
           d_locations.data(), d_is_required.data(), num_scalar, num_rows, d_error.data());
-        check_error_and_throw();
       }
     }
 
@@ -408,53 +396,95 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     }
   }
 
-  // Process repeated fields
+  // Process repeated fields (three-phase: offsets → combined scan → build columns)
   if (num_repeated > 0) {
-    for (int ri = 0; ri < num_repeated; ri++) {
-      int schema_idx    = repeated_field_indices[ri];
-      auto element_type = schema_output_types[schema_idx];
+    // Phase A: Compute per-row offsets for each repeated field.
+    struct repeated_field_work {
+      int schema_idx;
+      int32_t total_count{0};
+      rmm::device_uvector<int32_t> counts;
+      rmm::device_uvector<int32_t> offsets;
+      std::unique_ptr<rmm::device_uvector<protobuf_detail::repeated_occurrence>> occurrences;
 
-      // Get per-row counts for this repeated field entirely on GPU (performance fix!)
-      rmm::device_uvector<int32_t> d_field_counts(num_rows, stream, mr);
+      repeated_field_work(int si,
+                          cudf::size_type n,
+                          rmm::cuda_stream_view s,
+                          rmm::device_async_resource_ref m)
+        : schema_idx(si), counts(n, s, m), offsets(n + 1, s, m)
+      {
+      }
+    };
+
+    std::vector<std::unique_ptr<repeated_field_work>> rep_work;
+    rep_work.reserve(num_repeated);
+
+    for (int ri = 0; ri < num_repeated; ri++) {
+      int schema_idx = repeated_field_indices[ri];
+      auto& w        = *rep_work.emplace_back(
+        std::make_unique<repeated_field_work>(schema_idx, num_rows, stream, mr));
+
       thrust::transform(rmm::exec_policy(stream),
                         thrust::make_counting_iterator(0),
                         thrust::make_counting_iterator(num_rows),
-                        d_field_counts.data(),
+                        w.counts.data(),
                         extract_strided_count{d_repeated_info.data(), ri, num_repeated});
 
-      int64_t total_count = thrust::reduce(
-        rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), int64_t{0});
-      CUDF_EXPECTS(total_count <= std::numeric_limits<int32_t>::max(),
-                   "Total repeated element count exceeds INT32_MAX");
+      CUDF_CUDA_TRY(cudaMemsetAsync(w.offsets.data(), 0, sizeof(int32_t), stream.value()));
+      thrust::inclusive_scan(
+        rmm::exec_policy(stream), w.counts.begin(), w.counts.end(), w.offsets.data() + 1);
+
+      CUDF_CUDA_TRY(cudaMemcpyAsync(&w.total_count,
+                                    w.offsets.data() + num_rows,
+                                    sizeof(int32_t),
+                                    cudaMemcpyDeviceToHost,
+                                    stream.value()));
+    }
+    stream.synchronize();
+
+    // Phase B: Allocate occurrence buffers and launch ONE combined scan kernel.
+    std::vector<protobuf_detail::repeated_field_scan_desc> h_scan_descs;
+    h_scan_descs.reserve(num_repeated);
+
+    for (auto& wp : rep_work) {
+      if (wp->total_count > 0) {
+        wp->occurrences =
+          std::make_unique<rmm::device_uvector<protobuf_detail::repeated_occurrence>>(
+            wp->total_count, stream, mr);
+        h_scan_descs.push_back({schema[wp->schema_idx].field_number,
+                                schema[wp->schema_idx].wire_type,
+                                wp->offsets.data(),
+                                wp->occurrences->data()});
+      }
+    }
+
+    if (!h_scan_descs.empty()) {
+      rmm::device_uvector<protobuf_detail::repeated_field_scan_desc> d_scan_descs(
+        h_scan_descs.size(), stream, mr);
+      CUDF_CUDA_TRY(cudaMemcpyAsync(d_scan_descs.data(),
+                                    h_scan_descs.data(),
+                                    h_scan_descs.size() * sizeof(h_scan_descs[0]),
+                                    cudaMemcpyHostToDevice,
+                                    stream.value()));
+
+      scan_all_repeated_occurrences_kernel<<<blocks, threads, 0, stream.value()>>>(
+        *d_in,
+        d_schema.data(),
+        0,
+        d_scan_descs.data(),
+        static_cast<int>(h_scan_descs.size()),
+        d_error.data());
+    }
+
+    // Phase C: Build columns per field.
+    for (int ri = 0; ri < num_repeated; ri++) {
+      auto& w              = *rep_work[ri];
+      int schema_idx       = w.schema_idx;
+      auto element_type    = schema_output_types[schema_idx];
+      int32_t total_count  = w.total_count;
+      auto& d_field_counts = w.counts;
 
       if (total_count > 0) {
-        // Build offsets for occurrence scanning on GPU (performance fix!)
-        rmm::device_uvector<int32_t> d_occ_offsets(num_rows + 1, stream, mr);
-        thrust::exclusive_scan(rmm::exec_policy(stream),
-                               d_field_counts.begin(),
-                               d_field_counts.end(),
-                               d_occ_offsets.data(),
-                               0);
-        // Set last element
-        int32_t total_count_i32 = static_cast<int32_t>(total_count);
-        CUDF_CUDA_TRY(cudaMemcpyAsync(d_occ_offsets.data() + num_rows,
-                                      &total_count_i32,
-                                      sizeof(int32_t),
-                                      cudaMemcpyHostToDevice,
-                                      stream.value()));
-
-        // Scan for all occurrences
-        rmm::device_uvector<repeated_occurrence> d_occurrences(total_count, stream, mr);
-        scan_repeated_field_occurrences_kernel<<<blocks, threads, 0, stream.value()>>>(
-          *d_in,
-          d_schema.data(),
-          schema_idx,
-          0,
-          d_occ_offsets.data(),
-          d_occurrences.data(),
-          d_error.data());
-
-        check_error_and_throw();
+        auto& d_occurrences = *w.occurrences;
 
         // Build the appropriate column type based on element type
         auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);

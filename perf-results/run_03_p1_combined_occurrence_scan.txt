@@ -1,0 +1,143 @@
+# Devices
+
+## [0] `NVIDIA RTX 5880 Ada Generation`
+* SM Version: 890 (PTX Version: 860)
+* Number of SMs: 110
+* SM Default Clock Rate: 2460 MHz
+* Global Memory: 45660 MiB Free / 48506 MiB Total
+* Global Memory Bus Peak: 960 GB/sec (384-bit DDR @10001MHz)
+* Max Shared Memory: 100 KiB/SM, 48 KiB/Block
+* L2 Cache Size: 98304 KiB
+* Maximum Active Blocks: 24/SM
+* Maximum Active Threads: 1536/SM, 1024/Block
+* Available Registers: 65536/SM, 65536/Block
+* ECC Enabled: No
+
+# Log
+
+```
+Run:  [1/30] Protobuf Flat Scalars [Device=0 num_rows=10000 num_fields=10]
+Pass: Cold: 0.686546ms GPU, 0.690229ms CPU, 1.96s total GPU, 2.29s total wall, 2848x 
+Run:  [2/30] Protobuf Flat Scalars [Device=0 num_rows=100000 num_fields=10]
+Pass: Cold: 1.501841ms GPU, 1.505566ms CPU, 0.50s total GPU, 0.53s total wall, 333x 
+Run:  [3/30] Protobuf Flat Scalars [Device=0 num_rows=500000 num_fields=10]
+Pass: Cold: 4.243665ms GPU, 4.247329ms CPU, 11.81s total GPU, 12.09s total wall, 2784x 
+Run:  [4/30] Protobuf Flat Scalars [Device=0 num_rows=10000 num_fields=50]
+Pass: Cold: 2.617960ms GPU, 2.621655ms CPU, 7.04s total GPU, 7.31s total wall, 2688x 
+Run:  [5/30] Protobuf Flat Scalars [Device=0 num_rows=100000 num_fields=50]
+Pass: Cold: 7.109102ms GPU, 7.112786ms CPU, 9.78s total GPU, 9.91s total wall, 1376x 
+Run:  [6/30] Protobuf Flat Scalars [Device=0 num_rows=500000 num_fields=50]
+Pass: Cold: 26.655070ms GPU, 26.659158ms CPU, 0.51s total GPU, 0.51s total wall, 19x 
+Run:  [7/30] Protobuf Flat Scalars [Device=0 num_rows=10000 num_fields=200]
+Pass: Cold: 10.439957ms GPU, 10.443692ms CPU, 11.36s total GPU, 11.47s total wall, 1088x 
+Run:  [8/30] Protobuf Flat Scalars [Device=0 num_rows=100000 num_fields=200]
+Warn: Current measurement timed out (15.02s) while over noise threshold (1.48% > 0.50%)
+Pass: Cold: 29.198385ms GPU, 29.202193ms CPU, 14.98s total GPU, 15.02s total wall, 513x 
+Run:  [9/30] Protobuf Flat Scalars [Device=0 num_rows=500000 num_fields=200]
+Pass: Cold: 115.994634ms GPU, 115.999994ms CPU, 7.42s total GPU, 7.43s total wall, 64x 
+Run:  [10/30] Protobuf Nested Message [Device=0 num_rows=10000 inner_fields=5]
+Pass: Cold: 0.682638ms GPU, 0.686217ms CPU, 1.07s total GPU, 1.25s total wall, 1568x 
+Run:  [11/30] Protobuf Nested Message [Device=0 num_rows=100000 inner_fields=5]
+Pass: Cold: 1.538363ms GPU, 1.542351ms CPU, 4.48s total GPU, 4.77s total wall, 2912x 
+Run:  [12/30] Protobuf Nested Message [Device=0 num_rows=500000 inner_fields=5]
+Pass: Cold: 4.651629ms GPU, 4.655404ms CPU, 13.02s total GPU, 13.30s total wall, 2800x 
+Run:  [13/30] Protobuf Nested Message [Device=0 num_rows=10000 inner_fields=20]
+Pass: Cold: 2.458447ms GPU, 2.462209ms CPU, 0.50s total GPU, 0.52s total wall, 204x 
+Run:  [14/30] Protobuf Nested Message [Device=0 num_rows=100000 inner_fields=20]
+Pass: Cold: 4.817362ms GPU, 4.821159ms CPU, 0.50s total GPU, 0.51s total wall, 104x 
+Run:  [15/30] Protobuf Nested Message [Device=0 num_rows=500000 inner_fields=20]
+Warn: Current measurement timed out (15.00s) while over noise threshold (3.64% > 0.50%)
+Pass: Cold: 13.952591ms GPU, 13.956618ms CPU, 14.93s total GPU, 15.00s total wall, 1070x 
+Run:  [16/30] Protobuf Nested Message [Device=0 num_rows=10000 inner_fields=100]
+Pass: Cold: 11.263608ms GPU, 11.267472ms CPU, 5.95s total GPU, 6.00s total wall, 528x 
+Run:  [17/30] Protobuf Nested Message [Device=0 num_rows=100000 inner_fields=100]
+Pass: Cold: 24.756087ms GPU, 24.760204ms CPU, 13.86s total GPU, 13.91s total wall, 560x 
+Run:  [18/30] Protobuf Nested Message [Device=0 num_rows=500000 inner_fields=100]
+Warn: Current measurement timed out (15.00s) while over noise threshold (0.91% > 0.50%)
+Pass: Cold: 70.025400ms GPU, 70.030674ms CPU, 14.99s total GPU, 15.00s total wall, 214x 
+Run:  [19/30] Protobuf Repeated Fields [Device=0 num_rows=10000 avg_items=1]
+Pass: Cold: 0.852793ms GPU, 0.856320ms CPU, 0.50s total GPU, 0.57s total wall, 587x 
+Run:  [20/30] Protobuf Repeated Fields [Device=0 num_rows=100000 avg_items=1]
+Pass: Cold: 2.281557ms GPU, 2.285314ms CPU, 0.50s total GPU, 0.52s total wall, 220x 
+Run:  [21/30] Protobuf Repeated Fields [Device=0 num_rows=10000 avg_items=5]
+Pass: Cold: 1.177153ms GPU, 1.180749ms CPU, 1.45s total GPU, 1.58s total wall, 1232x 
+Run:  [22/30] Protobuf Repeated Fields [Device=0 num_rows=100000 avg_items=5]
+Pass: Cold: 4.102615ms GPU, 4.106303ms CPU, 9.32s total GPU, 9.55s total wall, 2272x 
+Run:  [23/30] Protobuf Repeated Fields [Device=0 num_rows=10000 avg_items=20]
+Pass: Cold: 2.129240ms GPU, 2.132977ms CPU, 0.50s total GPU, 0.52s total wall, 235x 
+Run:  [24/30] Protobuf Repeated Fields [Device=0 num_rows=100000 avg_items=20]
+Pass: Cold: 7.738479ms GPU, 7.742156ms CPU, 0.50s total GPU, 0.51s total wall, 65x 
+Run:  [25/30] Protobuf Many Repeated Fields [Device=0 num_rows=10000 num_rep_fields=10]
+Pass: Cold: 1.637901ms GPU, 1.641626ms CPU, 0.50s total GPU, 0.53s total wall, 306x 
+Run:  [26/30] Protobuf Many Repeated Fields [Device=0 num_rows=100000 num_rep_fields=10]
+Pass: Cold: 5.579029ms GPU, 5.582809ms CPU, 4.64s total GPU, 4.73s total wall, 832x 
+Run:  [27/30] Protobuf Many Repeated Fields [Device=0 num_rows=10000 num_rep_fields=30]
+Pass: Cold: 4.620287ms GPU, 4.623976ms CPU, 0.50s total GPU, 0.51s total wall, 109x 
+Run:  [28/30] Protobuf Many Repeated Fields [Device=0 num_rows=100000 num_rep_fields=30]
+Pass: Cold: 16.545099ms GPU, 16.548836ms CPU, 12.44s total GPU, 12.51s total wall, 752x 
+Run:  [29/30] Protobuf Many Repeated Fields [Device=0 num_rows=10000 num_rep_fields=50]
+Pass: Cold: 7.957812ms GPU, 7.961486ms CPU, 4.46s total GPU, 4.51s total wall, 560x 
+Run:  [30/30] Protobuf Many Repeated Fields [Device=0 num_rows=100000 num_rep_fields=50]
+Warn: Current measurement timed out (15.01s) while over noise threshold (0.69% > 0.50%)
+Pass: Cold: 27.663957ms GPU, 27.667840ms CPU, 14.97s total GPU, 15.01s total wall, 541x 
+```
+
+# Benchmark Results
+
+## Protobuf Flat Scalars
+
+### [0] NVIDIA RTX 5880 Ada Generation
+
+| num_rows | num_fields | Samples |  CPU Time  | Noise |  GPU Time  | Noise |  Rows  |
+|----------|------------|---------|------------|-------|------------|-------|--------|
+|    10000 |         10 |   2848x | 690.229 us | 1.41% | 686.546 us | 1.41% |  10000 |
+|   100000 |         10 |    333x |   1.506 ms | 0.35% |   1.502 ms | 0.35% | 100000 |
+|   500000 |         10 |   2784x |   4.247 ms | 0.73% |   4.244 ms | 0.73% | 500000 |
+|    10000 |         50 |   2688x |   2.622 ms | 6.22% |   2.618 ms | 6.23% |  10000 |
+|   100000 |         50 |   1376x |   7.113 ms | 1.14% |   7.109 ms | 1.14% | 100000 |
+|   500000 |         50 |     19x |  26.659 ms | 0.06% |  26.655 ms | 0.06% | 500000 |
+|    10000 |        200 |   1088x |  10.444 ms | 2.81% |  10.440 ms | 2.81% |  10000 |
+|   100000 |        200 |    513x |  29.202 ms | 1.48% |  29.198 ms | 1.48% | 100000 |
+|   500000 |        200 |     64x | 116.000 ms | 0.50% | 115.995 ms | 0.50% | 500000 |
+
+## Protobuf Nested Message
+
+### [0] NVIDIA RTX 5880 Ada Generation
+
+| num_rows | inner_fields | Samples |  CPU Time  | Noise |  GPU Time  | Noise |  Rows  |
+|----------|--------------|---------|------------|-------|------------|-------|--------|
+|    10000 |            5 |   1568x | 686.217 us | 0.53% | 682.638 us | 0.54% |  10000 |
+|   100000 |            5 |   2912x |   1.542 ms | 1.12% |   1.538 ms | 1.13% | 100000 |
+|   500000 |            5 |   2800x |   4.655 ms | 0.55% |   4.652 ms | 0.55% | 500000 |
+|    10000 |           20 |    204x |   2.462 ms | 0.23% |   2.458 ms | 0.23% |  10000 |
+|   100000 |           20 |    104x |   4.821 ms | 0.28% |   4.817 ms | 0.28% | 100000 |
+|   500000 |           20 |   1070x |  13.957 ms | 3.64% |  13.953 ms | 3.64% | 500000 |
+|    10000 |          100 |    528x |  11.267 ms | 5.07% |  11.264 ms | 5.07% |  10000 |
+|   100000 |          100 |    560x |  24.760 ms | 2.25% |  24.756 ms | 2.25% | 100000 |
+|   500000 |          100 |    214x |  70.031 ms | 0.91% |  70.025 ms | 0.91% | 500000 |
+
+## Protobuf Repeated Fields
+
+### [0] NVIDIA RTX 5880 Ada Generation
+
+| num_rows | avg_items | Samples |  CPU Time  | Noise |  GPU Time  | Noise |  Rows  |
+|----------|-----------|---------|------------|-------|------------|-------|--------|
+|    10000 |         1 |    587x | 856.320 us | 0.36% | 852.793 us | 0.37% |  10000 |
+|   100000 |         1 |    220x |   2.285 ms | 0.22% |   2.282 ms | 0.22% | 100000 |
+|    10000 |         5 |   1232x |   1.181 ms | 0.63% |   1.177 ms | 0.63% |  10000 |
+|   100000 |         5 |   2272x |   4.106 ms | 0.65% |   4.103 ms | 0.65% | 100000 |
+|    10000 |        20 |    235x |   2.133 ms | 0.22% |   2.129 ms | 0.22% |  10000 |
+|   100000 |        20 |     65x |   7.742 ms | 0.30% |   7.738 ms | 0.30% | 100000 |
+
+## Protobuf Many Repeated Fields
+
+### [0] NVIDIA RTX 5880 Ada Generation
+
+| num_rows | num_rep_fields | Samples | CPU Time  | Noise | GPU Time  | Noise |  Rows  |
+|----------|----------------|---------|-----------|-------|-----------|-------|--------|
+|    10000 |             10 |    306x |  1.642 ms | 0.31% |  1.638 ms | 0.31% |  10000 |
+|   100000 |             10 |    832x |  5.583 ms | 0.75% |  5.579 ms | 0.75% | 100000 |
+|    10000 |             30 |    109x |  4.624 ms | 0.21% |  4.620 ms | 0.21% |  10000 |
+|   100000 |             30 |    752x | 16.549 ms | 1.02% | 16.545 ms | 1.02% | 100000 |
+|    10000 |             50 |    560x |  7.961 ms | 2.99% |  7.958 ms | 2.99% |  10000 |
+|   100000 |             50 |    541x | 27.668 ms | 0.69% | 27.664 ms | 0.69% | 100000 |
