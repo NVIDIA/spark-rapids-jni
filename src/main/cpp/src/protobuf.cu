@@ -177,19 +177,49 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                   stream.value()));
   }
 
-  // Count repeated fields at depth 0
+  // Count repeated fields at depth 0 (with O(1) field_number lookup tables)
+  rmm::device_uvector<int> d_fn_to_rep(0, stream, mr);
+  rmm::device_uvector<int> d_fn_to_nested(0, stream, mr);
+
   if (num_repeated > 0 || num_nested > 0) {
-    count_repeated_fields_kernel<<<blocks, threads, 0, stream.value()>>>(*d_in,
-                                                                         d_schema.data(),
-                                                                         num_fields,
-                                                                         0,  // depth_level
-                                                                         d_repeated_info.data(),
-                                                                         num_repeated,
-                                                                         d_repeated_indices.data(),
-                                                                         d_nested_locations.data(),
-                                                                         num_nested,
-                                                                         d_nested_indices.data(),
-                                                                         d_error.data());
+    auto h_fn_to_rep = protobuf_detail::build_index_lookup_table(
+      schema.data(), repeated_field_indices.data(), num_repeated);
+    auto h_fn_to_nested = protobuf_detail::build_index_lookup_table(
+      schema.data(), nested_field_indices.data(), num_nested);
+
+    if (!h_fn_to_rep.empty()) {
+      d_fn_to_rep = rmm::device_uvector<int>(h_fn_to_rep.size(), stream, mr);
+      CUDF_CUDA_TRY(cudaMemcpyAsync(d_fn_to_rep.data(),
+                                    h_fn_to_rep.data(),
+                                    h_fn_to_rep.size() * sizeof(int),
+                                    cudaMemcpyHostToDevice,
+                                    stream.value()));
+    }
+    if (!h_fn_to_nested.empty()) {
+      d_fn_to_nested = rmm::device_uvector<int>(h_fn_to_nested.size(), stream, mr);
+      CUDF_CUDA_TRY(cudaMemcpyAsync(d_fn_to_nested.data(),
+                                    h_fn_to_nested.data(),
+                                    h_fn_to_nested.size() * sizeof(int),
+                                    cudaMemcpyHostToDevice,
+                                    stream.value()));
+    }
+
+    count_repeated_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
+      *d_in,
+      d_schema.data(),
+      num_fields,
+      0,
+      d_repeated_info.data(),
+      num_repeated,
+      d_repeated_indices.data(),
+      d_nested_locations.data(),
+      num_nested,
+      d_nested_indices.data(),
+      d_error.data(),
+      d_fn_to_rep.data(),
+      static_cast<int>(d_fn_to_rep.size()),
+      d_fn_to_nested.data(),
+      static_cast<int>(d_fn_to_nested.size()));
   }
 
   // Store decoded columns by schema index for ordered assembly at the end.
@@ -466,13 +496,36 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                     cudaMemcpyHostToDevice,
                                     stream.value()));
 
+      // Build field_number -> scan_desc_index lookup for the combined kernel
+      int max_scan_fn = 0;
+      for (auto const& sd : h_scan_descs) {
+        max_scan_fn = std::max(max_scan_fn, sd.field_number);
+      }
+      rmm::device_uvector<int> d_fn_to_scan(0, stream, mr);
+      int fn_to_scan_size = 0;
+      if (max_scan_fn <= protobuf_detail::FIELD_LOOKUP_TABLE_MAX) {
+        std::vector<int> h_fn_to_scan(max_scan_fn + 1, -1);
+        for (int i = 0; i < static_cast<int>(h_scan_descs.size()); i++) {
+          h_fn_to_scan[h_scan_descs[i].field_number] = i;
+        }
+        d_fn_to_scan = rmm::device_uvector<int>(h_fn_to_scan.size(), stream, mr);
+        CUDF_CUDA_TRY(cudaMemcpyAsync(d_fn_to_scan.data(),
+                                      h_fn_to_scan.data(),
+                                      h_fn_to_scan.size() * sizeof(int),
+                                      cudaMemcpyHostToDevice,
+                                      stream.value()));
+        fn_to_scan_size = static_cast<int>(h_fn_to_scan.size());
+      }
+
       scan_all_repeated_occurrences_kernel<<<blocks, threads, 0, stream.value()>>>(
         *d_in,
         d_schema.data(),
         0,
         d_scan_descs.data(),
         static_cast<int>(h_scan_descs.size()),
-        d_error.data());
+        d_error.data(),
+        d_fn_to_scan.data(),
+        fn_to_scan_size);
     }
 
     // Phase C: Build columns per field.

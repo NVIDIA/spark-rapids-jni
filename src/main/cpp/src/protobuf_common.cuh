@@ -356,6 +356,27 @@ __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
 // ============================================================================
 
 /**
+ * Build a host-side direct-mapped lookup table: field_number -> local_index,
+ * given an array of schema indices and the schema itself.
+ * Returns an empty vector if the max field number exceeds the threshold.
+ */
+inline std::vector<int> build_index_lookup_table(nested_field_descriptor const* schema,
+                                                 int const* field_indices,
+                                                 int num_indices)
+{
+  int max_fn = 0;
+  for (int i = 0; i < num_indices; i++) {
+    max_fn = std::max(max_fn, schema[field_indices[i]].field_number);
+  }
+  if (max_fn > FIELD_LOOKUP_TABLE_MAX) return {};
+  std::vector<int> table(max_fn + 1, -1);
+  for (int i = 0; i < num_indices; i++) {
+    table[schema[field_indices[i]].field_number] = i;
+  }
+  return table;
+}
+
+/**
  * Build a host-side direct-mapped lookup table: field_number -> field_index.
  * Returns an empty vector if the max field number exceeds the threshold.
  */
@@ -859,7 +880,11 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
                                              field_location* nested_locations,
                                              int num_nested_fields,
                                              int const* nested_field_indices,
-                                             int* error_flag);
+                                             int* error_flag,
+                                             int const* fn_to_rep_idx    = nullptr,
+                                             int fn_to_rep_size          = 0,
+                                             int const* fn_to_nested_idx = nullptr,
+                                             int fn_to_nested_size       = 0);
 
 __global__ void scan_repeated_field_occurrences_kernel(cudf::column_device_view const d_in,
                                                        device_nested_field_descriptor const* schema,
@@ -874,7 +899,9 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
                                                      int depth_level,
                                                      repeated_field_scan_desc const* scan_descs,
                                                      int num_scan_fields,
-                                                     int* error_flag);
+                                                     int* error_flag,
+                                                     int const* fn_to_desc_idx = nullptr,
+                                                     int fn_to_desc_size       = 0);
 
 __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
                                                   cudf::size_type const* parent_row_offsets,
