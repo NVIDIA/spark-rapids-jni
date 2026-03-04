@@ -99,13 +99,8 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
                                      rmm::device_buffer(d_data.data(), total_data, stream, mr),
                                      rmm::device_buffer{},
                                      0);
-    return cudf::make_lists_column(total_count,
-                                   std::move(offsets_col),
-                                   std::move(bytes_child),
-                                   null_count,
-                                   std::move(mask),
-                                   stream,
-                                   mr);
+    return cudf::make_lists_column(
+      total_count, std::move(offsets_col), std::move(bytes_child), null_count, std::move(mask));
   }
 
   return cudf::make_strings_column(
@@ -190,7 +185,7 @@ std::unique_ptr<cudf::column> make_empty_column_safe(cudf::data_type dtype,
       auto child_col = std::make_unique<cudf::column>(
         cudf::data_type{cudf::type_id::UINT8}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
       return cudf::make_lists_column(
-        0, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{}, stream, mr);
+        0, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
     }
     case cudf::type_id::STRUCT: {
       // Create empty struct column with no children
@@ -222,13 +217,8 @@ std::unique_ptr<cudf::column> make_null_list_column_with_child(
                                                     rmm::device_buffer{},
                                                     0);
   auto null_mask   = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
-  return cudf::make_lists_column(num_rows,
-                                 std::move(offsets_col),
-                                 std::move(child_col),
-                                 num_rows,
-                                 std::move(null_mask),
-                                 stream,
-                                 mr);
+  return cudf::make_lists_column(
+    num_rows, std::move(offsets_col), std::move(child_col), num_rows, std::move(null_mask));
 }
 
 /**
@@ -250,7 +240,7 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
                                 cudaMemcpyHostToDevice,
                                 stream.value()));
   return cudf::make_lists_column(
-    0, std::move(offsets_col), std::move(element_col), 0, rmm::device_buffer{}, stream, mr);
+    0, std::move(offsets_col), std::move(element_col), 0, rmm::device_buffer{});
 }
 
 std::unique_ptr<cudf::column> build_enum_string_column(
@@ -460,12 +450,10 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
                                    std::move(list_offs_col),
                                    std::move(child_col),
                                    input_null_count,
-                                   std::move(null_mask),
-                                   stream,
-                                   mr);
+                                   std::move(null_mask));
   }
   return cudf::make_lists_column(
-    num_rows, std::move(list_offs_col), std::move(child_col), 0, rmm::device_buffer{}, stream, mr);
+    num_rows, std::move(list_offs_col), std::move(child_col), 0, rmm::device_buffer{});
 }
 
 std::unique_ptr<cudf::column> build_repeated_string_column(
@@ -505,18 +493,11 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
                                      std::move(offsets_col),
                                      std::move(child_col),
                                      input_null_count,
-                                     std::move(null_mask),
-                                     stream,
-                                     mr);
+                                     std::move(null_mask));
     } else {
       // No input nulls, all rows get empty arrays []
-      return cudf::make_lists_column(num_rows,
-                                     std::move(offsets_col),
-                                     std::move(child_col),
-                                     0,
-                                     rmm::device_buffer{},
-                                     stream,
-                                     mr);
+      return cudf::make_lists_column(
+        num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
     }
   }
 
@@ -561,13 +542,8 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
                                      rmm::device_buffer(chars.data(), total_chars, stream, mr),
                                      rmm::device_buffer{},
                                      0);
-    child_col = cudf::make_lists_column(total_count,
-                                        std::move(str_offsets_col),
-                                        std::move(bytes_child),
-                                        0,
-                                        rmm::device_buffer{},
-                                        stream,
-                                        mr);
+    child_col = cudf::make_lists_column(
+      total_count, std::move(str_offsets_col), std::move(bytes_child), 0, rmm::device_buffer{});
   } else {
     child_col = cudf::make_strings_column(
       total_count, std::move(str_offsets_col), chars.release(), 0, rmm::device_buffer{});
@@ -588,13 +564,11 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
                                    std::move(offsets_col),
                                    std::move(child_col),
                                    input_null_count,
-                                   std::move(null_mask),
-                                   stream,
-                                   mr);
+                                   std::move(null_mask));
   }
 
   return cudf::make_lists_column(
-    num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{}, stream, mr);
+    num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
 }
 
 // Forward declaration -- build_nested_struct_column is defined after build_repeated_struct_column
@@ -710,17 +684,10 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                      std::move(offsets_col),
                                      std::move(empty_struct),
                                      input_null_count,
-                                     std::move(null_mask),
-                                     stream,
-                                     mr);
+                                     std::move(null_mask));
     } else {
-      return cudf::make_lists_column(num_rows,
-                                     std::move(offsets_col),
-                                     std::move(empty_struct),
-                                     0,
-                                     rmm::device_buffer{},
-                                     stream,
-                                     mr);
+      return cudf::make_lists_column(
+        num_rows, std::move(offsets_col), std::move(empty_struct), 0, rmm::device_buffer{});
     }
   }
 
@@ -982,13 +949,11 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                    std::move(offsets_col),
                                    std::move(struct_col),
                                    input_null_count,
-                                   std::move(null_mask),
-                                   stream,
-                                   mr);
+                                   std::move(null_mask));
   }
 
   return cudf::make_lists_column(
-    num_rows, std::move(offsets_col), std::move(struct_col), 0, rmm::device_buffer{}, stream, mr);
+    num_rows, std::move(offsets_col), std::move(struct_col), 0, rmm::device_buffer{});
 }
 
 std::unique_ptr<cudf::column> build_nested_struct_column(
@@ -1387,13 +1352,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
     } else {
       child_col = make_empty_column_safe(cudf::data_type{elem_type_id}, stream, mr);
     }
-    return cudf::make_lists_column(num_parent_rows,
-                                   std::move(list_offsets_col),
-                                   std::move(child_col),
-                                   0,
-                                   rmm::device_buffer{},
-                                   stream,
-                                   mr);
+    return cudf::make_lists_column(
+      num_parent_rows, std::move(list_offsets_col), std::move(child_col), 0, rmm::device_buffer{});
   }
 
   rmm::device_uvector<int32_t> list_offs(num_parent_rows + 1, stream, mr);
@@ -1514,13 +1474,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                                       list_offs.release(),
                                                       rmm::device_buffer{},
                                                       0);
-  return cudf::make_lists_column(num_parent_rows,
-                                 std::move(list_offs_col),
-                                 std::move(child_values),
-                                 0,
-                                 rmm::device_buffer{},
-                                 stream,
-                                 mr);
+  return cudf::make_lists_column(
+    num_parent_rows, std::move(list_offs_col), std::move(child_values), 0, rmm::device_buffer{});
 }
 
 }  // namespace spark_rapids_jni::protobuf_detail

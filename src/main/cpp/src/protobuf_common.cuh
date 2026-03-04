@@ -1152,13 +1152,8 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
                                      rmm::device_buffer(chars.data(), total_size, stream, mr),
                                      rmm::device_buffer{},
                                      0);
-    return cudf::make_lists_column(num_rows,
-                                   std::move(offsets_col),
-                                   std::move(bytes_child),
-                                   null_count,
-                                   std::move(mask),
-                                   stream,
-                                   mr);
+    return cudf::make_lists_column(
+      num_rows, std::move(offsets_col), std::move(bytes_child), null_count, std::move(mask));
   }
 
   return cudf::make_strings_column(
@@ -1367,18 +1362,11 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                      std::move(offsets_col),
                                      std::move(child_col),
                                      input_null_count,
-                                     std::move(null_mask),
-                                     stream,
-                                     mr);
+                                     std::move(null_mask));
     } else {
       // No input nulls, all rows get empty arrays []
-      return cudf::make_lists_column(num_rows,
-                                     std::move(offsets_col),
-                                     std::move(child_col),
-                                     0,
-                                     rmm::device_buffer{},
-                                     stream,
-                                     mr);
+      return cudf::make_lists_column(
+        num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
     }
   }
 
@@ -1447,13 +1435,11 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                    std::move(offsets_col),
                                    std::move(child_col),
                                    input_null_count,
-                                   std::move(null_mask),
-                                   stream,
-                                   mr);
+                                   std::move(null_mask));
   }
 
   return cudf::make_lists_column(
-    num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{}, stream, mr);
+    num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
 }
 
 }  // namespace spark_rapids_jni::protobuf_detail

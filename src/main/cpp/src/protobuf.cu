@@ -62,13 +62,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             cudf::data_type{cudf::type_id::INT32}, 1, offsets.release(), rmm::device_buffer{}, 0);
           auto empty_struct = make_empty_struct_column_with_schema(
             schema, schema_output_types, i, num_fields, stream, mr);
-          empty_children.push_back(cudf::make_lists_column(0,
-                                                           std::move(offsets_col),
-                                                           std::move(empty_struct),
-                                                           0,
-                                                           rmm::device_buffer{},
-                                                           stream,
-                                                           mr));
+          empty_children.push_back(cudf::make_lists_column(
+            0, std::move(offsets_col), std::move(empty_struct), 0, rmm::device_buffer{}));
         } else if (field_type.id() == cudf::type_id::STRUCT && !schema[i].is_repeated) {
           // Non-repeated nested message field
           empty_children.push_back(make_empty_struct_column_with_schema(
@@ -694,17 +689,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                            std::move(offsets_col),
                                                            std::move(child_col),
                                                            input_null_count,
-                                                           std::move(null_mask),
-                                                           stream,
-                                                           mr);
+                                                           std::move(null_mask));
         } else {
-          column_map[schema_idx] = cudf::make_lists_column(num_rows,
-                                                           std::move(offsets_col),
-                                                           std::move(child_col),
-                                                           0,
-                                                           rmm::device_buffer{},
-                                                           stream,
-                                                           mr);
+          column_map[schema_idx] = cudf::make_lists_column(
+            num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
         }
       }
     }
