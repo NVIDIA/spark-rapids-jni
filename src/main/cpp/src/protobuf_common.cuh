@@ -609,6 +609,128 @@ __global__ void extract_fixed_kernel(uint8_t const* message_data,
   if (valid) valid[idx] = true;
 }
 
+// ============================================================================
+// Batched scalar extraction — one 2D kernel for N fields of the same type
+// ============================================================================
+
+struct batched_scalar_desc {
+  int loc_field_idx;  // index into the locations array (column within d_locations)
+  void* output;       // pre-allocated output buffer (T*)
+  bool* valid;        // pre-allocated validity buffer
+  bool has_default;
+  int64_t default_int;
+  double default_float;
+};
+
+template <typename OutputType, bool ZigZag = false>
+__global__ void extract_varint_batched_kernel(uint8_t const* message_data,
+                                              cudf::size_type const* row_offsets,
+                                              cudf::size_type base_offset,
+                                              field_location const* locations,
+                                              int num_loc_fields,
+                                              batched_scalar_desc const* descs,
+                                              int num_descs,
+                                              int num_rows,
+                                              int* error_flag)
+{
+  int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int fi  = static_cast<int>(blockIdx.y);
+  if (row >= num_rows || fi >= num_descs) return;
+
+  auto const& desc = descs[fi];
+  auto loc         = locations[row * num_loc_fields + desc.loc_field_idx];
+  auto* out        = static_cast<OutputType*>(desc.output);
+
+  auto const write_value = [](OutputType* dst, uint64_t val) {
+    if constexpr (std::is_same_v<OutputType, uint8_t>) {
+      *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
+    } else {
+      *dst = static_cast<OutputType>(val);
+    }
+  };
+
+  if (loc.offset < 0) {
+    if (desc.has_default) {
+      write_value(&out[row], static_cast<uint64_t>(desc.default_int));
+      desc.valid[row] = true;
+    } else {
+      desc.valid[row] = false;
+    }
+    return;
+  }
+
+  int32_t data_offset = row_offsets[row] - base_offset + loc.offset;
+  uint8_t const* cur  = message_data + data_offset;
+  uint8_t const* end  = cur + loc.length;
+
+  uint64_t v;
+  int n;
+  if (!read_varint(cur, end, v, n)) {
+    set_error_once(error_flag, ERR_VARINT);
+    desc.valid[row] = false;
+    return;
+  }
+  if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
+  write_value(&out[row], v);
+  desc.valid[row] = true;
+}
+
+template <typename OutputType, int WT>
+__global__ void extract_fixed_batched_kernel(uint8_t const* message_data,
+                                             cudf::size_type const* row_offsets,
+                                             cudf::size_type base_offset,
+                                             field_location const* locations,
+                                             int num_loc_fields,
+                                             batched_scalar_desc const* descs,
+                                             int num_descs,
+                                             int num_rows,
+                                             int* error_flag)
+{
+  int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int fi  = static_cast<int>(blockIdx.y);
+  if (row >= num_rows || fi >= num_descs) return;
+
+  auto const& desc = descs[fi];
+  auto loc         = locations[row * num_loc_fields + desc.loc_field_idx];
+  auto* out        = static_cast<OutputType*>(desc.output);
+
+  if (loc.offset < 0) {
+    if (desc.has_default) {
+      out[row]        = static_cast<OutputType>(desc.default_float);
+      desc.valid[row] = true;
+    } else {
+      desc.valid[row] = false;
+    }
+    return;
+  }
+
+  int32_t data_offset = row_offsets[row] - base_offset + loc.offset;
+  uint8_t const* cur  = message_data + data_offset;
+  OutputType value;
+
+  if constexpr (WT == WT_32BIT) {
+    if (loc.length < 4) {
+      set_error_once(error_flag, ERR_FIXED_LEN);
+      desc.valid[row] = false;
+      return;
+    }
+    uint32_t raw = load_le<uint32_t>(cur);
+    memcpy(&value, &raw, sizeof(value));
+  } else {
+    if (loc.length < 8) {
+      set_error_once(error_flag, ERR_FIXED_LEN);
+      desc.valid[row] = false;
+      return;
+    }
+    uint64_t raw = load_le<uint64_t>(cur);
+    memcpy(&value, &raw, sizeof(value));
+  }
+  out[row]        = value;
+  desc.valid[row] = true;
+}
+
+// ============================================================================
+
 template <typename LocationProvider>
 __global__ void extract_lengths_kernel(LocationProvider loc_provider,
                                        int total_items,

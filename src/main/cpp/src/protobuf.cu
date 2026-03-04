@@ -289,43 +289,174 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       }
     }
 
+    // Batched scalar extraction: group non-special fixed-width fields by extraction
+    // category and extract all fields of each category with a single 2D kernel launch.
+    {
+      struct scalar_buf_pair {
+        rmm::device_uvector<uint8_t> out_bytes;
+        rmm::device_uvector<bool> valid;
+        scalar_buf_pair(rmm::cuda_stream_view s, rmm::device_async_resource_ref m)
+          : out_bytes(0, s, m), valid(0, s, m) {}
+      };
+
+      // Classify each scalar field
+      // 0=I32, 1=U32, 2=I64, 3=U64, 4=BOOL, 5=I32zz, 6=I64zz, 7=F32, 8=F64,
+      // 9=I32fixed, 10=I64fixed, 11=fallback
+      constexpr int NUM_GROUPS = 12;
+      constexpr int GRP_FALLBACK = 11;
+      std::vector<int> group_lists[NUM_GROUPS];
+
+      for (int i = 0; i < num_scalar; i++) {
+        int si   = scalar_field_indices[i];
+        auto tid = schema_output_types[si].id();
+        int enc  = schema[si].encoding;
+        bool zz  = (enc == spark_rapids_jni::ENC_ZIGZAG);
+
+        // STRING, LIST, and enum-as-string go to per-field path
+        if (tid == cudf::type_id::STRING || tid == cudf::type_id::LIST) continue;
+
+        bool is_fixed = (enc == spark_rapids_jni::ENC_FIXED);
+
+        // INT32 with enum validation goes to fallback
+        if (tid == cudf::type_id::INT32 && !zz && !is_fixed &&
+            si < static_cast<int>(enum_valid_values.size()) &&
+            !enum_valid_values[si].empty()) {
+          group_lists[GRP_FALLBACK].push_back(i);
+          continue;
+        }
+
+        int g = GRP_FALLBACK;
+        // INT32/INT64 with ENC_FIXED use fixed-width extraction (sfixed32/sfixed64)
+        if      (tid == cudf::type_id::INT32  && is_fixed) g = 9;
+        else if (tid == cudf::type_id::INT64  && is_fixed) g = 10;
+        else if (tid == cudf::type_id::INT32  && !zz) g = 0;
+        else if (tid == cudf::type_id::UINT32)        g = 1;
+        else if (tid == cudf::type_id::INT64  && !zz) g = 2;
+        else if (tid == cudf::type_id::UINT64)        g = 3;
+        else if (tid == cudf::type_id::BOOL8)         g = 4;
+        else if (tid == cudf::type_id::INT32  && zz)  g = 5;
+        else if (tid == cudf::type_id::INT64  && zz)  g = 6;
+        else if (tid == cudf::type_id::FLOAT32)       g = 7;
+        else if (tid == cudf::type_id::FLOAT64)       g = 8;
+        group_lists[g].push_back(i);
+      }
+
+      // Helper: batch-extract one group using a 2D kernel, then build columns.
+      auto do_batch = [&](std::vector<int> const& idxs, auto kernel_launcher) {
+        int nf = static_cast<int>(idxs.size());
+        if (nf == 0) return;
+
+        std::vector<std::unique_ptr<scalar_buf_pair>> bufs;
+        bufs.reserve(nf);
+        std::vector<protobuf_detail::batched_scalar_desc> h_descs(nf);
+
+        for (int j = 0; j < nf; j++) {
+          int li = idxs[j];
+          int si = scalar_field_indices[li];
+          bool hd = schema[si].has_default_value;
+          auto& bp = *bufs.emplace_back(std::make_unique<scalar_buf_pair>(stream, mr));
+          bp.valid = rmm::device_uvector<bool>(std::max(1, num_rows), stream, mr);
+          // BOOL8 default comes from default_bools (converted to 0/1 int)
+          bool is_bool = (schema_output_types[si].id() == cudf::type_id::BOOL8);
+          int64_t def_i = hd ? (is_bool ? (default_bools[si] ? 1 : 0) : default_ints[si]) : 0;
+          h_descs[j] = {li, nullptr, bp.valid.data(), hd,
+                         def_i, hd ? default_floats[si] : 0.0};
+        }
+
+        // kernel_launcher allocates out_bytes, sets h_descs[j].output, and launches kernel
+        kernel_launcher(nf, h_descs, bufs);
+
+        // Build columns
+        for (int j = 0; j < nf; j++) {
+          int si  = scalar_field_indices[idxs[j]];
+          auto dt = schema_output_types[si];
+          auto& bp = *bufs[j];
+          auto [mask, null_count] =
+            protobuf_detail::make_null_mask_from_valid(bp.valid, stream, mr);
+          column_map[si] = std::make_unique<cudf::column>(
+            dt, num_rows, bp.out_bytes.release(), std::move(mask), null_count);
+        }
+      };
+
+      // Varint launcher for type T with zigzag ZZ
+      auto varint_launch = [&](int nf,
+                                std::vector<protobuf_detail::batched_scalar_desc>& h_descs,
+                                std::vector<std::unique_ptr<scalar_buf_pair>>& bufs,
+                                size_t elem_size, auto kernel_fn) {
+        for (int j = 0; j < nf; j++) {
+          bufs[j]->out_bytes = rmm::device_uvector<uint8_t>(num_rows * elem_size, stream, mr);
+          h_descs[j].output = bufs[j]->out_bytes.data();
+        }
+        rmm::device_uvector<protobuf_detail::batched_scalar_desc> d_descs(nf, stream, mr);
+        CUDF_CUDA_TRY(cudaMemcpyAsync(d_descs.data(), h_descs.data(),
+                                       nf * sizeof(h_descs[0]),
+                                       cudaMemcpyHostToDevice, stream.value()));
+        dim3 grid((num_rows + threads - 1) / threads, nf);
+        kernel_fn(grid, threads, stream.value(), message_data, list_offsets, base_offset,
+                  d_locations.data(), num_scalar, d_descs.data(), nf, num_rows, d_error.data());
+      };
+
+      // Dispatch groups 0-8 as batched
+      #define LAUNCH_VARINT_BATCH(GROUP, TYPE, ZZ)                                         \
+        do_batch(group_lists[GROUP], [&](int nf, auto& hd, auto& bf) {                    \
+          varint_launch(nf, hd, bf, sizeof(TYPE),                                          \
+            [](dim3 g, int t, cudaStream_t s, auto... args) {                              \
+              protobuf_detail::extract_varint_batched_kernel<TYPE, ZZ><<<g, t, 0, s>>>(    \
+                args...);                                                                  \
+            });                                                                            \
+        })
+
+      #define LAUNCH_FIXED_BATCH(GROUP, TYPE, WT_VAL)                                      \
+        do_batch(group_lists[GROUP], [&](int nf, auto& hd, auto& bf) {                    \
+          varint_launch(nf, hd, bf, sizeof(TYPE),                                          \
+            [](dim3 g, int t, cudaStream_t s, auto... args) {                              \
+              protobuf_detail::extract_fixed_batched_kernel<TYPE, WT_VAL><<<g, t, 0, s>>>( \
+                args...);                                                                  \
+            });                                                                            \
+        })
+
+      LAUNCH_VARINT_BATCH(0, int32_t,  false);
+      LAUNCH_VARINT_BATCH(1, uint32_t, false);
+      LAUNCH_VARINT_BATCH(2, int64_t,  false);
+      LAUNCH_VARINT_BATCH(3, uint64_t, false);
+      LAUNCH_VARINT_BATCH(4, uint8_t,  false);
+      LAUNCH_VARINT_BATCH(5, int32_t,  true);
+      LAUNCH_VARINT_BATCH(6, int64_t,  true);
+      LAUNCH_FIXED_BATCH(7,  float,   WT_32BIT);
+      LAUNCH_FIXED_BATCH(8,  double,  WT_64BIT);
+      LAUNCH_FIXED_BATCH(9,  int32_t, WT_32BIT);
+      LAUNCH_FIXED_BATCH(10, int64_t, WT_64BIT);
+
+      #undef LAUNCH_VARINT_BATCH
+      #undef LAUNCH_FIXED_BATCH
+
+      // Per-field fallback (INT32 with enum, etc.)
+      for (int i : group_lists[GRP_FALLBACK]) {
+        int schema_idx = scalar_field_indices[i];
+        auto const dt  = schema_output_types[schema_idx];
+        auto const enc = schema[schema_idx].encoding;
+        bool has_def   = schema[schema_idx].has_default_value;
+        TopLevelLocationProvider loc_provider{
+          list_offsets, base_offset, d_locations.data(), i, num_scalar};
+        column_map[schema_idx] = extract_typed_column(dt, enc, message_data, loc_provider,
+          num_rows, blocks, threads, has_def,
+          has_def ? default_ints[schema_idx] : 0,
+          has_def ? default_floats[schema_idx] : 0.0,
+          has_def ? default_bools[schema_idx] : false,
+          default_strings[schema_idx], schema_idx, enum_valid_values, enum_names,
+          d_row_has_invalid_enum, d_error, stream, mr);
+      }
+    }
+
+    // Per-field extraction for STRING and LIST types
     for (int i = 0; i < num_scalar; i++) {
       int schema_idx = scalar_field_indices[i];
       auto const dt  = schema_output_types[schema_idx];
+      if (dt.id() != cudf::type_id::STRING && dt.id() != cudf::type_id::LIST) continue;
       auto const enc = schema[schema_idx].encoding;
       bool has_def   = schema[schema_idx].has_default_value;
 
       switch (dt.id()) {
-        case cudf::type_id::BOOL8:
-        case cudf::type_id::INT32:
-        case cudf::type_id::UINT32:
-        case cudf::type_id::INT64:
-        case cudf::type_id::UINT64:
-        case cudf::type_id::FLOAT32:
-        case cudf::type_id::FLOAT64: {
-          TopLevelLocationProvider loc_provider{
-            list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          column_map[schema_idx] = extract_typed_column(dt,
-                                                        enc,
-                                                        message_data,
-                                                        loc_provider,
-                                                        num_rows,
-                                                        blocks,
-                                                        threads,
-                                                        has_def,
-                                                        has_def ? default_ints[schema_idx] : 0,
-                                                        has_def ? default_floats[schema_idx] : 0.0,
-                                                        has_def ? default_bools[schema_idx] : false,
-                                                        default_strings[schema_idx],
-                                                        schema_idx,
-                                                        enum_valid_values,
-                                                        enum_names,
-                                                        d_row_has_invalid_enum,
-                                                        d_error,
-                                                        stream,
-                                                        mr);
-          break;
-        }
         case cudf::type_id::STRING: {
           if (enc == spark_rapids_jni::ENC_ENUM_STRING) {
             // ENUM-as-string path:
