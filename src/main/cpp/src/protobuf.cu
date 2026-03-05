@@ -333,10 +333,13 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         }
 
         int g = GRP_FALLBACK;
-        // INT32/INT64 with ENC_FIXED use fixed-width extraction (sfixed32/sfixed64)
         if (tid == cudf::type_id::INT32 && is_fixed)
           g = 9;
         else if (tid == cudf::type_id::INT64 && is_fixed)
+          g = 10;
+        else if (tid == cudf::type_id::UINT32 && is_fixed)
+          g = 9;
+        else if (tid == cudf::type_id::UINT64 && is_fixed)
           g = 10;
         else if (tid == cudf::type_id::INT32 && !zz)
           g = 0;

@@ -411,76 +411,8 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
 }
 
 /**
- * Scan and record all occurrences of repeated fields.
- * Called after count_repeated_fields_kernel to fill in actual locations.
- *
- * @note Time complexity: O(message_length * num_repeated_fields) per row.
- */
-__global__ void scan_repeated_field_occurrences_kernel(
-  cudf::column_device_view const d_in,
-  device_nested_field_descriptor const* schema,
-  int schema_idx,
-  int32_t const* output_offsets,     // Pre-computed offsets from prefix sum [num_rows + 1]
-  repeated_occurrence* occurrences,  // Output: all occurrences [total_count]
-  int* error_flag)
-{
-  auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
-  cudf::detail::lists_column_device_view in{d_in};
-  if (row >= in.size()) return;
-
-  if (in.nullable() && in.is_null(row)) { return; }
-
-  auto const base   = in.offset_at(0);
-  auto const child  = in.get_sliced_child();
-  auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
-  int32_t start     = in.offset_at(row) - base;
-  int32_t end       = in.offset_at(row + 1) - base;
-  if (!check_message_bounds(start, end, child.size(), error_flag)) { return; }
-
-  uint8_t const* cur     = bytes + start;
-  uint8_t const* msg_end = bytes + end;
-
-  int target_fn = schema[schema_idx].field_number;
-  int target_wt = schema[schema_idx].wire_type;
-  int write_idx = output_offsets[row];
-
-  while (cur < msg_end) {
-    proto_tag tag;
-    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
-    int fn = tag.field_number;
-    int wt = tag.wire_type;
-
-    if (fn == target_fn) {
-      bool is_packed = (wt == WT_LEN && target_wt != WT_LEN);
-      if (is_packed || wt == target_wt) {
-        if (!scan_repeated_element(cur,
-                                   msg_end,
-                                   bytes + start,
-                                   wt,
-                                   target_wt,
-                                   static_cast<int32_t>(row),
-                                   occurrences,
-                                   write_idx,
-                                   error_flag)) {
-          return;
-        }
-      }
-    }
-
-    // Skip to next field
-    uint8_t const* next;
-    if (!skip_field(cur, msg_end, wt, next)) {
-      set_error_once(error_flag, ERR_SKIP);
-      return;
-    }
-    cur = next;
-  }
-}
-
-/**
  * Combined occurrence scan: scans each message ONCE and writes occurrences for ALL
- * repeated fields simultaneously. Replaces N separate scan_repeated_field_occurrences_kernel
- * launches with a single kernel, eliminating N-1 redundant full-message scans.
+ * repeated fields simultaneously, scanning each message only once.
  */
 __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view const d_in,
                                                      repeated_field_scan_desc const* scan_descs,
