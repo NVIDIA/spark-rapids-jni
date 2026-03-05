@@ -831,36 +831,47 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             break;
           case cudf::type_id::STRING: {
             auto enc = schema[schema_idx].encoding;
-            if (enc == spark_rapids_jni::ENC_ENUM_STRING &&
-                schema_idx < static_cast<int>(enum_valid_values.size()) &&
-                schema_idx < static_cast<int>(enum_names.size()) &&
-                !enum_valid_values[schema_idx].empty() &&
-                enum_valid_values[schema_idx].size() == enum_names[schema_idx].size()) {
-              column_map[schema_idx] =
-                build_repeated_enum_string_column(binary_input,
-                                                  message_data,
-                                                  list_offsets,
-                                                  base_offset,
-                                                  d_field_counts,
-                                                  d_occurrences,
-                                                  total_count,
-                                                  num_rows,
-                                                  enum_valid_values[schema_idx],
-                                                  enum_names[schema_idx],
-                                                  d_row_has_invalid_enum,
-                                                  d_error,
-                                                  stream,
-                                                  mr);
-            } else {
-              // Missing/mismatched enum metadata for repeated enum-as-string field.
-              // Set error and produce null column, consistent with the scalar path.
-              {
+            if (enc == spark_rapids_jni::ENC_ENUM_STRING) {
+              if (schema_idx < static_cast<int>(enum_valid_values.size()) &&
+                  schema_idx < static_cast<int>(enum_names.size()) &&
+                  !enum_valid_values[schema_idx].empty() &&
+                  enum_valid_values[schema_idx].size() == enum_names[schema_idx].size()) {
+                column_map[schema_idx] =
+                  build_repeated_enum_string_column(binary_input,
+                                                    message_data,
+                                                    list_offsets,
+                                                    base_offset,
+                                                    d_field_counts,
+                                                    d_occurrences,
+                                                    total_count,
+                                                    num_rows,
+                                                    enum_valid_values[schema_idx],
+                                                    enum_names[schema_idx],
+                                                    d_row_has_invalid_enum,
+                                                    d_error,
+                                                    stream,
+                                                    mr);
+              } else {
                 int err_val = ERR_MISSING_ENUM_META;
                 CUDF_CUDA_TRY(cudaMemcpyAsync(
                   d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+                column_map[schema_idx] =
+                  make_null_column(schema_output_types[schema_idx], num_rows, stream, mr);
               }
-              column_map[schema_idx] =
-                make_null_column(schema_output_types[schema_idx], num_rows, stream, mr);
+            } else {
+              column_map[schema_idx] = build_repeated_string_column(binary_input,
+                                                                    message_data,
+                                                                    list_offsets,
+                                                                    base_offset,
+                                                                    h_device_schema[schema_idx],
+                                                                    d_field_counts,
+                                                                    d_occurrences,
+                                                                    total_count,
+                                                                    num_rows,
+                                                                    false,
+                                                                    d_error,
+                                                                    stream,
+                                                                    mr);
             }
             break;
           }
