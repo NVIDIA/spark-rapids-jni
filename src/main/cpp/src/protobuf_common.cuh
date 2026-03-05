@@ -722,7 +722,11 @@ __global__ void extract_fixed_batched_kernel(uint8_t const* message_data,
 
   if (loc.offset < 0) {
     if (desc.has_default) {
-      out[row]        = static_cast<OutputType>(desc.default_float);
+      if constexpr (std::is_integral_v<OutputType>) {
+        out[row] = static_cast<OutputType>(desc.default_int);
+      } else {
+        out[row] = static_cast<OutputType>(desc.default_float);
+      }
       desc.valid[row] = true;
     } else {
       desc.valid[row] = false;

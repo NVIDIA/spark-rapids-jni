@@ -224,7 +224,10 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
         names_for_field.reserve(num_names);
         for (jsize j = 0; j < num_names; ++j) {
           jbyteArray name_bytes = static_cast<jbyteArray>(env->GetObjectArrayElement(names_arr, j));
-          if (env->ExceptionCheck()) { return 0; }
+          if (env->ExceptionCheck()) {
+            env->DeleteLocalRef(names_arr);
+            return 0;
+          }
           if (name_bytes == nullptr) {
             names_for_field.emplace_back();
           } else {
