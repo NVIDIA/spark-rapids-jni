@@ -547,7 +547,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             // Regular protobuf STRING (length-delimited)
             bool has_def_str    = has_def;
             auto const& def_str = default_strings[schema_idx];
-            TopLevelLocationProvider len_provider{nullptr, 0, d_locations.data(), i, num_scalar};
+            TopLevelLocationProvider len_provider{
+              list_offsets, base_offset, d_locations.data(), i, num_scalar};
             TopLevelLocationProvider copy_provider{
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
             auto valid_fn = [locs = d_locations.data(), i, num_scalar, has_def_str] __device__(
@@ -572,7 +573,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           // bytes (BinaryType) represented as LIST<UINT8>
           bool has_def_bytes    = has_def;
           auto const& def_bytes = default_strings[schema_idx];
-          TopLevelLocationProvider len_provider{nullptr, 0, d_locations.data(), i, num_scalar};
+          TopLevelLocationProvider len_provider{
+            list_offsets, base_offset, d_locations.data(), i, num_scalar};
           TopLevelLocationProvider copy_provider{
             list_offsets, base_offset, d_locations.data(), i, num_scalar};
           auto valid_fn = [locs = d_locations.data(), i, num_scalar, has_def_bytes] __device__(

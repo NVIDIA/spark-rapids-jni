@@ -457,9 +457,10 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
       total_count);
   }
 
-  // 7. Assemble strings child column
-  auto child_col = cudf::make_strings_column(
-    total_count, std::move(str_offs_col), chars.release(), 0, rmm::device_buffer{});
+  // 7. Assemble strings child column with null mask from elem_valid
+  auto [child_mask, child_null_count] = make_null_mask_from_valid(elem_valid, stream, mr);
+  auto child_col                      = cudf::make_strings_column(
+    total_count, std::move(str_offs_col), chars.release(), child_null_count, std::move(child_mask));
 
   // 8. Build LIST<STRING> column with list offsets from per-row counts
   rmm::device_uvector<int32_t> lo(num_rows + 1, stream, mr);
