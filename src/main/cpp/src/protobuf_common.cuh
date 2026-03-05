@@ -64,15 +64,16 @@ constexpr int MAX_VARINT_BYTES = 10;
 constexpr int THREADS_PER_BLOCK = 256;
 
 // Error codes for kernel error reporting.
-constexpr int ERR_BOUNDS       = 1;
-constexpr int ERR_VARINT       = 2;
-constexpr int ERR_FIELD_NUMBER = 3;
-constexpr int ERR_WIRE_TYPE    = 4;
-constexpr int ERR_OVERFLOW     = 5;
-constexpr int ERR_FIELD_SIZE   = 6;
-constexpr int ERR_SKIP         = 7;
-constexpr int ERR_FIXED_LEN    = 8;
-constexpr int ERR_REQUIRED     = 9;
+constexpr int ERR_BOUNDS           = 1;
+constexpr int ERR_VARINT           = 2;
+constexpr int ERR_FIELD_NUMBER     = 3;
+constexpr int ERR_WIRE_TYPE        = 4;
+constexpr int ERR_OVERFLOW         = 5;
+constexpr int ERR_FIELD_SIZE       = 6;
+constexpr int ERR_SKIP             = 7;
+constexpr int ERR_FIXED_LEN        = 8;
+constexpr int ERR_REQUIRED         = 9;
+constexpr int ERR_SCHEMA_TOO_LARGE = 10;
 
 // Maximum supported nesting depth for recursive struct decoding.
 constexpr int MAX_NESTED_STRUCT_DECODE_DEPTH = 10;

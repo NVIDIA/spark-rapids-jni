@@ -504,7 +504,7 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
 
   constexpr int MAX_STACK_FIELDS = 128;
   if (num_scan_fields > MAX_STACK_FIELDS) {
-    set_error_once(error_flag, ERR_OVERFLOW);
+    set_error_once(error_flag, ERR_SCHEMA_TOO_LARGE);
     return;
   }
   int write_idx[MAX_STACK_FIELDS];

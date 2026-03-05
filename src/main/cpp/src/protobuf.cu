@@ -138,6 +138,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       case ERR_FIXED_LEN:
         return "Protobuf decode error: invalid fixed-width or packed field length";
       case ERR_REQUIRED: return "Protobuf decode error: missing required field";
+      case ERR_SCHEMA_TOO_LARGE:
+        return "Protobuf decode error: schema exceeds maximum supported repeated fields per kernel "
+               "(128)";
       default: return "Protobuf decode error: unknown error";
     }
   };

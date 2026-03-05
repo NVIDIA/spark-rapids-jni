@@ -176,7 +176,10 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       } else {
         jsize len    = env->GetArrayLength(byte_arr);
         jbyte* bytes = env->GetByteArrayElements(byte_arr, nullptr);
-        if (bytes == nullptr) { return 0; }
+        if (bytes == nullptr) {
+          env->DeleteLocalRef(byte_arr);
+          return 0;
+        }
         default_string_values.emplace_back(reinterpret_cast<uint8_t*>(bytes),
                                            reinterpret_cast<uint8_t*>(bytes) + len);
         env->ReleaseByteArrayElements(byte_arr, bytes, JNI_ABORT);
@@ -224,7 +227,11 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
           } else {
             jsize len    = env->GetArrayLength(name_bytes);
             jbyte* bytes = env->GetByteArrayElements(name_bytes, nullptr);
-            if (bytes == nullptr) { return 0; }
+            if (bytes == nullptr) {
+              env->DeleteLocalRef(name_bytes);
+              env->DeleteLocalRef(names_arr);
+              return 0;
+            }
             names_for_field.emplace_back(reinterpret_cast<uint8_t*>(bytes),
                                          reinterpret_cast<uint8_t*>(bytes) + len);
             env->ReleaseByteArrayElements(name_bytes, bytes, JNI_ABORT);

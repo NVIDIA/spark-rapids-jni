@@ -159,6 +159,12 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
             "Invalid field number at index " + i + ": " + fieldNumbers[i] +
             " (must be 1-" + MAX_FIELD_NUMBER + ")");
       }
+      int wt = wireTypes[i];
+      if (wt != 0 && wt != 1 && wt != 2 && wt != 5) {
+        throw new IllegalArgumentException(
+            "Invalid wire type at index " + i + ": " + wt +
+            " (must be one of {0, 1, 2, 5})");
+      }
       int enc = encodings[i];
       if (enc < Protobuf.ENC_DEFAULT || enc > Protobuf.ENC_ENUM_STRING) {
         throw new IllegalArgumentException(
@@ -172,6 +178,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
                 "enumValidValues[" + i + "] must be sorted in ascending order " +
                 "(binary search requires it), but found " + ev[j - 1] + " before " + ev[j]);
           }
+        }
+        if (enumNames[i] != null && enumNames[i].length != ev.length) {
+          throw new IllegalArgumentException(
+              "enumNames[" + i + "].length (" + enumNames[i].length + ") must equal " +
+              "enumValidValues[" + i + "].length (" + ev.length + ")");
         }
       }
     }
