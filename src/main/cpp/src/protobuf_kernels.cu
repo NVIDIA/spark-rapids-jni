@@ -683,7 +683,11 @@ __global__ void scan_repeated_message_children_kernel(
 /**
  * Count repeated field occurrences within nested messages.
  * Similar to count_repeated_fields_kernel but operates on nested message locations.
-
+ *
+ * Note: unlike the top-level count_repeated_fields_kernel, this kernel does not perform
+ * a depth-level check because it operates within a specific parent message context where
+ * the depth is implicitly fixed. Callers must pre-filter repeated_indices to include only
+ * fields at the expected child depth.
  */
 __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
                                                 cudf::size_type const* row_offsets,
@@ -750,6 +754,8 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
  * Scan for repeated field occurrences of a single repeated field within nested
  * messages. Must be launched once per repeated field — the caller passes
  * exactly one schema index via repeated_indices[0].
+ *
+ * Note: no depth-level check is performed; see count_repeated_in_nested_kernel comment.
  */
 __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
                                                cudf::size_type const* row_offsets,

@@ -191,6 +191,10 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
               "enumNames[" + i + "].length (" + enumNames[i].length + ") must equal " +
               "enumValidValues[" + i + "].length (" + ev.length + ")");
         }
+      } else if (enumNames[i] != null) {
+        throw new IllegalArgumentException(
+            "enumNames[" + i + "] is non-null but enumValidValues[" + i + "] is null; " +
+            "both must be provided together for enum-as-string fields");
       }
     }
   }

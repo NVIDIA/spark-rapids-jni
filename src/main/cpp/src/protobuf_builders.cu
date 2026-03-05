@@ -418,12 +418,19 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
     auto const* occs         = d_occurrences.data();
     auto const* elem_invalid = d_elem_has_invalid_enum.data();
     auto* row_invalid        = d_row_has_invalid_enum.data();
-    thrust::for_each(rmm::exec_policy(stream),
-                     thrust::make_counting_iterator(0),
-                     thrust::make_counting_iterator(total_count),
-                     [occs, elem_invalid, row_invalid] __device__(int idx) {
-                       if (elem_invalid[idx]) { row_invalid[occs[idx].row_idx] = true; }
-                     });
+    thrust::for_each(
+      rmm::exec_policy(stream),
+      thrust::make_counting_iterator(0),
+      thrust::make_counting_iterator(total_count),
+      [occs, elem_invalid, row_invalid] __device__(int idx) {
+        if (elem_invalid[idx]) {
+          auto* addr = reinterpret_cast<unsigned int*>(
+            reinterpret_cast<uintptr_t>(row_invalid + occs[idx].row_idx) & ~uintptr_t{3});
+          unsigned int byte_offset =
+            (reinterpret_cast<uintptr_t>(row_invalid + occs[idx].row_idx) & 3u) * 8u;
+          atomicOr(addr, 1u << byte_offset);
+        }
+      });
   }
 
   // 4. Compute per-element string lengths
