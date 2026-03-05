@@ -707,7 +707,11 @@ __global__ void scan_repeated_message_children_kernel(
           if (wt == WT_VARINT) {
             uint64_t dummy;
             int vbytes;
-            if (read_varint(cur, msg_end, dummy, vbytes)) { data_length = vbytes; }
+            if (!read_varint(cur, msg_end, dummy, vbytes)) {
+              set_error_once(error_flag, ERR_VARINT);
+              return;
+            }
+            data_length = vbytes;
           } else if (wt == WT_32BIT) {
             data_length = 4;
           } else if (wt == WT_64BIT) {

@@ -1198,6 +1198,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   int num_rows,
   std::vector<int32_t> const& valid_enums,
   std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  rmm::device_uvector<bool>& d_row_has_invalid_enum,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr);

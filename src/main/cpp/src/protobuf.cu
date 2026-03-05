@@ -842,6 +842,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                   num_rows,
                                                   enum_valid_values[schema_idx],
                                                   enum_names[schema_idx],
+                                                  d_row_has_invalid_enum,
                                                   d_error,
                                                   stream,
                                                   mr);

@@ -344,6 +344,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   int num_rows,
   std::vector<int32_t> const& valid_enums,
   std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  rmm::device_uvector<bool>& d_row_has_invalid_enum,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -397,6 +398,34 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   // 3. Per-element validity
   rmm::device_uvector<bool> elem_valid(total_count, stream, mr);
   thrust::fill(rmm::exec_policy(stream), elem_valid.data(), elem_valid.end(), true);
+
+  // 3b. Validate enum values — mark invalid as false in elem_valid
+  rmm::device_uvector<bool> d_elem_has_invalid_enum(total_count, stream, mr);
+  thrust::fill(rmm::exec_policy(stream),
+               d_elem_has_invalid_enum.begin(),
+               d_elem_has_invalid_enum.end(),
+               false);
+  validate_enum_values_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    enum_ints.data(),
+    elem_valid.data(),
+    d_elem_has_invalid_enum.data(),
+    d_valid_enums.data(),
+    static_cast<int>(valid_enums.size()),
+    total_count);
+
+  // 3c. Propagate per-element invalid enum flags to per-row flags for struct null mask.
+  // Spark CPU nullifies the entire struct row when any repeated enum element is invalid.
+  if (d_row_has_invalid_enum.size() > 0 && total_count > 0) {
+    auto const* occs         = d_occurrences.data();
+    auto const* elem_invalid = d_elem_has_invalid_enum.data();
+    auto* row_invalid        = d_row_has_invalid_enum.data();
+    thrust::for_each(rmm::exec_policy(stream),
+                     thrust::make_counting_iterator(0),
+                     thrust::make_counting_iterator(total_count),
+                     [occs, elem_invalid, row_invalid] __device__(int idx) {
+                       if (elem_invalid[idx]) { row_invalid[occs[idx].row_idx] = true; }
+                     });
+  }
 
   // 4. Compute per-element string lengths
   rmm::device_uvector<int32_t> elem_lengths(total_count, stream, mr);
