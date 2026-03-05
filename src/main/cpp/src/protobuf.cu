@@ -698,8 +698,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       scan_all_repeated_occurrences_kernel<<<blocks, threads, 0, stream.value()>>>(
         *d_in,
-        d_schema.data(),
-        0,
         d_scan_descs.data(),
         static_cast<int>(h_scan_descs.size()),
         d_error.data(),

@@ -483,8 +483,6 @@ __global__ void scan_repeated_field_occurrences_kernel(
  * launches with a single kernel, eliminating N-1 redundant full-message scans.
  */
 __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view const d_in,
-                                                     device_nested_field_descriptor const* schema,
-                                                     int depth_level,
                                                      repeated_field_scan_desc const* scan_descs,
                                                      int num_scan_fields,
                                                      int* error_flag,

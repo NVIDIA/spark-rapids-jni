@@ -73,6 +73,9 @@ public class Protobuf {
   public static ColumnVector decodeToStruct(ColumnView binaryInput,
                                             ProtobufSchemaDescriptor schema,
                                             boolean failOnErrors) {
+    if (binaryInput == null) {
+      throw new IllegalArgumentException("binaryInput must not be null");
+    }
     if (schema == null) {
       throw new IllegalArgumentException("schema must not be null");
     }

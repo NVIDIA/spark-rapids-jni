@@ -94,9 +94,15 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   private void readObject(java.io.ObjectInputStream in)
       throws java.io.IOException, ClassNotFoundException {
     in.defaultReadObject();
-    validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
-        encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
-        defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
+    try {
+      validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
+          encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
+          defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
+    } catch (IllegalArgumentException e) {
+      java.io.InvalidObjectException ioe = new java.io.InvalidObjectException(e.getMessage());
+      ioe.initCause(e);
+      throw ioe;
+    }
   }
 
   private static byte[][] deepCopy(byte[][] src) {

@@ -46,7 +46,7 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   }
 
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = (total_count + threads - 1) / threads;
+  auto const blocks  = (total_count + threads - 1u) / threads;
 
   rmm::device_uvector<int32_t> d_lengths(total_count, stream, mr);
   thrust::transform(
@@ -254,7 +254,7 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   rmm::device_async_resource_ref mr)
 {
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = static_cast<int>((num_rows + threads - 1) / threads);
+  auto const blocks  = static_cast<int>((num_rows + threads - 1u) / threads);
 
   rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
   CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
@@ -350,7 +350,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   rmm::device_async_resource_ref mr)
 {
   auto const rep_blocks =
-    static_cast<int>((total_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+    static_cast<int>((total_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
 
   // 1. Extract enum integer values from occurrences
   rmm::device_uvector<int32_t> enum_ints(total_count, stream, mr);
@@ -544,7 +544,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   // Extract string lengths from occurrences
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, mr);
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = (total_count + threads - 1) / threads;
+  auto const blocks  = (total_count + threads - 1u) / threads;
   RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   extract_lengths_kernel<RepeatedLocationProvider>
     <<<blocks, threads, 0, stream.value()>>>(loc_provider, total_count, str_lengths.data());
@@ -753,7 +753,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   rmm::device_uvector<cudf::size_type> d_msg_row_offsets_size(total_count, stream, mr);
   {
     auto const occ_threads = THREADS_PER_BLOCK;
-    auto const occ_blocks  = (total_count + occ_threads - 1) / occ_threads;
+    auto const occ_blocks  = (total_count + occ_threads - 1u) / occ_threads;
     compute_msg_locations_from_occurrences_kernel<<<occ_blocks, occ_threads, 0, stream.value()>>>(
       d_occurrences.data(),
       list_offsets,
@@ -774,7 +774,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   auto& d_error = d_error_top;
 
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = (total_count + threads - 1) / threads;
+  auto const blocks  = (total_count + threads - 1u) / threads;
 
   // Use a custom kernel to scan child fields within message occurrences
   // This is similar to scan_nested_message_fields_kernel but operates on occurrences
@@ -1032,7 +1032,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   }
 
   auto const threads   = THREADS_PER_BLOCK;
-  auto const blocks    = static_cast<int>((num_rows + threads - 1) / threads);
+  auto const blocks    = static_cast<int>((num_rows + threads - 1u) / threads);
   int num_child_fields = static_cast<int>(child_field_indices.size());
 
   std::vector<field_descriptor> h_child_field_descs(num_child_fields);
@@ -1325,7 +1325,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   int depth)
 {
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = static_cast<int>((num_parent_rows + threads - 1) / threads);
+  auto const blocks  = static_cast<int>((num_parent_rows + threads - 1u) / threads);
 
   auto elem_type_id = schema[child_schema_idx].output_type;
   rmm::device_uvector<repeated_field_info> d_rep_info(num_parent_rows, stream, mr);
@@ -1417,7 +1417,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
 
   std::unique_ptr<cudf::column> child_values;
   auto const rep_blocks =
-    static_cast<int>((total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+    static_cast<int>((total_rep_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   NestedRepeatedLocationProvider nr_loc{row_offsets, base_offset, parent_locs, d_rep_occs.data()};
 
   if (elem_type_id == cudf::type_id::BOOL8 || elem_type_id == cudf::type_id::INT32 ||
@@ -1470,7 +1470,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
     } else {
       rmm::device_uvector<cudf::size_type> d_virtual_row_offsets(total_rep_count, stream, mr);
       rmm::device_uvector<field_location> d_virtual_parent_locs(total_rep_count, stream, mr);
-      auto const rep_blk = (total_rep_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+      auto const rep_blk = (total_rep_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK;
       compute_virtual_parents_for_nested_repeated_kernel<<<rep_blk,
                                                            THREADS_PER_BLOCK,
                                                            0,
