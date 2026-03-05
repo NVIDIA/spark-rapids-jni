@@ -1011,7 +1011,6 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
 __global__ void scan_repeated_field_occurrences_kernel(cudf::column_device_view const d_in,
                                                        device_nested_field_descriptor const* schema,
                                                        int schema_idx,
-                                                       int depth_level,
                                                        int32_t const* output_offsets,
                                                        repeated_occurrence* occurrences,
                                                        int* error_flag);

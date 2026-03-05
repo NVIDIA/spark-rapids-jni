@@ -21,12 +21,11 @@ package com.nvidia.spark.rapids.jni;
  * that describe field structure, types, defaults, and enum metadata.
  *
  * <p>Use this class instead of passing 15+ individual arrays through the JNI boundary.
- * Validation is performed once in the constructor.
+ * Validation is performed once in the constructor (and again on deserialization).
  *
- * <p>The arrays are intentionally exposed as package-private (not public) to allow
- * zero-copy access from {@link Protobuf} within the same package, while preventing
- * external code from mutating the contents after construction. Callers outside this
- * package should treat instances as opaque and immutable.
+ * <p>All arrays are defensively copied in the constructor to guarantee immutability.
+ * Package-private field access from {@link Protobuf} is safe because the stored arrays
+ * cannot be mutated by the original caller.
  */
 public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   private static final long serialVersionUID = 1L;
@@ -69,6 +68,44 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
       int[][] enumValidValues,
       byte[][][] enumNames) {
 
+    validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
+        encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
+        defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
+
+    this.fieldNumbers = fieldNumbers.clone();
+    this.parentIndices = parentIndices.clone();
+    this.depthLevels = depthLevels.clone();
+    this.wireTypes = wireTypes.clone();
+    this.outputTypeIds = outputTypeIds.clone();
+    this.encodings = encodings.clone();
+    this.isRepeated = isRepeated.clone();
+    this.isRequired = isRequired.clone();
+    this.hasDefaultValue = hasDefaultValue.clone();
+    this.defaultInts = defaultInts.clone();
+    this.defaultFloats = defaultFloats.clone();
+    this.defaultBools = defaultBools.clone();
+    this.defaultStrings = defaultStrings.clone();
+    this.enumValidValues = enumValidValues.clone();
+    this.enumNames = enumNames.clone();
+  }
+
+  public int numFields() { return fieldNumbers.length; }
+
+  private void readObject(java.io.ObjectInputStream in)
+      throws java.io.IOException, ClassNotFoundException {
+    in.defaultReadObject();
+    validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
+        encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
+        defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
+  }
+
+  private static void validate(
+      int[] fieldNumbers, int[] parentIndices, int[] depthLevels,
+      int[] wireTypes, int[] outputTypeIds, int[] encodings,
+      boolean[] isRepeated, boolean[] isRequired, boolean[] hasDefaultValue,
+      long[] defaultInts, double[] defaultFloats, boolean[] defaultBools,
+      byte[][] defaultStrings, int[][] enumValidValues, byte[][][] enumNames) {
+
     if (fieldNumbers == null || parentIndices == null || depthLevels == null ||
         wireTypes == null || outputTypeIds == null || encodings == null ||
         isRepeated == null || isRequired == null || hasDefaultValue == null ||
@@ -110,23 +147,5 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
         }
       }
     }
-
-    this.fieldNumbers = fieldNumbers;
-    this.parentIndices = parentIndices;
-    this.depthLevels = depthLevels;
-    this.wireTypes = wireTypes;
-    this.outputTypeIds = outputTypeIds;
-    this.encodings = encodings;
-    this.isRepeated = isRepeated;
-    this.isRequired = isRequired;
-    this.hasDefaultValue = hasDefaultValue;
-    this.defaultInts = defaultInts;
-    this.defaultFloats = defaultFloats;
-    this.defaultBools = defaultBools;
-    this.defaultStrings = defaultStrings;
-    this.enumValidValues = enumValidValues;
-    this.enumNames = enumNames;
   }
-
-  public int numFields() { return fieldNumbers.length; }
 }

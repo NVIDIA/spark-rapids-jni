@@ -331,12 +331,12 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
-    // Lookup repeated field by field_number
     if (fn_to_rep_idx != nullptr && fn > 0 && fn < fn_to_rep_size) {
       int i = fn_to_rep_idx[fn];
       if (i >= 0) {
         int schema_idx = repeated_field_indices[i];
-        if (!count_repeated_element(cur,
+        if (schema[schema_idx].depth == depth_level &&
+            !count_repeated_element(cur,
                                     msg_end,
                                     wt,
                                     schema[schema_idx].wire_type,
@@ -411,8 +411,7 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
 __global__ void scan_repeated_field_occurrences_kernel(
   cudf::column_device_view const d_in,
   device_nested_field_descriptor const* schema,
-  int schema_idx,                    // Which field in schema we're scanning
-  int depth_level,
+  int schema_idx,
   int32_t const* output_offsets,     // Pre-computed offsets from prefix sum [num_rows + 1]
   repeated_occurrence* occurrences,  // Output: all occurrences [total_count]
   int* error_flag)
@@ -500,13 +499,13 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
   uint8_t const* cur     = bytes + start;
   uint8_t const* msg_end = bytes + end;
 
-  // Per-field write indices, initialized from the pre-computed offsets.
-  // Use a fixed-size stack array to avoid dynamic allocation.
-  // MAX_REPEATED_SCAN_FIELDS should be generous enough for practical schemas.
   constexpr int MAX_STACK_FIELDS = 128;
+  if (num_scan_fields > MAX_STACK_FIELDS) {
+    set_error_once(error_flag, ERR_OVERFLOW);
+    return;
+  }
   int write_idx[MAX_STACK_FIELDS];
-  int actual_fields = num_scan_fields < MAX_STACK_FIELDS ? num_scan_fields : MAX_STACK_FIELDS;
-  for (int f = 0; f < actual_fields; f++) {
+  for (int f = 0; f < num_scan_fields; f++) {
     write_idx[f] = scan_descs[f].row_offsets[row];
   }
 
@@ -535,11 +534,11 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
 
     if (fn_to_desc_idx != nullptr && fn > 0 && fn < fn_to_desc_size) {
       int f = fn_to_desc_idx[fn];
-      if (f >= 0) {
+      if (f >= 0 && f < num_scan_fields) {
         if (!try_scan(f)) return;
       }
     } else {
-      for (int f = 0; f < actual_fields; f++) {
+      for (int f = 0; f < num_scan_fields; f++) {
         if (scan_descs[f].field_number == fn) {
           if (!try_scan(f)) return;
         }
@@ -768,6 +767,8 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
+    // After decode_tag, `cur` points past the tag bytes (at the field data).
+    // Both count_repeated_element and skip_field expect this post-tag position.
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx = repeated_indices[ri];
       if (schema[schema_idx].field_number == fn && schema[schema_idx].is_repeated) {
@@ -1122,9 +1123,9 @@ __global__ void copy_enum_string_chars_kernel(
       int32_t src_begin = enum_name_offsets[mid];
       int32_t src_end   = enum_name_offsets[mid + 1];
       int32_t dst_begin = output_offsets[row];
-      for (int32_t i = 0; i < (src_end - src_begin); ++i) {
-        out_chars[dst_begin + i] = static_cast<char>(enum_name_chars[src_begin + i]);
-      }
+      memcpy(out_chars + dst_begin,
+             enum_name_chars + src_begin,
+             static_cast<size_t>(src_end - src_begin));
       return;
     } else if (mid_val < val) {
       left = mid + 1;
