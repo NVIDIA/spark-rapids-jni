@@ -344,12 +344,13 @@ __device__ inline bool decode_tag(uint8_t const*& cur,
   }
 
   cur += key_bytes;
-  tag.field_number = static_cast<int>(key >> 3);
-  tag.wire_type    = static_cast<int>(key & 0x7);
-  if (tag.field_number == 0) {
+  uint64_t fn = key >> 3;
+  if (fn == 0 || fn > static_cast<uint64_t>(INT_MAX)) {
     set_error_once(error_flag, ERR_FIELD_NUMBER);
     return false;
   }
+  tag.field_number = static_cast<int>(fn);
+  tag.wire_type    = static_cast<int>(key & 0x7);
   return true;
 }
 

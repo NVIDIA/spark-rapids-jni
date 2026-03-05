@@ -652,8 +652,16 @@ __global__ void scan_repeated_message_children_kernel(
             }
             data_length = vbytes;
           } else if (wt == WT_32BIT) {
+            if (msg_end - cur < 4) {
+              set_error_once(error_flag, ERR_FIXED_LEN);
+              return;
+            }
             data_length = 4;
           } else if (wt == WT_64BIT) {
+            if (msg_end - cur < 8) {
+              set_error_once(error_flag, ERR_FIXED_LEN);
+              return;
+            }
             data_length = 8;
           }
           child_locs[occ_idx * num_child_fields + f] = {data_offset, data_length};

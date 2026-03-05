@@ -354,9 +354,10 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
 
   // 1. Extract enum integer values from occurrences
   rmm::device_uvector<int32_t> enum_ints(total_count, stream, mr);
+  rmm::device_uvector<bool> elem_valid(total_count, stream, mr);
   RepeatedLocationProvider rep_loc{list_offsets, base_offset, d_occurrences.data()};
   extract_varint_kernel<int32_t, false><<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-    message_data, rep_loc, total_count, enum_ints.data(), nullptr, d_error.data());
+    message_data, rep_loc, total_count, enum_ints.data(), elem_valid.data(), d_error.data());
 
   // 2. Build device-side enum lookup tables
   rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
@@ -395,11 +396,9 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
                                   stream.value()));
   }
 
-  // 3. Per-element validity
-  rmm::device_uvector<bool> elem_valid(total_count, stream, mr);
-  thrust::fill(rmm::exec_policy(stream), elem_valid.data(), elem_valid.end(), true);
-
-  // 3b. Validate enum values — mark invalid as false in elem_valid
+  // 3. Validate enum values — mark invalid as false in elem_valid
+  // (elem_valid was already populated by extract_varint_kernel: true for success, false for
+  // failure)
   rmm::device_uvector<bool> d_elem_has_invalid_enum(total_count, stream, mr);
   thrust::fill(rmm::exec_policy(stream),
                d_elem_has_invalid_enum.begin(),
