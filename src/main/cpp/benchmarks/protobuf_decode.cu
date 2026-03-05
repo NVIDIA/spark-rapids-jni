@@ -47,7 +47,7 @@ void encode_varint(std::vector<uint8_t>& buf, uint64_t value)
 
 void encode_tag(std::vector<uint8_t>& buf, int field_number, int wire_type)
 {
-  encode_varint(buf, static_cast<uint64_t>(field_number << 3 | wire_type));
+  encode_varint(buf, (static_cast<uint64_t>(field_number) << 3) | static_cast<uint64_t>(wire_type));
 }
 
 void encode_varint_field(std::vector<uint8_t>& buf, int field_number, int64_t value)

@@ -248,6 +248,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
               uint64_t len;
               int len_bytes;
               if (!read_varint(cur, end, len, len_bytes)) return -1;
+              if (len > static_cast<uint64_t>(INT_MAX - len_bytes)) return -1;
               inner_size = len_bytes + static_cast<int>(len);
               break;
             }

@@ -198,7 +198,10 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       } else {
         jsize len  = env->GetArrayLength(int_arr);
         jint* ints = env->GetIntArrayElements(int_arr, nullptr);
-        if (ints == nullptr) { return 0; }
+        if (ints == nullptr) {
+          env->DeleteLocalRef(int_arr);
+          return 0;
+        }
         enum_values.emplace_back(ints, ints + len);
         env->ReleaseIntArrayElements(int_arr, ints, JNI_ABORT);
         env->DeleteLocalRef(int_arr);

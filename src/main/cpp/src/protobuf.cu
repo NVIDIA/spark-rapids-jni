@@ -528,11 +528,19 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                   mr);
               } else {
                 // Missing enum metadata for enum-as-string field; mark as decode error.
-                CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 1, sizeof(int), stream.value()));
+                {
+                  int err_val = ERR_BOUNDS;
+                  CUDF_CUDA_TRY(cudaMemcpyAsync(
+                    d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+                }
                 column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
               }
             } else {
-              CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 1, sizeof(int), stream.value()));
+              {
+                int err_val = ERR_BOUNDS;
+                CUDF_CUDA_TRY(cudaMemcpyAsync(
+                  d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+              }
               column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
             }
           } else {
