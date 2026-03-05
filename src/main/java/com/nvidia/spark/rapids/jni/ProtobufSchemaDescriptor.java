@@ -84,9 +84,9 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     this.defaultInts = defaultInts.clone();
     this.defaultFloats = defaultFloats.clone();
     this.defaultBools = defaultBools.clone();
-    this.defaultStrings = defaultStrings.clone();
-    this.enumValidValues = enumValidValues.clone();
-    this.enumNames = enumNames.clone();
+    this.defaultStrings = deepCopy(defaultStrings);
+    this.enumValidValues = deepCopy(enumValidValues);
+    this.enumNames = deepCopy(enumNames);
   }
 
   public int numFields() { return fieldNumbers.length; }
@@ -97,6 +97,34 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
         encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
         defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
+  }
+
+  private static byte[][] deepCopy(byte[][] src) {
+    byte[][] dst = new byte[src.length][];
+    for (int i = 0; i < src.length; i++) {
+      dst[i] = src[i] != null ? src[i].clone() : null;
+    }
+    return dst;
+  }
+
+  private static int[][] deepCopy(int[][] src) {
+    int[][] dst = new int[src.length][];
+    for (int i = 0; i < src.length; i++) {
+      dst[i] = src[i] != null ? src[i].clone() : null;
+    }
+    return dst;
+  }
+
+  private static byte[][][] deepCopy(byte[][][] src) {
+    byte[][][] dst = new byte[src.length][][];
+    for (int i = 0; i < src.length; i++) {
+      if (src[i] == null) continue;
+      dst[i] = new byte[src[i].length][];
+      for (int j = 0; j < src[i].length; j++) {
+        dst[i][j] = src[i][j] != null ? src[i][j].clone() : null;
+      }
+    }
+    return dst;
   }
 
   private static void validate(

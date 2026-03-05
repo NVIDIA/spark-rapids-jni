@@ -219,19 +219,43 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
     }
     case WT_SGROUP: {
       auto const* start = cur;
-      // Recursively skip until the matching end-group tag.
-      while (cur < end) {
+      int depth         = 1;
+      while (cur < end && depth > 0) {
         uint64_t key;
         int key_bytes;
         if (!read_varint(cur, end, key, key_bytes)) return -1;
         cur += key_bytes;
 
         int inner_wt = static_cast<int>(key & 0x7);
-        if (inner_wt == WT_EGROUP) { return static_cast<int>(cur - start); }
-
-        int inner_size = get_wire_type_size(inner_wt, cur, end);
-        if (inner_size < 0 || cur + inner_size > end) return -1;
-        cur += inner_size;
+        if (inner_wt == WT_EGROUP) {
+          --depth;
+          if (depth == 0) { return static_cast<int>(cur - start); }
+        } else if (inner_wt == WT_SGROUP) {
+          if (++depth > 32) return -1;
+        } else {
+          int inner_size = -1;
+          switch (inner_wt) {
+            case WT_VARINT: {
+              uint64_t dummy;
+              int vbytes;
+              if (!read_varint(cur, end, dummy, vbytes)) return -1;
+              inner_size = vbytes;
+              break;
+            }
+            case WT_64BIT: inner_size = 8; break;
+            case WT_LEN: {
+              uint64_t len;
+              int len_bytes;
+              if (!read_varint(cur, end, len, len_bytes)) return -1;
+              inner_size = len_bytes + static_cast<int>(len);
+              break;
+            }
+            case WT_32BIT: inner_size = 4; break;
+            default: return -1;
+          }
+          if (inner_size < 0 || cur + inner_size > end) return -1;
+          cur += inner_size;
+        }
       }
       return -1;
     }

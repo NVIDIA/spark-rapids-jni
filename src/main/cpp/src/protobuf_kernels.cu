@@ -381,7 +381,10 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
     if (fn_to_nested_idx != nullptr && fn > 0 && fn < fn_to_nested_size) {
       int i = fn_to_nested_idx[fn];
       if (i >= 0) {
-        if (!handle_nested(i)) return;
+        int schema_idx = nested_field_indices[i];
+        if (schema[schema_idx].depth == depth_level) {
+          if (!handle_nested(i)) return;
+        }
       }
     } else {
       for (int i = 0; i < num_nested_fields; i++) {
