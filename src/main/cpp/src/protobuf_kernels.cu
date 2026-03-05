@@ -698,7 +698,11 @@ __global__ void scan_repeated_message_children_kernel(
             set_error_once(error_flag, ERR_VARINT);
             return;
           }
-          // Store offset (after length prefix) and length
+          if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
+              len > static_cast<uint64_t>(INT_MAX)) {
+            set_error_once(error_flag, ERR_OVERFLOW);
+            return;
+          }
           child_locs[occ_idx * num_child_fields + f] = {data_offset + len_bytes,
                                                         static_cast<int32_t>(len)};
         } else {

@@ -545,7 +545,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, mr);
   auto const threads = THREADS_PER_BLOCK;
   auto const blocks  = (total_count + threads - 1) / threads;
-  RepeatedLocationProvider loc_provider{nullptr, 0, d_occurrences.data()};
+  RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   extract_lengths_kernel<RepeatedLocationProvider>
     <<<blocks, threads, 0, stream.value()>>>(loc_provider, total_count, str_lengths.data());
 
