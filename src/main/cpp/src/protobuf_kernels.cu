@@ -142,11 +142,11 @@ __device__ bool count_repeated_element(uint8_t const* cur,
       return false;
     }
     uint8_t const* packed_start = cur + len_bytes;
-    uint8_t const* packed_end   = packed_start + packed_len;
-    if (packed_end > msg_end) {
+    if (packed_len > static_cast<uint64_t>(msg_end - packed_start)) {
       set_error_once(error_flag, ERR_OVERFLOW);
       return false;
     }
+    uint8_t const* packed_end = packed_start + packed_len;
 
     int count = 0;
     if (expected_wt == WT_VARINT) {
@@ -220,11 +220,11 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
       return false;
     }
     uint8_t const* packed_start = cur + len_bytes;
-    uint8_t const* packed_end   = packed_start + packed_len;
-    if (packed_end > msg_end) {
+    if (packed_len > static_cast<uint64_t>(msg_end - packed_start)) {
       set_error_once(error_flag, ERR_OVERFLOW);
       return false;
     }
+    uint8_t const* packed_end = packed_start + packed_len;
 
     if (expected_wt == WT_VARINT) {
       uint8_t const* p = packed_start;

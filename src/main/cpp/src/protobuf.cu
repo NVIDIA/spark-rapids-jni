@@ -157,7 +157,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   }
 
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = static_cast<int>((num_rows + threads - 1) / threads);
+  auto const blocks  = static_cast<int>((num_rows + threads - 1u) / threads);
 
   // Allocate for counting repeated fields
   rmm::device_uvector<repeated_field_info> d_repeated_info(

@@ -179,10 +179,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
       if (enumValidValues[i] != null) {
         int[] ev = enumValidValues[i];
         for (int j = 1; j < ev.length; j++) {
-          if (ev[j] < ev[j - 1]) {
+          if (ev[j] <= ev[j - 1]) {
             throw new IllegalArgumentException(
-                "enumValidValues[" + i + "] must be sorted in ascending order " +
-                "(binary search requires it), but found " + ev[j - 1] + " before " + ev[j]);
+                "enumValidValues[" + i + "] must be strictly sorted in ascending order " +
+                "(binary search requires unique values), but found " + ev[j - 1] +
+                " followed by " + ev[j]);
           }
         }
         if (enumNames[i] != null && enumNames[i].length != ev.length) {
