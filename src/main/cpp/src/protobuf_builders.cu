@@ -1175,8 +1175,12 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         } else {
           bool has_def_str    = has_def;
           auto const& def_str = default_strings[child_schema_idx];
-          NestedLocationProvider len_provider{
-            nullptr, 0, d_parent_locs.data(), d_child_locations.data(), ci, num_child_fields};
+          NestedLocationProvider len_provider{list_offsets,
+                                              base_offset,
+                                              d_parent_locs.data(),
+                                              d_child_locations.data(),
+                                              ci,
+                                              num_child_fields};
           NestedLocationProvider copy_provider{list_offsets,
                                                base_offset,
                                                d_parent_locs.data(),
@@ -1209,8 +1213,12 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         // bytes (BinaryType) represented as LIST<UINT8>
         bool has_def_bytes    = has_def;
         auto const& def_bytes = default_strings[child_schema_idx];
-        NestedLocationProvider len_provider{
-          nullptr, 0, d_parent_locs.data(), d_child_locations.data(), ci, num_child_fields};
+        NestedLocationProvider len_provider{list_offsets,
+                                            base_offset,
+                                            d_parent_locs.data(),
+                                            d_child_locations.data(),
+                                            ci,
+                                            num_child_fields};
         NestedLocationProvider copy_provider{list_offsets,
                                              base_offset,
                                              d_parent_locs.data(),

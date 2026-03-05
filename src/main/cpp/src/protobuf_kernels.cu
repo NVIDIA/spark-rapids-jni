@@ -373,6 +373,11 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
         set_error_once(error_flag, ERR_VARINT);
         return false;
       }
+      if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
+          len > static_cast<uint64_t>(INT_MAX)) {
+        set_error_once(error_flag, ERR_OVERFLOW);
+        return false;
+      }
       int32_t msg_offset = static_cast<int32_t>(cur - bytes - start) + len_bytes;
       nested_locations[row * num_nested_fields + i] = {msg_offset, static_cast<int32_t>(len)};
       return true;

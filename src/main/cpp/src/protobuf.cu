@@ -141,6 +141,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       case ERR_SCHEMA_TOO_LARGE:
         return "Protobuf decode error: schema exceeds maximum supported repeated fields per kernel "
                "(128)";
+      case ERR_MISSING_ENUM_META:
+        return "Protobuf decode error: missing or mismatched enum metadata for enum-as-string "
+               "field";
       default: return "Protobuf decode error: unknown error";
     }
   };
@@ -529,7 +532,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
               } else {
                 // Missing enum metadata for enum-as-string field; mark as decode error.
                 {
-                  int err_val = ERR_BOUNDS;
+                  int err_val = ERR_MISSING_ENUM_META;
                   CUDF_CUDA_TRY(cudaMemcpyAsync(
                     d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
                 }
@@ -537,7 +540,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
               }
             } else {
               {
-                int err_val = ERR_BOUNDS;
+                int err_val = ERR_MISSING_ENUM_META;
                 CUDF_CUDA_TRY(cudaMemcpyAsync(
                   d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
               }
@@ -849,19 +852,15 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                   stream,
                                                   mr);
             } else {
-              column_map[schema_idx] = build_repeated_string_column(binary_input,
-                                                                    message_data,
-                                                                    list_offsets,
-                                                                    base_offset,
-                                                                    h_device_schema[schema_idx],
-                                                                    d_field_counts,
-                                                                    d_occurrences,
-                                                                    total_count,
-                                                                    num_rows,
-                                                                    false,
-                                                                    d_error,
-                                                                    stream,
-                                                                    mr);
+              // Missing/mismatched enum metadata for repeated enum-as-string field.
+              // Set error and produce null column, consistent with the scalar path.
+              {
+                int err_val = ERR_MISSING_ENUM_META;
+                CUDF_CUDA_TRY(cudaMemcpyAsync(
+                  d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+              }
+              column_map[schema_idx] =
+                make_null_column(schema_output_types[schema_idx], num_rows, stream, mr);
             }
             break;
           }
