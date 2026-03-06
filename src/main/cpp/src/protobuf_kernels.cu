@@ -502,6 +502,7 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
  * This kernel finds fields within the nested message bytes.
  */
 __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
+                                                  cudf::size_type message_data_size,
                                                   cudf::size_type const* parent_row_offsets,
                                                   cudf::size_type parent_base_offset,
                                                   field_location const* parent_locations,
@@ -521,8 +522,14 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
   auto const& parent_loc = parent_locations[row];
   if (parent_loc.offset < 0) { return; }
 
-  auto parent_row_start       = parent_row_offsets[row] - parent_base_offset;
-  uint8_t const* nested_start = message_data + parent_row_start + parent_loc.offset;
+  auto parent_row_start    = parent_row_offsets[row] - parent_base_offset;
+  int64_t nested_start_off = static_cast<int64_t>(parent_row_start) + parent_loc.offset;
+  int64_t nested_end_off   = nested_start_off + parent_loc.length;
+  if (nested_start_off < 0 || nested_end_off > message_data_size) {
+    set_error_once(error_flag, ERR_BOUNDS);
+    return;
+  }
+  uint8_t const* nested_start = message_data + nested_start_off;
   uint8_t const* nested_end   = nested_start + parent_loc.length;
 
   uint8_t const* cur = nested_start;
@@ -582,6 +589,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
  */
 __global__ void scan_repeated_message_children_kernel(
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   int32_t const* msg_row_offsets,  // Row offset for each occurrence
   field_location const*
     msg_locs,  // Location of each message occurrence (offset within row, length)
@@ -602,9 +610,14 @@ __global__ void scan_repeated_message_children_kernel(
   auto const& msg_loc = msg_locs[occ_idx];
   if (msg_loc.offset < 0) return;
 
-  // Calculate absolute position of this message in the data
-  int32_t row_offset       = msg_row_offsets[occ_idx];
-  uint8_t const* msg_start = message_data + row_offset + msg_loc.offset;
+  int32_t row_offset    = msg_row_offsets[occ_idx];
+  int64_t msg_start_off = static_cast<int64_t>(row_offset) + msg_loc.offset;
+  int64_t msg_end_off   = msg_start_off + msg_loc.length;
+  if (msg_start_off < 0 || msg_end_off > message_data_size) {
+    set_error_once(error_flag, ERR_BOUNDS);
+    return;
+  }
+  uint8_t const* msg_start = message_data + msg_start_off;
   uint8_t const* msg_end   = msg_start + msg_loc.length;
 
   uint8_t const* cur = msg_start;
@@ -830,10 +843,9 @@ __global__ void compute_nested_struct_locations_kernel(
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= total_count) return;
 
-  // Get the nested struct location from child_locs
-  nested_locs[idx] = child_locs[idx * num_child_fields + child_idx];
-  // Compute absolute row offset = msg_row_offset + msg_offset
-  nested_row_offsets[idx] = msg_row_offsets[idx] + msg_locs[idx].offset;
+  nested_locs[idx]        = child_locs[idx * num_child_fields + child_idx];
+  auto sum                = static_cast<int64_t>(msg_row_offsets[idx]) + msg_locs[idx].offset;
+  nested_row_offsets[idx] = static_cast<int32_t>(sum);
 }
 
 /**

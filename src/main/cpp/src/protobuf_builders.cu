@@ -418,19 +418,16 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
     auto const* occs         = d_occurrences.data();
     auto const* elem_invalid = d_elem_has_invalid_enum.data();
     auto* row_invalid        = d_row_has_invalid_enum.data();
-    thrust::for_each(
-      rmm::exec_policy(stream),
-      thrust::make_counting_iterator(0),
-      thrust::make_counting_iterator(total_count),
-      [occs, elem_invalid, row_invalid] __device__(int idx) {
-        if (elem_invalid[idx]) {
-          auto* addr = reinterpret_cast<unsigned int*>(
-            reinterpret_cast<uintptr_t>(row_invalid + occs[idx].row_idx) & ~uintptr_t{3});
-          unsigned int byte_offset =
-            (reinterpret_cast<uintptr_t>(row_invalid + occs[idx].row_idx) & 3u) * 8u;
-          atomicOr(addr, 1u << byte_offset);
-        }
-      });
+    thrust::for_each(rmm::exec_policy(stream),
+                     thrust::make_counting_iterator(0),
+                     thrust::make_counting_iterator(total_count),
+                     [occs, elem_invalid, row_invalid] __device__(int idx) {
+                       if (elem_invalid[idx]) {
+                         // Safe: all threads write the same value (true). On sm_70+ byte stores
+                         // are independently addressable and do not tear neighboring bytes.
+                         row_invalid[occs[idx].row_idx] = true;
+                       }
+                     });
   }
 
   // 4. Compute per-element string lengths
@@ -611,6 +608,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 // but the latter's STRUCT-child case needs to call it.
 std::unique_ptr<cudf::column> build_nested_struct_column(
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   rmm::device_uvector<field_location> const& d_parent_locs,
@@ -636,6 +634,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
 // need to call it.
 std::unique_ptr<cudf::column> build_repeated_child_list_column(
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   cudf::size_type const* row_offsets,
   cudf::size_type base_offset,
   field_location const* parent_locs,
@@ -659,6 +658,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
 std::unique_ptr<cudf::column> build_repeated_struct_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
@@ -786,6 +786,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   // This is similar to scan_nested_message_fields_kernel but operates on occurrences
   scan_repeated_message_children_kernel<<<blocks, threads, 0, stream.value()>>>(
     message_data,
+    message_data_size,
     d_msg_row_offsets.data(),
     d_msg_locs.data(),
     total_count,
@@ -811,6 +812,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
 
     if (child_is_repeated) {
       struct_children.push_back(build_repeated_child_list_column(message_data,
+                                                                 message_data_size,
                                                                  d_msg_row_offsets_size.data(),
                                                                  0,
                                                                  d_msg_locs.data(),
@@ -938,6 +940,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
           }
 
           struct_children.push_back(build_nested_struct_column(message_data,
+                                                               message_data_size,
                                                                d_nested_row_offsets.data(),
                                                                base_offset,
                                                                d_nested_locs,
@@ -994,6 +997,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
 
 std::unique_ptr<cudf::column> build_nested_struct_column(
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   rmm::device_uvector<field_location> const& d_parent_locs,
@@ -1059,6 +1063,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     static_cast<size_t>(num_rows) * num_child_fields, stream, mr);
   scan_nested_message_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
     message_data,
+    message_data_size,
     list_offsets,
     base_offset,
     d_parent_locs.data(),
@@ -1078,6 +1083,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
 
     if (is_repeated) {
       struct_children.push_back(build_repeated_child_list_column(message_data,
+                                                                 message_data_size,
                                                                  list_offsets,
                                                                  base_offset,
                                                                  d_parent_locs.data(),
@@ -1267,6 +1273,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
           d_gc_parent.data(),
           num_rows);
         struct_children.push_back(build_nested_struct_column(message_data,
+                                                             message_data_size,
                                                              list_offsets,
                                                              base_offset,
                                                              d_gc_parent,
@@ -1310,6 +1317,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
  */
 std::unique_ptr<cudf::column> build_repeated_child_list_column(
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   cudf::size_type const* row_offsets,
   cudf::size_type base_offset,
   field_location const* parent_locs,
@@ -1489,6 +1497,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
         total_rep_count);
 
       child_values = build_nested_struct_column(message_data,
+                                                message_data_size,
                                                 d_virtual_row_offsets.data(),
                                                 base_offset,
                                                 d_virtual_parent_locs,

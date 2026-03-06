@@ -80,7 +80,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // Extract shared input data pointers (used by scalar, repeated, and nested sections)
   cudf::lists_column_view const in_list_view(binary_input);
   auto const* message_data = reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
-  auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
+  auto const message_data_size = static_cast<cudf::size_type>(in_list_view.child().size());
+  auto const* list_offsets     = in_list_view.offsets().data<cudf::size_type>();
 
   cudf::size_type base_offset = 0;
   CUDF_CUDA_TRY(cudaMemcpyAsync(
@@ -902,6 +903,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             } else {
               column_map[schema_idx] = build_repeated_struct_column(binary_input,
                                                                     message_data,
+                                                                    message_data_size,
                                                                     list_offsets,
                                                                     base_offset,
                                                                     h_device_schema[schema_idx],
@@ -990,6 +992,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows);
 
       column_map[parent_schema_idx] = build_nested_struct_column(message_data,
+                                                                 message_data_size,
                                                                  list_offsets,
                                                                  base_offset,
                                                                  d_parent_locs,

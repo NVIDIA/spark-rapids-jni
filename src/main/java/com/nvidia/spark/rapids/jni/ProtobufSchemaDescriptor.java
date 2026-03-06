@@ -165,6 +165,24 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
             "Invalid field number at index " + i + ": " + fieldNumbers[i] +
             " (must be 1-" + MAX_FIELD_NUMBER + ")");
       }
+      int pi = parentIndices[i];
+      if (pi < -1 || pi >= i) {
+        throw new IllegalArgumentException(
+            "Invalid parent index at index " + i + ": " + pi +
+            " (must be -1 or a prior index < " + i + ")");
+      }
+      if (pi == -1) {
+        if (depthLevels[i] != 0) {
+          throw new IllegalArgumentException(
+              "Top-level field at index " + i + " must have depth 0, got " + depthLevels[i]);
+        }
+      } else {
+        if (depthLevels[i] != depthLevels[pi] + 1) {
+          throw new IllegalArgumentException(
+              "Field at index " + i + " depth (" + depthLevels[i] +
+              ") must be parent depth (" + depthLevels[pi] + ") + 1");
+        }
+      }
       int wt = wireTypes[i];
       if (wt != 0 && wt != 1 && wt != 2 && wt != 5) {
         throw new IllegalArgumentException(

@@ -1048,6 +1048,7 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
                                                      int fn_to_desc_size       = 0);
 
 __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
+                                                  cudf::size_type message_data_size,
                                                   cudf::size_type const* parent_row_offsets,
                                                   cudf::size_type parent_base_offset,
                                                   field_location const* parent_locations,
@@ -1058,6 +1059,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
                                                   int* error_flag);
 
 __global__ void scan_repeated_message_children_kernel(uint8_t const* message_data,
+                                                      cudf::size_type message_data_size,
                                                       int32_t const* msg_row_offsets,
                                                       field_location const* msg_locs,
                                                       int num_occurrences,
@@ -1217,6 +1219,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
 std::unique_ptr<cudf::column> build_nested_struct_column(
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   rmm::device_uvector<field_location> const& d_parent_locs,
@@ -1239,6 +1242,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
 
 std::unique_ptr<cudf::column> build_repeated_child_list_column(
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   cudf::size_type const* row_offsets,
   cudf::size_type base_offset,
   field_location const* parent_locs,
@@ -1262,6 +1266,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
 std::unique_ptr<cudf::column> build_repeated_struct_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
+  cudf::size_type message_data_size,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
