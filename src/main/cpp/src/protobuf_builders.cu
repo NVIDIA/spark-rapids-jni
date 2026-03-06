@@ -1177,11 +1177,19 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                                  stream,
                                                                  mr));
             } else {
-              CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 1, sizeof(int), stream.value()));
+              {
+                int err_val = ERR_MISSING_ENUM_META;
+                CUDF_CUDA_TRY(cudaMemcpyAsync(
+                  d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+              }
               struct_children.push_back(make_null_column(dt, num_rows, stream, mr));
             }
           } else {
-            CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 1, sizeof(int), stream.value()));
+            {
+              int err_val = ERR_MISSING_ENUM_META;
+              CUDF_CUDA_TRY(cudaMemcpyAsync(
+                d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+            }
             struct_children.push_back(make_null_column(dt, num_rows, stream, mr));
           }
         } else {
