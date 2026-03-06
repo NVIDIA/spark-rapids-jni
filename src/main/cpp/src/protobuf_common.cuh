@@ -1067,7 +1067,9 @@ __global__ void scan_repeated_message_children_kernel(uint8_t const* message_dat
                                                       field_descriptor const* child_descs,
                                                       int num_child_fields,
                                                       field_location* child_locs,
-                                                      int* error_flag);
+                                                      int* error_flag,
+                                                      int const* child_lookup = nullptr,
+                                                      int child_lookup_size   = 0);
 
 __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
                                                 cudf::size_type message_data_size,

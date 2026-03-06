@@ -754,6 +754,16 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                 num_child_fields * sizeof(field_descriptor),
                                 cudaMemcpyHostToDevice,
                                 stream.value()));
+  auto h_child_lookup = build_field_lookup_table(h_child_descs.data(), num_child_fields);
+  rmm::device_uvector<int> d_child_lookup(0, stream, mr);
+  if (!h_child_lookup.empty()) {
+    d_child_lookup = rmm::device_uvector<int>(h_child_lookup.size(), stream, mr);
+    CUDF_CUDA_TRY(cudaMemcpyAsync(d_child_lookup.data(),
+                                  h_child_lookup.data(),
+                                  h_child_lookup.size() * sizeof(int),
+                                  cudaMemcpyHostToDevice,
+                                  stream.value()));
+  }
 
   // For each occurrence, we need to scan for child fields
   // Create "virtual" parent locations from the occurrences using GPU kernel
@@ -798,7 +808,9 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     d_child_descs.data(),
     num_child_fields,
     d_child_locs.data(),
-    d_error.data());
+    d_error.data(),
+    h_child_lookup.empty() ? nullptr : d_child_lookup.data(),
+    static_cast<int>(d_child_lookup.size()));
 
   // Note: We no longer need to copy child_locs to host because:
   // 1. All scalar extraction kernels access d_child_locs directly on device

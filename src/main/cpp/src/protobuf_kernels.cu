@@ -597,7 +597,9 @@ __global__ void scan_repeated_message_children_kernel(
   field_descriptor const* child_descs,
   int num_child_fields,
   field_location* child_locs,  // Output: [num_occurrences * num_child_fields]
-  int* error_flag)
+  int* error_flag,
+  int const* child_lookup,
+  int child_lookup_size)
 {
   auto occ_idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (occ_idx >= num_occurrences) return;
@@ -628,58 +630,55 @@ __global__ void scan_repeated_message_children_kernel(
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
-    // Check against child field descriptors
-    for (int f = 0; f < num_child_fields; f++) {
-      if (child_descs[f].field_number == fn) {
-        bool is_packed = (wt == WT_LEN && child_descs[f].expected_wire_type != WT_LEN);
-        if (!is_packed && wt != child_descs[f].expected_wire_type) {
-          set_error_once(error_flag, ERR_WIRE_TYPE);
+    int f = lookup_field(fn, child_lookup, child_lookup_size, child_descs, num_child_fields);
+    if (f >= 0) {
+      bool is_packed = (wt == WT_LEN && child_descs[f].expected_wire_type != WT_LEN);
+      if (!is_packed && wt != child_descs[f].expected_wire_type) {
+        set_error_once(error_flag, ERR_WIRE_TYPE);
+        return;
+      }
+
+      int data_offset = static_cast<int>(cur - msg_start);
+
+      if (wt == WT_LEN) {
+        uint64_t len;
+        int len_bytes;
+        if (!read_varint(cur, msg_end, len, len_bytes)) {
+          set_error_once(error_flag, ERR_VARINT);
           return;
         }
-
-        int data_offset = static_cast<int>(cur - msg_start);
-
-        if (wt == WT_LEN) {
-          uint64_t len;
-          int len_bytes;
-          if (!read_varint(cur, msg_end, len, len_bytes)) {
+        if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
+            len > static_cast<uint64_t>(INT_MAX)) {
+          set_error_once(error_flag, ERR_OVERFLOW);
+          return;
+        }
+        child_locs[occ_idx * num_child_fields + f] = {data_offset + len_bytes,
+                                                      static_cast<int32_t>(len)};
+      } else {
+        // For varint/fixed types, store offset and estimated length
+        int32_t data_length = 0;
+        if (wt == WT_VARINT) {
+          uint64_t dummy;
+          int vbytes;
+          if (!read_varint(cur, msg_end, dummy, vbytes)) {
             set_error_once(error_flag, ERR_VARINT);
             return;
           }
-          if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
-              len > static_cast<uint64_t>(INT_MAX)) {
-            set_error_once(error_flag, ERR_OVERFLOW);
+          data_length = vbytes;
+        } else if (wt == WT_32BIT) {
+          if (msg_end - cur < 4) {
+            set_error_once(error_flag, ERR_FIXED_LEN);
             return;
           }
-          child_locs[occ_idx * num_child_fields + f] = {data_offset + len_bytes,
-                                                        static_cast<int32_t>(len)};
-        } else {
-          // For varint/fixed types, store offset and estimated length
-          int32_t data_length = 0;
-          if (wt == WT_VARINT) {
-            uint64_t dummy;
-            int vbytes;
-            if (!read_varint(cur, msg_end, dummy, vbytes)) {
-              set_error_once(error_flag, ERR_VARINT);
-              return;
-            }
-            data_length = vbytes;
-          } else if (wt == WT_32BIT) {
-            if (msg_end - cur < 4) {
-              set_error_once(error_flag, ERR_FIXED_LEN);
-              return;
-            }
-            data_length = 4;
-          } else if (wt == WT_64BIT) {
-            if (msg_end - cur < 8) {
-              set_error_once(error_flag, ERR_FIXED_LEN);
-              return;
-            }
-            data_length = 8;
+          data_length = 4;
+        } else if (wt == WT_64BIT) {
+          if (msg_end - cur < 8) {
+            set_error_once(error_flag, ERR_FIXED_LEN);
+            return;
           }
-          child_locs[occ_idx * num_child_fields + f] = {data_offset, data_length};
+          data_length = 8;
         }
-        // Don't break - last occurrence wins (protobuf semantics)
+        child_locs[occ_idx * num_child_fields + f] = {data_offset, data_length};
       }
     }
 

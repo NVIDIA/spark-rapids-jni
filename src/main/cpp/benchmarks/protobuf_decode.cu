@@ -439,6 +439,115 @@ struct RepeatedFieldCase {
   }
 };
 
+// Case 4: Wide repeated message — stress-tests repeated struct child scanning.
+//   message WideRepeatedMessage {
+//     int32         id = 1;
+//     repeated Item items = 2;
+//   }
+//   message Item {
+//     int32 / int64 / float / double / bool / string child fields ...
+//     ... (num_child_fields fields)
+//   }
+//
+// This case is intentionally generic and contains no customer schema details.
+// It is designed to exercise `scan_repeated_message_children_kernel` with a
+// wide repeated STRUCT payload similar in shape to real-world schema-projection
+// workloads.
+struct WideRepeatedMessageCase {
+  int num_child_fields;
+  int avg_items_per_row;
+
+  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  {
+    spark_rapids_jni::ProtobufDecodeContext ctx;
+    ctx.fail_on_errors = true;
+
+    // idx 0: id (scalar)
+    ctx.schema.push_back({1, -1, 0, 0, cudf::type_id::INT32, 0, false, false, false});
+    // idx 1: items (repeated STRUCT)
+    ctx.schema.push_back({2, -1, 0, 2, cudf::type_id::STRUCT, 0, true, false, false});
+
+    cudf::type_id child_types[] = {cudf::type_id::INT32,
+                                   cudf::type_id::INT64,
+                                   cudf::type_id::FLOAT32,
+                                   cudf::type_id::FLOAT64,
+                                   cudf::type_id::BOOL8,
+                                   cudf::type_id::STRING};
+    int child_wt[]              = {0, 0, 5, 1, 0, 2};
+    int child_enc[]             = {spark_rapids_jni::ENC_DEFAULT,
+                                   spark_rapids_jni::ENC_DEFAULT,
+                                   spark_rapids_jni::ENC_FIXED,
+                                   spark_rapids_jni::ENC_FIXED,
+                                   spark_rapids_jni::ENC_DEFAULT,
+                                   spark_rapids_jni::ENC_DEFAULT};
+
+    // Keep strings sparse so the case remains dominated by wide child scanning
+    // rather than varlen copy traffic.
+    for (int i = 0; i < num_child_fields; i++) {
+      int ti = (i % 10 == 9) ? 5 : (i % 5);
+      ctx.schema.push_back(
+        {i + 1, 1, 1, child_wt[ti], child_types[ti], child_enc[ti], false, false, false});
+    }
+
+    size_t n = ctx.schema.size();
+    for (auto const& f : ctx.schema) {
+      ctx.schema_output_types.emplace_back(f.output_type);
+    }
+    ctx.default_ints.resize(n, 0);
+    ctx.default_floats.resize(n, 0.0);
+    ctx.default_bools.resize(n, false);
+    ctx.default_strings.resize(n);
+    ctx.enum_valid_values.resize(n);
+    ctx.enum_names.resize(n);
+    return ctx;
+  }
+
+  std::vector<std::vector<uint8_t>> generate_messages(int num_rows, std::mt19937& rng) const
+  {
+    std::vector<std::vector<uint8_t>> messages(num_rows);
+    std::uniform_int_distribution<int32_t> int_dist(0, 100000);
+    std::uniform_int_distribution<int> str_len_dist(6, 18);
+    std::string alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+    auto random_string = [&](int len) {
+      std::string s(len, ' ');
+      for (int c = 0; c < len; c++)
+        s[c] = alphabet[rng() % alphabet.size()];
+      return s;
+    };
+
+    auto vary = [&](int avg) -> int {
+      int lo = std::max(0, avg / 2);
+      int hi = avg + avg / 2;
+      return std::uniform_int_distribution<int>(lo, std::max(lo, hi))(rng);
+    };
+
+    for (int r = 0; r < num_rows; r++) {
+      auto& buf = messages[r];
+      encode_varint_field(buf, 1, int_dist(rng));
+
+      int n = vary(avg_items_per_row);
+      for (int item_idx = 0; item_idx < n; item_idx++) {
+        encode_nested_message(buf, 2, [&](std::vector<uint8_t>& inner) {
+          for (int i = 0; i < num_child_fields; i++) {
+            int ti = (i % 10 == 9) ? 5 : (i % 5);
+            int fn = i + 1;
+            switch (ti) {
+              case 0: encode_varint_field(inner, fn, int_dist(rng)); break;
+              case 1: encode_varint_field(inner, fn, int_dist(rng)); break;
+              case 2: encode_fixed32_field(inner, fn, static_cast<float>(int_dist(rng))); break;
+              case 3: encode_fixed64_field(inner, fn, static_cast<double>(int_dist(rng))); break;
+              case 4: encode_varint_field(inner, fn, rng() % 2); break;
+              case 5: encode_string_field(inner, fn, random_string(str_len_dist(rng))); break;
+            }
+          }
+        });
+      }
+    }
+    return messages;
+  }
+};
+
 // Case 4: Many repeated fields — stress-tests per-repeated-field sync overhead.
 //   message WideRepeatedMessage {
 //     int32              id = 1;
@@ -638,7 +747,43 @@ NVBENCH_BENCH(BM_protobuf_repeated)
   .add_int64_axis("avg_items", {1, 5, 20});
 
 // ===========================================================================
-// Benchmark 4: Many repeated fields — measures per-field sync overhead at scale
+// Benchmark 4: Wide repeated message — measures repeated struct child scan cost
+// ===========================================================================
+static void BM_protobuf_wide_repeated_message(nvbench::state& state)
+{
+  auto const num_rows         = static_cast<int>(state.get_int64("num_rows"));
+  auto const num_child_fields = static_cast<int>(state.get_int64("num_child_fields"));
+  auto const avg_items        = static_cast<int>(state.get_int64("avg_items"));
+
+  WideRepeatedMessageCase wide_case{num_child_fields, avg_items};
+  auto ctx = wide_case.build_context();
+
+  std::mt19937 rng(42);
+  auto messages   = wide_case.generate_messages(num_rows, rng);
+  auto binary_col = make_binary_column(messages);
+
+  size_t total_bytes = 0;
+  for (auto const& m : messages)
+    total_bytes += m.size();
+
+  auto stream = cudf::get_default_stream();
+  state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
+    auto result = spark_rapids_jni::decode_protobuf_to_struct(binary_col->view(), ctx, stream);
+  });
+
+  state.add_element_count(num_rows, "Rows");
+  state.add_global_memory_reads<nvbench::int8_t>(total_bytes);
+}
+
+NVBENCH_BENCH(BM_protobuf_wide_repeated_message)
+  .set_name("Protobuf Wide Repeated Message")
+  .add_int64_axis("num_rows", {10'000, 20'000})
+  .add_int64_axis("num_child_fields", {20, 100, 200})
+  .add_int64_axis("avg_items", {1, 5, 10});
+
+// ===========================================================================
+// Benchmark 5: Many repeated fields — measures per-field sync overhead at scale
 // ===========================================================================
 static void BM_protobuf_many_repeated(nvbench::state& state)
 {
