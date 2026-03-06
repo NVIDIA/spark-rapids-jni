@@ -1070,6 +1070,7 @@ __global__ void scan_repeated_message_children_kernel(uint8_t const* message_dat
                                                       int* error_flag);
 
 __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
+                                                cudf::size_type message_data_size,
                                                 cudf::size_type const* row_offsets,
                                                 cudf::size_type base_offset,
                                                 field_location const* parent_locs,
@@ -1082,6 +1083,7 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
                                                 int* error_flag);
 
 __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
+                                               cudf::size_type message_data_size,
                                                cudf::size_type const* row_offsets,
                                                cudf::size_type base_offset,
                                                field_location const* parent_locs,
@@ -1099,14 +1101,16 @@ __global__ void compute_nested_struct_locations_kernel(field_location const* chi
                                                        int num_child_fields,
                                                        field_location* nested_locs,
                                                        int32_t* nested_row_offsets,
-                                                       int total_count);
+                                                       int total_count,
+                                                       int* error_flag);
 
 __global__ void compute_grandchild_parent_locations_kernel(field_location const* parent_locs,
                                                            field_location const* child_locs,
                                                            int child_idx,
                                                            int num_child_fields,
                                                            field_location* gc_parent_abs,
-                                                           int num_rows);
+                                                           int num_rows,
+                                                           int* error_flag);
 
 __global__ void compute_virtual_parents_for_nested_repeated_kernel(
   repeated_occurrence const* occurrences,
@@ -1114,7 +1118,8 @@ __global__ void compute_virtual_parents_for_nested_repeated_kernel(
   field_location const* parent_locations,
   cudf::size_type* virtual_row_offsets,
   field_location* virtual_parent_locs,
-  int total_count);
+  int total_count,
+  int* error_flag);
 
 __global__ void compute_msg_locations_from_occurrences_kernel(
   repeated_occurrence const* occurrences,
@@ -1122,7 +1127,8 @@ __global__ void compute_msg_locations_from_occurrences_kernel(
   cudf::size_type base_offset,
   field_location* msg_locs,
   int32_t* msg_row_offsets,
-  int total_count);
+  int total_count,
+  int* error_flag);
 
 __global__ void extract_strided_locations_kernel(field_location const* nested_locations,
                                                  int field_idx,

@@ -703,6 +703,7 @@ __global__ void scan_repeated_message_children_kernel(
  * fields at the expected child depth.
  */
 __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
+                                                cudf::size_type message_data_size,
                                                 cudf::size_type const* row_offsets,
                                                 cudf::size_type base_offset,
                                                 field_location const* parent_locs,
@@ -728,7 +729,14 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
   cudf::size_type row_off;
   row_off = row_offsets[row] - base_offset;
 
-  uint8_t const* msg_start = message_data + row_off + parent_loc.offset;
+  int64_t msg_start_off = static_cast<int64_t>(row_off) + parent_loc.offset;
+  int64_t msg_end_off   = msg_start_off + parent_loc.length;
+  if (msg_start_off < 0 || msg_end_off > message_data_size) {
+    set_error_once(error_flag, ERR_BOUNDS);
+    return;
+  }
+
+  uint8_t const* msg_start = message_data + msg_start_off;
   uint8_t const* msg_end   = msg_start + parent_loc.length;
   uint8_t const* cur       = msg_start;
 
@@ -771,6 +779,7 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
  * Note: no depth-level check is performed; see count_repeated_in_nested_kernel comment.
  */
 __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
+                                               cudf::size_type message_data_size,
                                                cudf::size_type const* row_offsets,
                                                cudf::size_type base_offset,
                                                field_location const* parent_locs,
@@ -789,7 +798,14 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
 
   cudf::size_type row_off = row_offsets[row] - base_offset;
 
-  uint8_t const* msg_start = message_data + row_off + parent_loc.offset;
+  int64_t msg_start_off = static_cast<int64_t>(row_off) + parent_loc.offset;
+  int64_t msg_end_off   = msg_start_off + parent_loc.length;
+  if (msg_start_off < 0 || msg_end_off > message_data_size) {
+    set_error_once(error_flag, ERR_BOUNDS);
+    return;
+  }
+
+  uint8_t const* msg_start = message_data + msg_start_off;
   uint8_t const* msg_end   = msg_start + parent_loc.length;
   uint8_t const* cur       = msg_start;
 
@@ -838,13 +854,20 @@ __global__ void compute_nested_struct_locations_kernel(
   int num_child_fields,              // Total number of child fields per occurrence
   field_location* nested_locs,       // Output: nested struct locations
   int32_t* nested_row_offsets,       // Output: nested struct row offsets
-  int total_count)
+  int total_count,
+  int* error_flag)
 {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= total_count) return;
 
-  nested_locs[idx]        = child_locs[idx * num_child_fields + child_idx];
-  auto sum                = static_cast<int64_t>(msg_row_offsets[idx]) + msg_locs[idx].offset;
+  nested_locs[idx] = child_locs[idx * num_child_fields + child_idx];
+  auto sum         = static_cast<int64_t>(msg_row_offsets[idx]) + msg_locs[idx].offset;
+  if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+    nested_locs[idx]        = {-1, 0};
+    nested_row_offsets[idx] = 0;
+    set_error_once(error_flag, ERR_OVERFLOW);
+    return;
+  }
   nested_row_offsets[idx] = static_cast<int32_t>(sum);
 }
 
@@ -859,7 +882,8 @@ __global__ void compute_grandchild_parent_locations_kernel(
   int child_idx,                      // Which child field
   int num_child_fields,               // Total child fields per row
   field_location* gc_parent_abs,      // Output: absolute grandchild parent locations
-  int num_rows)
+  int num_rows,
+  int* error_flag)
 {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
   if (row >= num_rows) return;
@@ -869,7 +893,13 @@ __global__ void compute_grandchild_parent_locations_kernel(
 
   if (parent_loc.offset >= 0 && child_loc.offset >= 0) {
     // Absolute offset = parent offset + child's relative offset
-    gc_parent_abs[row].offset = parent_loc.offset + child_loc.offset;
+    auto sum = static_cast<int64_t>(parent_loc.offset) + child_loc.offset;
+    if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+      gc_parent_abs[row] = {-1, 0};
+      set_error_once(error_flag, ERR_OVERFLOW);
+      return;
+    }
+    gc_parent_abs[row].offset = static_cast<int32_t>(sum);
     gc_parent_abs[row].length = child_loc.length;
   } else {
     gc_parent_abs[row] = {-1, 0};
@@ -887,7 +917,8 @@ __global__ void compute_virtual_parents_for_nested_repeated_kernel(
   field_location const* parent_locations,   // parent nested message locations
   cudf::size_type* virtual_row_offsets,     // output: [total_count]
   field_location* virtual_parent_locs,      // output: [total_count]
-  int total_count)
+  int total_count,
+  int* error_flag)
 {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= total_count) return;
@@ -901,7 +932,13 @@ __global__ void compute_virtual_parents_for_nested_repeated_kernel(
   // Protobuf allows an embedded message with length=0, which maps to a non-null
   // struct with all-null children (not a null struct).
   if (ploc.offset >= 0) {
-    virtual_parent_locs[idx] = {ploc.offset + occ.offset, occ.length};
+    auto sum = static_cast<int64_t>(ploc.offset) + occ.offset;
+    if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+      virtual_parent_locs[idx] = {-1, 0};
+      set_error_once(error_flag, ERR_OVERFLOW);
+      return;
+    }
+    virtual_parent_locs[idx] = {static_cast<int32_t>(sum), occ.length};
   } else {
     virtual_parent_locs[idx] = {-1, 0};
   }
@@ -917,13 +954,22 @@ __global__ void compute_msg_locations_from_occurrences_kernel(
   cudf::size_type base_offset,             // Base offset to subtract
   field_location* msg_locs,                // Output: message locations
   int32_t* msg_row_offsets,                // Output: message row offsets
-  int total_count)
+  int total_count,
+  int* error_flag)
 {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= total_count) return;
 
-  auto const& occ      = occurrences[idx];
-  msg_row_offsets[idx] = static_cast<int32_t>(list_offsets[occ.row_idx] - base_offset);
+  auto const& occ = occurrences[idx];
+  auto row_offset = static_cast<int64_t>(list_offsets[occ.row_idx]) - base_offset;
+  if (row_offset < std::numeric_limits<int32_t>::min() ||
+      row_offset > std::numeric_limits<int32_t>::max()) {
+    msg_row_offsets[idx] = 0;
+    msg_locs[idx]        = {-1, 0};
+    set_error_once(error_flag, ERR_OVERFLOW);
+    return;
+  }
+  msg_row_offsets[idx] = static_cast<int32_t>(row_offset);
   msg_locs[idx]        = {occ.offset, occ.length};
 }
 
