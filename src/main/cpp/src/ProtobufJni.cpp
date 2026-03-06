@@ -88,7 +88,10 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
         n_encodings.size() != num_fields || n_is_repeated.size() != num_fields ||
         n_is_required.size() != num_fields || n_has_default.size() != num_fields ||
         n_default_ints.size() != num_fields || n_default_floats.size() != num_fields ||
-        n_default_bools.size() != num_fields) {
+        n_default_bools.size() != num_fields ||
+        env->GetArrayLength(default_strings) != num_fields ||
+        env->GetArrayLength(enum_valid_values) != num_fields ||
+        env->GetArrayLength(enum_names) != num_fields) {
       JNI_THROW_NEW(env,
                     cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
                     "All field arrays must have the same length",

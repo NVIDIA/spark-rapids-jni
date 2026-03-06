@@ -44,6 +44,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <map>
 #include <type_traits>
 

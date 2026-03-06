@@ -272,10 +272,12 @@ std::unique_ptr<cudf::column> build_enum_string_column(
     num_rows);
 
   std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
-  int32_t total_name_chars = 0;
+  int64_t total_name_chars = 0;
   for (size_t k = 0; k < enum_name_bytes.size(); ++k) {
-    total_name_chars += static_cast<int32_t>(enum_name_bytes[k].size());
-    h_name_offsets[k + 1] = total_name_chars;
+    total_name_chars += static_cast<int64_t>(enum_name_bytes[k].size());
+    CUDF_EXPECTS(total_name_chars <= std::numeric_limits<int32_t>::max(),
+                 "Enum name data exceeds 2 GB limit");
+    h_name_offsets[k + 1] = static_cast<int32_t>(total_name_chars);
   }
   std::vector<uint8_t> h_name_chars(total_name_chars);
   int32_t cursor = 0;
@@ -368,10 +370,12 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
                                 stream.value()));
 
   std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
-  int32_t total_name_chars = 0;
+  int64_t total_name_chars = 0;
   for (size_t k = 0; k < enum_name_bytes.size(); ++k) {
-    total_name_chars += static_cast<int32_t>(enum_name_bytes[k].size());
-    h_name_offsets[k + 1] = total_name_chars;
+    total_name_chars += static_cast<int64_t>(enum_name_bytes[k].size());
+    CUDF_EXPECTS(total_name_chars <= std::numeric_limits<int32_t>::max(),
+                 "Enum name data exceeds 2 GB limit");
+    h_name_offsets[k + 1] = static_cast<int32_t>(total_name_chars);
   }
   std::vector<uint8_t> h_name_chars(total_name_chars);
   int32_t cursor = 0;

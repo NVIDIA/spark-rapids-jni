@@ -415,7 +415,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                       nf * sizeof(h_descs[0]),
                                       cudaMemcpyHostToDevice,
                                       stream.value()));
-        dim3 grid((num_rows + threads - 1) / threads, nf);
+        dim3 grid((num_rows + threads - 1u) / threads, nf);
         kernel_fn(grid,
                   threads,
                   stream.value(),
