@@ -15,9 +15,9 @@
  */
 
 #include "row_conversion.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/iterator.cuh>
 #include <cudf/detail/offsets_iterator_factory.cuh>
 #include <cudf/detail/sequence.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
@@ -157,8 +157,8 @@ struct tile_info {
     // we are not losing data we are just not as efficient as we could be with shared memory. This
     // may be a problem if the tile is computed without regard to variable width offset/length sizes
     // in that we overrun shared memory.
-    return util::round_up_unsafe(col_offsets[end_col] + col_sizes[end_col] - col_offsets[start_col],
-                                 JCUDF_ROW_ALIGNMENT);
+    return cudf::util::round_up_unsafe(
+      col_offsets[end_col] + col_sizes[end_col] - col_offsets[start_col], JCUDF_ROW_ALIGNMENT);
   }
 
   __device__ inline size_type num_cols() const { return end_col - start_col + 1; }
@@ -250,8 +250,8 @@ build_string_row_offsets(table_view const& tbl,
                     d_row_sizes.begin(),
                     cuda::proclaim_return_type<size_type>(
                       [fixed_width_and_validity_size] __device__(auto row_size) {
-                        return util::round_up_unsafe(fixed_width_and_validity_size + row_size,
-                                                     JCUDF_ROW_ALIGNMENT);
+                        return cudf::util::round_up_unsafe(fixed_width_and_validity_size + row_size,
+                                                           JCUDF_ROW_ALIGNMENT);
                       }));
 
   return {std::move(d_row_sizes), std::move(d_offsets_iterators)};
@@ -735,10 +735,10 @@ __launch_bounds__(block_size) CUDF_KERNEL
   auto const threads_per_warp = warp.size();
   auto const rows_per_read    = cudf::detail::size_in_bits<bitmask_type>();
 
-  auto const num_sections_x = util::div_rounding_up_unsafe(num_tile_cols, threads_per_warp);
-  auto const num_sections_y = util::div_rounding_up_unsafe(num_tile_rows, rows_per_read);
-  auto const validity_data_row_length = util::round_up_unsafe(
-    util::div_rounding_up_unsafe(num_tile_cols, CHAR_BIT), JCUDF_ROW_ALIGNMENT);
+  auto const num_sections_x = cudf::util::div_rounding_up_unsafe(num_tile_cols, threads_per_warp);
+  auto const num_sections_y = cudf::util::div_rounding_up_unsafe(num_tile_rows, rows_per_read);
+  auto const validity_data_row_length = cudf::util::round_up_unsafe(
+    cudf::util::div_rounding_up_unsafe(num_tile_cols, CHAR_BIT), JCUDF_ROW_ALIGNMENT);
   auto const total_sections = num_sections_x * num_sections_y;
 
   // the tile is divided into sections. A warp operates on a section at a time.
@@ -779,7 +779,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
     output_data[tile.batch_number] + validity_offset + tile.start_col / CHAR_BIT;
 
   // each warp copies a row at a time
-  auto const row_bytes       = util::div_rounding_up_unsafe(num_tile_cols, CHAR_BIT);
+  auto const row_bytes       = cudf::util::div_rounding_up_unsafe(num_tile_cols, CHAR_BIT);
   auto const row_batch_start = tile.batch_number == 0 ? 0 : batch_row_boundaries[tile.batch_number];
 
   // make sure entire tile has finished copy
@@ -1032,9 +1032,9 @@ __launch_bounds__(block_size) CUDF_KERNEL
   auto const threads_per_warp = warp.size();
   auto const cols_per_read    = CHAR_BIT;
 
-  auto const rows_per_read            = static_cast<size_type>(threads_per_warp);
-  auto const num_sections_x           = util::div_rounding_up_safe(num_tile_cols, cols_per_read);
-  auto const num_sections_y           = util::div_rounding_up_safe(num_tile_rows, rows_per_read);
+  auto const rows_per_read  = static_cast<size_type>(threads_per_warp);
+  auto const num_sections_x = cudf::util::div_rounding_up_safe(num_tile_cols, cols_per_read);
+  auto const num_sections_y = cudf::util::div_rounding_up_safe(num_tile_rows, rows_per_read);
   auto const validity_data_col_length = num_sections_y * 4;  // words to bytes
   auto const total_sections           = num_sections_x * num_sections_y;
 
@@ -1074,7 +1074,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
   }
 
   // now memcpy the shared memory out to the final destination
-  auto const col_words = util::div_rounding_up_unsafe(num_tile_rows, CHAR_BIT * 4);
+  auto const col_words = cudf::util::div_rounding_up_unsafe(num_tile_rows, CHAR_BIT * 4);
 
   // make sure entire tile has finished copy
   group.sync();
@@ -1128,7 +1128,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
 
   // workaround for not being able to take a reference to a constexpr host variable
   auto const ROWS_PER_BLOCK = NUM_STRING_ROWS_PER_BLOCK_FROM_ROWS;
-  auto const tiles_per_col  = util::div_rounding_up_unsafe(num_rows, ROWS_PER_BLOCK);
+  auto const tiles_per_col  = cudf::util::div_rounding_up_unsafe(num_rows, ROWS_PER_BLOCK);
   auto const starting_tile  = blockIdx.x * warp.meta_group_size() + warp.meta_group_rank();
   auto const num_tiles      = tiles_per_col * num_string_columns;
   auto const tile_stride    = warp.meta_group_size() * gridDim.x;
@@ -1175,7 +1175,7 @@ static int calc_fixed_width_kernel_dims(const size_type num_columns,
   // in the x dimension because we use atomic operations at the block
   // level when writing validity data out to main memory, and that would
   // need to change if we split a word of validity data between blocks.
-  int const y_block_size          = min(util::div_rounding_up_safe(num_columns, 4), 32);
+  int const y_block_size          = min(cudf::util::div_rounding_up_safe(num_columns, 4), 32);
   int const x_possible_block_size = 1024 / y_block_size;
   // 48KB is the default setting for shared memory per block according to the cuda tutorials
   // If someone configures the GPU to only have 16 KB this might not work.
@@ -1291,7 +1291,7 @@ static inline int32_t compute_fixed_width_layout(std::vector<data_type> const& s
     column_size.emplace_back(s);
     std::size_t allocation_needed = s;
     std::size_t alignment_needed  = allocation_needed;  // They are the same for fixed width types
-    at_offset = util::round_up_unsafe(at_offset, static_cast<int32_t>(alignment_needed));
+    at_offset = cudf::util::round_up_unsafe(at_offset, static_cast<int32_t>(alignment_needed));
     column_start.emplace_back(at_offset);
     at_offset += allocation_needed;
   }
@@ -1300,11 +1300,11 @@ static inline int32_t compute_fixed_width_layout(std::vector<data_type> const& s
   // Eventually we can think about nullable vs not nullable, but for now we will just always add
   // it in
   int32_t const validity_bytes_needed =
-    util::div_rounding_up_safe<int32_t>(schema.size(), CHAR_BIT);
+    cudf::util::div_rounding_up_safe<int32_t>(schema.size(), CHAR_BIT);
   // validity comes at the end and is byte aligned so we can pack more in.
   at_offset += validity_bytes_needed;
   // Now we need to pad the end so all rows are 64 bit aligned
-  return util::round_up_unsafe(at_offset, JCUDF_ROW_ALIGNMENT);
+  return cudf::util::round_up_unsafe(at_offset, JCUDF_ROW_ALIGNMENT);
 }
 
 /**
@@ -1350,7 +1350,7 @@ column_info_s compute_column_information(iterator begin, iterator end)
     // align size for this type - They are the same for fixed width types and 4 bytes for variable
     // width length/offset combos
     size_type const alignment_needed = compound_type ? __alignof(uint32_t) : col_size;
-    size_per_row                     = util::round_up_unsafe(size_per_row, alignment_needed);
+    size_per_row                     = cudf::util::round_up_unsafe(size_per_row, alignment_needed);
     if (compound_type) { variable_width_column_starts.push_back(size_per_row); }
     column_starts.push_back(size_per_row);
     column_sizes.push_back(col_size);
@@ -1363,7 +1363,7 @@ column_info_s compute_column_information(iterator begin, iterator end)
 
   // validity is byte-aligned in the JCUDF format
   size_per_row +=
-    util::div_rounding_up_safe(static_cast<size_type>(std::distance(begin, end)), CHAR_BIT);
+    cudf::util::div_rounding_up_safe(static_cast<size_type>(std::distance(begin, end)), CHAR_BIT);
 
   return {size_per_row,
           std::move(column_starts),
@@ -1386,23 +1386,23 @@ std::vector<detail::tile_info> build_validity_tile_infos(size_type const& num_co
                                                          std::vector<row_batch> const& row_batches)
 {
   auto const desired_rows_and_columns = static_cast<int>(sqrt(shmem_limit_per_tile));
-  auto const column_stride            = util::round_up_unsafe(
+  auto const column_stride            = cudf::util::round_up_unsafe(
     [&]() {
       if (desired_rows_and_columns > num_columns) {
         // not many columns, build a single tile for table width and ship it off
         return num_columns;
       } else {
-        return util::round_down_safe(desired_rows_and_columns, CHAR_BIT);
+        return cudf::util::round_down_safe(desired_rows_and_columns, CHAR_BIT);
       }
     }(),
     JCUDF_ROW_ALIGNMENT);
 
   // we fit as much as we can given the column stride note that an element in the table takes just 1
   // bit, but a row with a single element still takes 8 bytes!
-  auto const bytes_per_row =
-    util::round_up_safe(util::div_rounding_up_unsafe(column_stride, CHAR_BIT), JCUDF_ROW_ALIGNMENT);
+  auto const bytes_per_row = cudf::util::round_up_safe(
+    cudf::util::div_rounding_up_unsafe(column_stride, CHAR_BIT), JCUDF_ROW_ALIGNMENT);
   auto const row_stride =
-    std::min(num_rows, util::round_down_safe(shmem_limit_per_tile / bytes_per_row, 64));
+    std::min(num_rows, cudf::util::round_down_safe(shmem_limit_per_tile / bytes_per_row, 64));
   std::vector<detail::tile_info> validity_tile_infos;
   validity_tile_infos.reserve(num_columns / column_stride * num_rows / row_stride);
   for (int col = 0; col < num_columns; col += column_stride) {
@@ -1473,7 +1473,7 @@ batch_data build_batches(size_type num_rows,
 {
   auto const total_size = thrust::reduce(rmm::exec_policy(stream), row_sizes, row_sizes + num_rows);
   auto const num_batches = static_cast<int32_t>(
-    util::div_rounding_up_safe(total_size, static_cast<uint64_t>(MAX_BATCH_SIZE)));
+    cudf::util::div_rounding_up_safe(total_size, static_cast<uint64_t>(MAX_BATCH_SIZE)));
   auto const num_offsets = num_batches + 1;
   std::vector<row_batch> row_batches;
   std::vector<size_type> batch_row_boundaries;
@@ -1515,7 +1515,7 @@ batch_data build_batches(size_type num_rows,
 
     size_type const row_end = lb == search_end
                                 ? batch_size + last_row_end
-                                : last_row_end + util::round_down_safe(batch_size, 32);
+                                : last_row_end + cudf::util::round_down_safe(batch_size, 32);
 
     // build offset list for each row in this batch
     auto const num_rows_in_batch = row_end - last_row_end;
@@ -1524,7 +1524,7 @@ batch_data build_batches(size_type num_rows,
     auto const num_entries = row_end - last_row_end + 1;
     device_uvector<size_type> output_batch_row_offsets(num_entries, stream, mr);
 
-    auto row_size_iter_bounded = cudf::detail::make_counting_transform_iterator(
+    auto row_size_iter_bounded = spark_rapids_jni::util::make_counting_transform_iterator(
       0, row_size_functor(row_end, row_sizes, last_row_end));
 
     thrust::exclusive_scan(rmm::exec_policy(stream),
@@ -1580,7 +1580,7 @@ int compute_tile_counts(device_span<size_type const> const& batch_row_boundaries
     cuda::proclaim_return_type<size_type>(
       [desired_tile_height, batch_row_boundaries = batch_row_boundaries.data()] __device__(
         auto batch_index) -> size_type {
-        return util::div_rounding_up_unsafe(
+        return cudf::util::div_rounding_up_unsafe(
           batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
           desired_tile_height);
       }));
@@ -1619,7 +1619,7 @@ size_type build_tiles(
     cuda::proclaim_return_type<size_type>(
       [desired_tile_height, batch_row_boundaries = batch_row_boundaries.data()] __device__(
         auto batch_index) -> size_type {
-        return util::div_rounding_up_unsafe(
+        return cudf::util::div_rounding_up_unsafe(
           batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
           desired_tile_height);
       }));
@@ -1628,7 +1628,7 @@ size_type build_tiles(
     thrust::reduce(rmm::exec_policy(stream), num_tiles.begin(), num_tiles.end());
 
   device_uvector<size_type> tile_starts(num_batches + 1, stream);
-  auto tile_iter = cudf::detail::make_counting_transform_iterator(
+  auto tile_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<size_type>(
       [num_tiles = num_tiles.data(), num_batches] __device__(auto i) {
@@ -1708,7 +1708,7 @@ void determine_tiles(std::vector<size_type> const& column_sizes,
   // or columns.
   auto const square_bias         = 32;  // bias towards columns for performance reasons
   auto const optimal_square_len  = static_cast<size_type>(sqrt(shmem_limit_per_tile));
-  auto const desired_tile_height = util::round_up_safe<int>(
+  auto const desired_tile_height = cudf::util::round_up_safe<int>(
     std::min(optimal_square_len / square_bias, total_number_of_rows), cudf::detail::warp_size);
   auto const tile_height = std::clamp(desired_tile_height, 1, first_row_batch_size);
 
@@ -1720,17 +1720,17 @@ void determine_tiles(std::vector<size_type> const& column_sizes,
 
     // align size for this type
     auto const alignment_needed       = col_size;  // They are the same for fixed width types
-    auto const row_size_aligned       = util::round_up_unsafe(row_size, alignment_needed);
+    auto const row_size_aligned       = cudf::util::round_up_unsafe(row_size, alignment_needed);
     auto const row_size_with_this_col = row_size_aligned + col_size;
     auto const row_size_with_end_pad =
-      util::round_up_unsafe(row_size_with_this_col, JCUDF_ROW_ALIGNMENT);
+      cudf::util::round_up_unsafe(row_size_with_this_col, JCUDF_ROW_ALIGNMENT);
 
     if (row_size_with_end_pad * tile_height > shmem_limit_per_tile) {
       // too large, close this tile, generate vertical tiles and restart
       f(current_tile_start_col, col == 0 ? col : col - 1, tile_height);
 
       row_size =
-        util::round_up_unsafe((column_starts[col] + column_sizes[col]) & 7, alignment_needed);
+        cudf::util::round_up_unsafe((column_starts[col] + column_sizes[col]) & 7, alignment_needed);
       row_size += col_size;  // alignment required for shared memory tile boundary to match
                              // alignment of output row
       current_tile_start_col = col;
@@ -1779,7 +1779,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
 #ifndef __CUDA_ARCH__  // __host__ code.
   // Need to reduce total shmem available by the size of barriers in the kernel's shared memory
   total_shmem_in_bytes -=
-    util::round_up_unsafe(sizeof(cuda::barrier<cuda::thread_scope_block>), 16ul);
+    cudf::util::round_up_unsafe(sizeof(cuda::barrier<cuda::thread_scope_block>), 16ul);
 #endif  // __CUDA_ARCH__
 
   auto const shmem_limit_per_tile = total_shmem_in_bytes;
@@ -1932,9 +1932,9 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
       auto const batch_row_offset = batch_info.batch_row_boundaries[i];
       auto const batch_num_rows   = batch_info.row_batches[i].row_count;
 
-      dim3 const string_blocks(
-        std::min(MAX_STRING_BLOCKS,
-                 util::div_rounding_up_unsafe(batch_num_rows, NUM_STRING_ROWS_PER_BLOCK_TO_ROWS)));
+      dim3 const string_blocks(std::min(
+        MAX_STRING_BLOCKS,
+        cudf::util::div_rounding_up_unsafe(batch_num_rows, NUM_STRING_ROWS_PER_BLOCK_TO_ROWS)));
 
       detail::copy_strings_to_rows<NUM_STRING_ROWS_PER_BLOCK_TO_ROWS>
         <<<string_blocks, NUM_STRING_ROWS_PER_BLOCK_TO_ROWS, 0, stream.value()>>>(
@@ -2025,12 +2025,12 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
     // total encoded row size. This includes fixed-width data and validity only. It does not include
     // variable-width data since it isn't copied with the fixed-width and validity kernel.
     auto row_size_iter = thrust::make_constant_iterator<uint64_t>(
-      util::round_up_unsafe(size_per_row, JCUDF_ROW_ALIGNMENT));
+      cudf::util::round_up_unsafe(size_per_row, JCUDF_ROW_ALIGNMENT));
 
     auto batch_info = detail::build_batches(num_rows, row_size_iter, fixed_width_only, stream, mr);
 
     detail::fixed_width_row_offset_functor offset_functor(
-      util::round_up_unsafe(size_per_row, JCUDF_ROW_ALIGNMENT));
+      cudf::util::round_up_unsafe(size_per_row, JCUDF_ROW_ALIGNMENT));
 
     return detail::convert_to_rows(
       tbl, batch_info, offset_functor, std::move(column_info), std::nullopt, stream, mr);
@@ -2038,7 +2038,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
     auto offset_data = detail::build_string_row_offsets(tbl, size_per_row, stream);
     auto& row_sizes  = std::get<0>(offset_data);
 
-    auto row_size_iter = cudf::detail::make_counting_transform_iterator(
+    auto row_size_iter = spark_rapids_jni::util::make_counting_transform_iterator(
       0, detail::row_size_functor(num_rows, row_sizes.data(), 0));
 
     auto batch_info = detail::build_batches(num_rows, row_size_iter, fixed_width_only, stream, mr);
@@ -2077,7 +2077,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows_fixed_width_optimized(
     // Make the number of rows per batch a multiple of 32 so we don't have to worry about splitting
     // validity at a specific row offset.  This might change in the future.
     auto const max_rows_per_batch =
-      util::round_down_safe(std::numeric_limits<size_type>::max() / size_per_row, 32);
+      cudf::util::round_down_safe(std::numeric_limits<size_type>::max() / size_per_row, 32);
 
     auto const num_rows = tbl.num_rows();
 
@@ -2184,13 +2184,14 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
 #ifndef __CUDA_ARCH__  // __host__ code.
   // Need to reduce total shmem available by the size of barriers in the kernel's shared memory
   total_shmem_in_bytes -=
-    util::round_up_unsafe(sizeof(cuda::barrier<cuda::thread_scope_block>), 16ul);
+    cudf::util::round_up_unsafe(sizeof(cuda::barrier<cuda::thread_scope_block>), 16ul);
 #endif  // __CUDA_ARCH__
 
   auto const shmem_limit_per_tile = total_shmem_in_bytes;
 
   auto column_info = detail::compute_column_information(string_schema.begin(), string_schema.end());
-  auto const size_per_row = util::round_up_unsafe(column_info.size_per_row, JCUDF_ROW_ALIGNMENT);
+  auto const size_per_row =
+    cudf::util::round_up_unsafe(column_info.size_per_row, JCUDF_ROW_ALIGNMENT);
 
   // Ideally we would check that the offsets are all the same, etc. but for now this is probably
   // fine
@@ -2378,7 +2379,7 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
         [num_rows, col_string_lengths] __device__(auto const& i) {
           return i < num_rows ? col_string_lengths[i] : 0;
         });
-      auto bounded_iter = cudf::detail::make_counting_transform_iterator(0, tmp);
+      auto bounded_iter = spark_rapids_jni::util::make_counting_transform_iterator(0, tmp);
       thrust::exclusive_scan(rmm::exec_policy(stream),
                              bounded_iter,
                              bounded_iter + num_rows + 1,

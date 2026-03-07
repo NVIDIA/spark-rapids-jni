@@ -20,11 +20,11 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <cudf/column/column_view.hpp>
-#include <cudf/detail/iterator.cuh>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/types.hpp>
 
 #include <row_conversion.hpp>
+#include <utilities/iterator.cuh>
 
 #include <limits>
 #include <random>
@@ -100,10 +100,10 @@ TEST_F(ColumnToRowTests, BigStrings)
     "a",
     "good test",
     "is required to produce reasonable confidence that this is working"};
-  auto num_generator =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto num_generator = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   auto string_generator =
-    cudf::detail::make_counting_transform_iterator(0, [&](auto i) -> char const* {
+    spark_rapids_jni::util::make_counting_transform_iterator(0, [&](auto i) -> char const* {
       return TEST_STRINGS[rand() % (sizeof(TEST_STRINGS) / sizeof(TEST_STRINGS[0]))];
     });
 
@@ -158,10 +158,10 @@ TEST_F(ColumnToRowTests, ManyStrings)
     "lots of choices of strings and sizes is sure to test the offset calculation code to ensure "
     "that even a really long string ends up in the correct spot for the final destination allowing "
     "for even crazy run-on sentences to be inserted into the data"};
-  auto num_generator =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto num_generator = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   auto string_generator =
-    cudf::detail::make_counting_transform_iterator(0, [&](auto i) -> char const* {
+    spark_rapids_jni::util::make_counting_transform_iterator(0, [&](auto i) -> char const* {
       return TEST_STRINGS[rand() % (sizeof(TEST_STRINGS) / sizeof(TEST_STRINGS[0]))];
     });
 
@@ -214,8 +214,8 @@ TEST_F(ColumnToRowTests, Simple)
 
 TEST_F(ColumnToRowTests, Tall)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   cudf::test::fixed_width_column_wrapper<int32_t> a(r, r + (size_t)4096);
   cudf::table_view in(std::vector<cudf::column_view>{a});
   std::vector<cudf::data_type> schema = {cudf::data_type{cudf::type_id::INT32}};
@@ -293,8 +293,8 @@ TEST_F(ColumnToRowTests, SingleByteWide)
 
 TEST_F(ColumnToRowTests, Non2Power)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
   std::vector<cudf::column_view> views;
   std::vector<cudf::data_type> schema;
@@ -329,8 +329,8 @@ TEST_F(ColumnToRowTests, Non2Power)
 
 TEST_F(ColumnToRowTests, Big)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
   std::vector<cudf::column_view> views;
   std::vector<cudf::data_type> schema;
@@ -366,8 +366,8 @@ TEST_F(ColumnToRowTests, Big)
 
 TEST_F(ColumnToRowTests, Bigger)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
   std::vector<cudf::column_view> views;
   std::vector<cudf::data_type> schema;
@@ -402,8 +402,8 @@ TEST_F(ColumnToRowTests, Bigger)
 
 TEST_F(ColumnToRowTests, Biggest)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
   std::vector<cudf::column_view> views;
   std::vector<cudf::data_type> schema;
@@ -473,8 +473,8 @@ TEST_F(RowToColumnTests, Simple)
 
 TEST_F(RowToColumnTests, Tall)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   cudf::test::fixed_width_column_wrapper<int32_t> a(r, r + (size_t)4096);
   cudf::table_view in(std::vector<cudf::column_view>{a});
 
@@ -604,16 +604,18 @@ TEST_F(RowToColumnTests, AllTypesLarge)
                                                      std::numeric_limits<double>::max());
   std::uniform_int_distribution<int64_t> rand_int64(std::numeric_limits<int64_t>::min(),
                                                     std::numeric_limits<int64_t>::max());
-  auto r = cudf::detail::make_counting_transform_iterator(
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
     0, [&](auto i) -> int64_t { return rand_int64(re); });
-  auto d = cudf::detail::make_counting_transform_iterator(
+  auto d = spark_rapids_jni::util::make_counting_transform_iterator(
     0, [&](auto i) -> double { return rand_double(re); });
 
-  auto all_valid  = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return 1; });
-  auto none_valid = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return 0; });
-  auto most_valid = cudf::detail::make_counting_transform_iterator(
+  auto all_valid =
+    spark_rapids_jni::util::make_counting_transform_iterator(0, [](auto i) { return 1; });
+  auto none_valid =
+    spark_rapids_jni::util::make_counting_transform_iterator(0, [](auto i) { return 0; });
+  auto most_valid = spark_rapids_jni::util::make_counting_transform_iterator(
     0, [](auto i) { return rand() % 2 == 0 ? 0 : 1; });
-  auto few_valid = cudf::detail::make_counting_transform_iterator(
+  auto few_valid = spark_rapids_jni::util::make_counting_transform_iterator(
     0, [](auto i) { return rand() % 13 == 0 ? 1 : 0; });
 
   for (int i = 0; i < 15; ++i) {
@@ -716,8 +718,8 @@ TEST_F(RowToColumnTests, AllTypesLarge)
 
 TEST_F(RowToColumnTests, Non2Power)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
   std::vector<cudf::column_view> views;
   std::vector<cudf::data_type> schema;
@@ -745,8 +747,8 @@ TEST_F(RowToColumnTests, Non2Power)
 
 TEST_F(RowToColumnTests, Big)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
   std::vector<cudf::column_view> views;
   std::vector<cudf::data_type> schema;
@@ -775,8 +777,8 @@ TEST_F(RowToColumnTests, Big)
 
 TEST_F(RowToColumnTests, Bigger)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
   std::vector<cudf::column_view> views;
   std::vector<cudf::data_type> schema;
@@ -805,8 +807,8 @@ TEST_F(RowToColumnTests, Bigger)
 
 TEST_F(RowToColumnTests, Biggest)
 {
-  auto r =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
   std::vector<cudf::column_view> views;
   std::vector<cudf::data_type> schema;
@@ -896,10 +898,10 @@ TEST_F(RowToColumnTests, BigStrings)
     "a",
     "good test",
     "is required to produce reasonable confidence that this is working"};
-  auto num_generator =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto num_generator = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   auto string_generator =
-    cudf::detail::make_counting_transform_iterator(0, [&](auto i) -> char const* {
+    spark_rapids_jni::util::make_counting_transform_iterator(0, [&](auto i) -> char const* {
       return TEST_STRINGS[rand() % (sizeof(TEST_STRINGS) / sizeof(TEST_STRINGS[0]))];
     });
 
@@ -989,10 +991,10 @@ TEST_F(RowToColumnTests, ManyStrings)
     "lots of choices of strings and sizes is sure to test the offset calculation code to ensure "
     "that even a really long string ends up in the correct spot for the final destination allowing "
     "for even crazy run-on sentences to be inserted into the data"};
-  auto num_generator =
-    cudf::detail::make_counting_transform_iterator(0, [](auto i) -> int32_t { return rand(); });
+  auto num_generator = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](auto i) -> int32_t { return rand(); });
   auto string_generator =
-    cudf::detail::make_counting_transform_iterator(0, [&](auto i) -> char const* {
+    spark_rapids_jni::util::make_counting_transform_iterator(0, [&](auto i) -> char const* {
       return TEST_STRINGS[rand() % (sizeof(TEST_STRINGS) / sizeof(TEST_STRINGS[0]))];
     });
 
