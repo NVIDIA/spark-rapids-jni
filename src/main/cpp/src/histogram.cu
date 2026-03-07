@@ -320,7 +320,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
                        if (frequencies[idx] < 0) { *check_invalid = 1; }
                        if (frequencies[idx] == 0) { *check_zero = 1; }
 
-                       check_valid[idx] = static_cast<int8_t>(frequencies[idx] > 0);
+                       check_valid[idx] = frequencies[idx] > 0;
                      });
 
   auto const h_checks = cudf::detail::make_std_vector(check_invalid_and_zero, stream);
