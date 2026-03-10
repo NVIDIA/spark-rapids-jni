@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,30 +25,70 @@
 
 namespace spark_rapids_jni {
 
-// included only for testing purposes
+constexpr int bloom_filter_version_1 = 1;
+constexpr int bloom_filter_version_2 = 2;
+
+// V1 header: [version, num_hashes, num_longs] — 12 bytes
+struct bloom_filter_header_v1 {
+  int version;
+  int num_hashes;
+  int num_longs;
+};
+constexpr int bloom_filter_header_v1_size_bytes = sizeof(bloom_filter_header_v1);
+
+// V2 header: [version, num_hashes, seed, num_longs] — 16 bytes
+struct bloom_filter_header_v2 {
+  int version;
+  int num_hashes;
+  int seed;
+  int num_longs;
+};
+constexpr int bloom_filter_header_v2_size_bytes = sizeof(bloom_filter_header_v2);
+
+// Unified header used internally after unpacking from either format.
+// Seed is not stored here; for V2 it is returned separately from unpack_bloom_filter.
 struct bloom_filter_header {
   int version;
   int num_hashes;
   int num_longs;
 };
-constexpr int bloom_filter_header_size = sizeof(bloom_filter_header);
+
+inline int bloom_filter_header_size_for_version(int version)
+{
+  return version == bloom_filter_version_2 ? bloom_filter_header_v2_size_bytes
+                                           : bloom_filter_header_v1_size_bytes;
+}
 
 /**
- * @brief Create an empty bloom filter of the specified size in (64 bit) longs with using
- * the specified number of hashes to be used when operating on the filter.
+ * @brief Create an empty bloom filter of the specified size and parameters.
  *
- * @param num_hashes The number of hashes to use.
- * @param bloom_filter_longs Size of the bloom filter in bits.
- * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned bloom filter's memory.
- * @returns An list_scalar wrapping a packed Spark bloom_filter.
+ * The bloom filter is stored in a cudf list_scalar as a single byte buffer. The buffer
+ * layout is Spark-compatible: a version-specific header (big-endian) followed by the
+ * bit array. V1 header is 12 bytes (version, num_hashes, num_longs). V2 header is 16 bytes
+ * (version, num_hashes, seed, num_longs). The remainder of the buffer is
+ * bloom_filter_longs * 8 bytes of bit data, also written in big-endian order for Spark
+ * interchange.
  *
+ * @param version Bloom filter format version: 1 or 2 (e.g. bloom_filter_version_1,
+ *        bloom_filter_version_2). V2 uses 64-bit hash indexing and supports a configurable
+ *        seed for better distribution on large filters.
+ * @param num_hashes Number of bit positions set (and checked) per key. Derived from two
+ *        underlying hashes; higher values reduce false positives but increase work per
+ *        put/probe.
+ * @param bloom_filter_longs Size of the bit array in 64-bit longs; total bits =
+ *        bloom_filter_longs * 64.
+ * @param seed Hash seed. Used only for V2; ignored for V1 (V1 always uses seed 0).
+ * @param stream CUDA stream for device memory operations and kernel launches.
+ * @param mr Device memory resource for allocating the bloom filter buffer.
+ * @returns A list_scalar wrapping the packed Spark-format bloom filter (header + bits).
  */
 std::unique_ptr<cudf::list_scalar> bloom_filter_create(
+  int version,
   int num_hashes,
   int bloom_filter_longs,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+  int seed                            = 0,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr   = rmm::mr::get_current_device_resource_ref());
 
 /**
  * @brief Inserts input values into a bloom filter.

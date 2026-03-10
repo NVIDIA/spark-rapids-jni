@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,14 +23,15 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_creategpu(
-  JNIEnv* env, jclass, jint numHashes, jlong bloomFilterBits)
+  JNIEnv* env, jclass, jint version, jint numHashes, jlong bloomFilterBits, jint seed)
 {
   JNI_TRY
   {
     cudf::jni::auto_set_device(env);
 
     int bloom_filter_longs = static_cast<int>((bloomFilterBits + 63) / 64);
-    auto bloom_filter      = spark_rapids_jni::bloom_filter_create(numHashes, bloom_filter_longs);
+    auto bloom_filter =
+      spark_rapids_jni::bloom_filter_create(version, numHashes, bloom_filter_longs, seed);
     return reinterpret_cast<jlong>(bloom_filter.release());
   }
   JNI_CATCH(env, 0);

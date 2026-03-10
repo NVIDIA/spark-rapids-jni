@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,10 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import com.nvidia.spark.rapids.jni.BloomFilter;
-
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.Cuda;
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.Scalar;
-import ai.rapids.cudf.DeviceMemoryBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
@@ -153,22 +149,43 @@ public class BloomFilterTest {
   }
 
   @Test
-  void testBuildExpectedFailures(){
+  void testBuildAndProbeV1() {
+    int numHashes = 3;
+    long bloomFilterBits = 4 * 1024 * 1024;
+
+    try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
+         Scalar bloomFilter = BloomFilter.create(BloomFilter.VERSION_1, numHashes, bloomFilterBits, 0)) {
+      BloomFilter.put(bloomFilter, input);
+      try (ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
+           ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
+           ColumnVector result = BloomFilter.probe(bloomFilter, probe)) {
+        AssertUtils.assertColumnsAreEqual(expected, result);
+      }
+    }
+  }
+
+  @Test
+  void testBuildExpectedFailures() {
     // bloom filter with no hashes
     assertThrows(IllegalArgumentException.class, () -> {
-      try (Scalar bloomFilter = BloomFilter.create(0, 64)){}
+      try (Scalar bloomFilter = BloomFilter.create(BloomFilter.VERSION_1, 0, 64, 0)) {}
     });
 
     // bloom filter with no size
     assertThrows(IllegalArgumentException.class, () -> {
-      try (Scalar bloomFilter = BloomFilter.create(3, 0)){}
+      try (Scalar bloomFilter = BloomFilter.create(BloomFilter.VERSION_1, 3, 0, 0)) {}
     });
-    
+
+    // invalid version
+    assertThrows(IllegalArgumentException.class, () -> {
+      try (Scalar bloomFilter = BloomFilter.create(3, 3, 64, 0)) {}
+    });
+
     // merge with mixed hash counts
     assertThrows(CudfException.class, () -> {
-      try (Scalar bloomFilterA = BloomFilter.create(3, 1024);
-           Scalar bloomFilterB = BloomFilter.create(4, 1024);
-           Scalar bloomFilterC = BloomFilter.create(4, 1024);
+      try (Scalar bloomFilterA = BloomFilter.create(BloomFilter.VERSION_1, 3, 1024, 0);
+           Scalar bloomFilterB = BloomFilter.create(BloomFilter.VERSION_1, 4, 1024, 0);
+           Scalar bloomFilterC = BloomFilter.create(BloomFilter.VERSION_1, 4, 1024, 0);
            ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
            ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
            ColumnVector bloomC = ColumnVector.fromScalar(bloomFilterC, 1);
@@ -178,9 +195,9 @@ public class BloomFilterTest {
 
     // merge with mixed hash bit sizes
     assertThrows(CudfException.class, () -> {
-      try (Scalar bloomFilterA = BloomFilter.create(3, 1024);
-           Scalar bloomFilterB = BloomFilter.create(3, 1024);
-           Scalar bloomFilterC = BloomFilter.create(3, 2048);
+      try (Scalar bloomFilterA = BloomFilter.create(BloomFilter.VERSION_1, 3, 1024, 0);
+           Scalar bloomFilterB = BloomFilter.create(BloomFilter.VERSION_1, 3, 1024, 0);
+           Scalar bloomFilterC = BloomFilter.create(BloomFilter.VERSION_1, 3, 2048, 0);
            ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
            ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
            ColumnVector bloomC = ColumnVector.fromScalar(bloomFilterC, 1);

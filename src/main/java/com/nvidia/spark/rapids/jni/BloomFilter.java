@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,77 +24,95 @@ import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.NativeDepsLoader;
 
 public class BloomFilter {
+  public static final int VERSION_1 = 1;
+  public static final int VERSION_2 = 2;
+  public static final int DEFAULT_SEED = 0;
+
   static {
     NativeDepsLoader.loadNativeDeps();
   }
 
   /**
-   * Create a bloom filter with the specified number of hashes and bloom filter bits.
-   * @param numHashes The number of hashes to use when inserting values into the bloom filter or
-   * when probing.
-   * @param bloomFilterBits Size of the bloom filter in bits.
-   * @return a Scalar object which encapsulates the bloom filter.
+   * Create a V2 bloom filter with the specified number of hashes and bloom filter bits,
+   * using the default seed (0).
+   *
+   * @param numHashes Number of bit positions set (and checked) per key. Higher values reduce
+   *        false positives but increase work per put/probe.
+   * @param bloomFilterBits Total size of the bloom filter in bits (will be rounded up to a
+   *        multiple of 64).
+   * @return A Scalar wrapping the GPU bloom filter (Spark V2 format).
    */
-  public static Scalar create(int numHashes, long bloomFilterBits){
-    if(numHashes <= 0){
-      throw new IllegalArgumentException("Bloom filters must have a positive hash count");
-    }
-    if(bloomFilterBits <= 0){
-      throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
-    }
-    return new Scalar(DType.LIST, creategpu(numHashes, bloomFilterBits));
+  public static Scalar create(int numHashes, long bloomFilterBits) {
+    return create(VERSION_2, numHashes, bloomFilterBits, DEFAULT_SEED);
   }
 
   /**
-   * Insert a column of longs into a bloom filter.
-   * @param bloomFilter The bloom filter to which values will be inserted.
-   * @param cv The column containing the values to add.
+   * Create a bloom filter with the specified version, number of hashes, bloom filter bits,
+   * and hash seed.
+   *
+   * @param version Bloom filter format: {@link #VERSION_1} or {@link #VERSION_2}. V2 uses
+   *        64-bit hash indexing and supports a configurable seed.
+   * @param numHashes Number of bit positions set (and checked) per key. Higher values reduce
+   *        false positives but increase work per put/probe.
+   * @param bloomFilterBits Total size of the bloom filter in bits (will be rounded up to a
+   *        multiple of 64).
+   * @param seed Hash seed. Used only for V2; ignored for V1.
+   * @return A Scalar wrapping the GPU bloom filter (Spark format).
    */
-  public static void put(Scalar bloomFilter, ColumnVector cv){
+  public static Scalar create(int version, int numHashes, long bloomFilterBits, int seed) {
+    if (version != VERSION_1 && version != VERSION_2) {
+      throw new IllegalArgumentException("Bloom filter version must be 1 or 2");
+    }
+    if (numHashes <= 0) {
+      throw new IllegalArgumentException("Bloom filters must have a positive hash count");
+    }
+    if (bloomFilterBits <= 0) {
+      throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
+    }
+    return new Scalar(DType.LIST, creategpu(version, numHashes, bloomFilterBits, seed));
+  }
+
+  public static void put(Scalar bloomFilter, ColumnVector cv) {
     put(bloomFilter.getScalarHandle(), cv.getNativeView());
   }
 
-  /**
-   * Merge one or more bloom filters into a new bloom filter.
-   * @param bloomFilters A ColumnVector containing a bloom filter per row.
-   * @return A new bloom filter containing the merged inputs.
-   */
-  public static Scalar merge(ColumnVector bloomFilters){
+  public static Scalar merge(ColumnVector bloomFilters) {
     return new Scalar(DType.LIST, merge(bloomFilters.getNativeView()));
   }
 
   /**
-   * Probe a bloom filter with a column of longs. Returns a column of booleans. For
-   * each row in the output; a value of true indicates that the corresponding input value
-   * -may- be in the set of values used to build the bloom filter; a value of false indicates
-   * that the corresponding input value is conclusively not in the set of values used to build
-   * the bloom filter.
-   * @param bloomFilter The bloom filter to be probed.
-   * @param cv The column containing the values to check.
-   * @return A boolean column indicating the results of the probe.
+   * Probe a bloom filter with a column of longs. For each row, true means the value may be
+   * in the set used to build the filter; false means it is definitely not in the set.
+   *
+   * @param bloomFilter The bloom filter to probe (a Scalar wrapping the GPU filter).
+   * @param cv Column of int64 values to check for membership.
+   * @return A boolean column with the same row count as cv; true for possible membership,
+   *         false for definite non-membership. Nulls in cv are preserved in the output.
    */
-  public static ColumnVector probe(Scalar bloomFilter, ColumnVector cv){
+  public static ColumnVector probe(Scalar bloomFilter, ColumnVector cv) {
     return new ColumnVector(probe(bloomFilter.getScalarHandle(), cv.getNativeView()));
   }
 
   /**
-   * Probe a bloom filter with a column of longs. Returns a column of booleans. For
-   * each row in the output; a value of true indicates that the corresponding input value
-   * -may- be in the set of values used to build the bloom filter; a value of false indicates
-   * that the corresponding input value is conclusively not in the set of values used to build
-   * the bloom filter.
-   * @param bloomFilter The bloom filter to be probed. This buffer is expected to be the
-   * fully packed Spark bloom filter, including header.
-   * @param cv The column containing the values to check.
-   * @return A boolean column indicating the results of the probe.
+   * Probe a bloom filter with a column of longs. For each row, true means the value may be
+   * in the set used to build the filter; false means it is definitely not in the set.
+   * Use this overload when the filter is in a device buffer (e.g. Spark serialized form).
+   *
+   * @param bloomFilter Device buffer containing the packed bloom filter including header.
+   * @param cv Column of int64 values to check for membership.
+   * @return A boolean column with the same row count as cv; true for possible membership,
+   *         false for definite non-membership. Nulls in cv are preserved in the output.
    */
-  public static ColumnVector probe(BaseDeviceMemoryBuffer bloomFilter, ColumnVector cv){
-    return new ColumnVector(probebuffer(bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView()));
+  public static ColumnVector probe(BaseDeviceMemoryBuffer bloomFilter, ColumnVector cv) {
+    return new ColumnVector(
+        probebuffer(bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView()));
   }
 
-  private static native long creategpu(int numHashes, long bloomFilterBits) throws CudfException;
+  private static native long creategpu(int version, int numHashes, long bloomFilterBits, int seed)
+      throws CudfException;
   private static native int put(long bloomFilter, long cv) throws CudfException;
   private static native long merge(long bloomFilters) throws CudfException;
   private static native long probe(long bloomFilter, long cv) throws CudfException;
-  private static native long probebuffer(long bloomFilter, long bloomFilterSize, long cv) throws CudfException;
+  private static native long probebuffer(long bloomFilter, long bloomFilterSize, long cv)
+      throws CudfException;
 }
