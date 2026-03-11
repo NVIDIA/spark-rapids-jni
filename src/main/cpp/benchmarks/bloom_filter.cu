@@ -27,9 +27,9 @@ static void bloom_filter_put_v1(nvbench::state& state)
   constexpr int num_rows   = 150'000'000;
   constexpr int num_hashes = 3;
 
-  cudf::size_type const bloom_filter_bytes  = state.get_int64("bloom_filter_bytes");
-  cudf::size_type const bloom_filter_longs  = bloom_filter_bytes / sizeof(int64_t);
-  auto bloom_filter = spark_rapids_jni::bloom_filter_create(
+  cudf::size_type const bloom_filter_bytes = state.get_int64("bloom_filter_bytes");
+  cudf::size_type const bloom_filter_longs = bloom_filter_bytes / sizeof(int64_t);
+  auto bloom_filter                        = spark_rapids_jni::bloom_filter_create(
     spark_rapids_jni::bloom_filter_version_1, num_hashes, bloom_filter_longs);
 
   data_profile_builder builder;
@@ -64,7 +64,7 @@ static void bloom_filter_put_v2(nvbench::state& state)
   // create the bloom filter
   cudf::size_type const bloom_filter_bytes = state.get_int64("bloom_filter_bytes");
   cudf::size_type const bloom_filter_longs = bloom_filter_bytes / sizeof(int64_t);
-  auto bloom_filter = spark_rapids_jni::bloom_filter_create(
+  auto bloom_filter                        = spark_rapids_jni::bloom_filter_create(
     spark_rapids_jni::bloom_filter_version_2, num_hashes, bloom_filter_longs);
 
   data_profile_builder builder;

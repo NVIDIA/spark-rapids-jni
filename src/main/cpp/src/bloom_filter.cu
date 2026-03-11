@@ -37,6 +37,7 @@
 #include <thrust/logical.h>
 
 #include <byteswap.h>
+
 #include <limits>
 
 namespace spark_rapids_jni {
@@ -79,7 +80,7 @@ CUDF_KERNEL void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
 
   auto const el = input.element<int64_t>(tid);
   // V1 has no seed in the format; use 0. V2 uses the stored seed.
-  int32_t const hash_seed = (Version == 1) ? 0 : seed;
+  int32_t const hash_seed  = (Version == 1) ? 0 : seed;
   bloom_hash_type const h1 = MurmurHash3_32<int64_t>(hash_seed)(el);
   bloom_hash_type const h2 = MurmurHash3_32<int64_t>(h1)(el);
 
@@ -88,19 +89,20 @@ CUDF_KERNEL void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
     // This is the original V1 hash algorithm from Spark.
     for (auto idx = 1; idx <= num_hashes; idx++) {
       bloom_hash_type combined_hash = h1 + (idx * h2);
-      auto const bit_pos = static_cast<int64_t>(
-        (combined_hash < 0 ? ~combined_hash : combined_hash) %
-        static_cast<bloom_hash_type>(bloom_filter_bits));
+      auto const bit_pos =
+        static_cast<int64_t>((combined_hash < 0 ? ~combined_hash : combined_hash) %
+                             static_cast<bloom_hash_type>(bloom_filter_bits));
       auto const [word_index, mask] = gpu_bit_to_word_mask(bit_pos);
       atomicOr(bloom_filter + word_index, mask);
     }
   } else {
     // https://github.com/apache/spark/blob/5075ea6a85f3f1689766cf08a7d5b2ce500be1fb/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImplV2.java#L63
-    int64_t combined_hash = static_cast<int64_t>(h1) * static_cast<int64_t>(std::numeric_limits<int32_t>::max());
+    int64_t combined_hash =
+      static_cast<int64_t>(h1) * static_cast<int64_t>(std::numeric_limits<int32_t>::max());
     for (int idx = 0; idx < num_hashes; idx++) {
       combined_hash += h2;
-      int64_t combined_index = combined_hash < 0 ? ~combined_hash : combined_hash;
-      auto const bit_pos     = combined_index % bloom_filter_bits;
+      int64_t combined_index        = combined_hash < 0 ? ~combined_hash : combined_hash;
+      auto const bit_pos            = combined_index % bloom_filter_bits;
       auto const [word_index, mask] = gpu_bit_to_word_mask(bit_pos);
       atomicOr(bloom_filter + word_index, mask);
     }
@@ -116,16 +118,16 @@ struct bloom_probe_functor {
 
   __device__ bool operator()(int64_t input) const
   {
-    int32_t const hash_seed = (Version == 1) ? 0 : seed;
+    int32_t const hash_seed  = (Version == 1) ? 0 : seed;
     bloom_hash_type const h1 = MurmurHash3_32<int64_t>(hash_seed)(input);
     bloom_hash_type const h2 = MurmurHash3_32<int64_t>(h1)(input);
 
     if constexpr (Version == 1) {
       for (auto idx = 1; idx <= num_hashes; idx++) {
         bloom_hash_type combined_hash = h1 + (idx * h2);
-        auto const bit_pos = static_cast<int64_t>(
-          (combined_hash < 0 ? ~combined_hash : combined_hash) %
-          static_cast<bloom_hash_type>(bloom_filter_bits));
+        auto const bit_pos =
+          static_cast<int64_t>((combined_hash < 0 ? ~combined_hash : combined_hash) %
+                               static_cast<bloom_hash_type>(bloom_filter_bits));
         auto const [word_index, mask] = gpu_bit_to_word_mask(bit_pos);
         if (!(bloom_filter[word_index] & mask)) { return false; }
       }
@@ -134,8 +136,8 @@ struct bloom_probe_functor {
         static_cast<int64_t>(h1) * static_cast<int64_t>(std::numeric_limits<int32_t>::max());
       for (int idx = 0; idx < num_hashes; idx++) {
         combined_hash += h2;
-        int64_t combined_index = combined_hash < 0 ? ~combined_hash : combined_hash;
-        auto const bit_pos     = combined_index % bloom_filter_bits;
+        int64_t combined_index        = combined_hash < 0 ? ~combined_hash : combined_hash;
+        auto const bit_pos            = combined_index % bloom_filter_bits;
         auto const [word_index, mask] = gpu_bit_to_word_mask(bit_pos);
         if (!(bloom_filter[word_index] & mask)) { return false; }
       }
@@ -219,11 +221,11 @@ unpack_bloom_filter(cudf::device_span<uint8_t> bloom_filter, rmm::cuda_stream_vi
   CUDF_EXPECTS(num_bitmask_words == cudf::num_bitmask_words(bloom_filter_bits),
                "Bloom filter bit/length mismatch");
 
-  return {header,
-          {reinterpret_cast<cudf::bitmask_type*>(bloom_filter.data() + hdr_size),
-           num_bitmask_words},
-          bloom_filter_bits,
-          seed};
+  return {
+    header,
+    {reinterpret_cast<cudf::bitmask_type*>(bloom_filter.data() + hdr_size), num_bitmask_words},
+    bloom_filter_bits,
+    seed};
 }
 
 std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int64_t, int32_t>
@@ -239,8 +241,7 @@ std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int64_t, 
 unpack_bloom_filter(cudf::device_span<uint8_t const> bloom_filter, rmm::cuda_stream_view stream)
 {
   return unpack_bloom_filter(
-    cudf::device_span<uint8_t>{const_cast<uint8_t*>(bloom_filter.data()),
-                               bloom_filter.size()},
+    cudf::device_span<uint8_t>{const_cast<uint8_t*>(bloom_filter.data()), bloom_filter.size()},
     stream);
 }
 
@@ -249,7 +250,7 @@ unpack_bloom_filter(cudf::device_span<uint8_t const> bloom_filter, rmm::cuda_str
   header. raw_header holds the reference header in big-endian form (as in the serialized buffer).
 */
 struct bloom_filter_same {
-  /// Reference header: big-endian int32s. 
+  /// Reference header: big-endian int32s.
   /// V1 uses [0..2]: version, num_hashes, num_longs.
   /// V2 uses [0..3]: version, num_hashes, seed, num_longs.
   int32_t raw_header[4];
@@ -304,14 +305,15 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_create(int version,
                "Bloom filter version must be 1 or 2");
 
   auto [bloom_filter_size, buf_size] = get_bloom_filter_stride(version, bloom_filter_longs);
-  auto const hdr_size = bloom_filter_header_size_for_version(version);
+  auto const hdr_size                = bloom_filter_header_size_for_version(version);
 
   rmm::device_buffer buf{static_cast<size_t>(buf_size), stream, mr};
 
   bloom_filter_header header{version, num_hashes, bloom_filter_longs};
-  pack_bloom_filter_header(
-    {reinterpret_cast<uint8_t*>(buf.data()), static_cast<size_t>(buf_size)}, header, stream,
-    (version == bloom_filter_version_1 ? 0 : seed));
+  pack_bloom_filter_header({reinterpret_cast<uint8_t*>(buf.data()), static_cast<size_t>(buf_size)},
+                           header,
+                           stream,
+                           (version == bloom_filter_version_1 ? 0 : seed));
 
   CUDF_CUDA_TRY(cudaMemsetAsync(
     reinterpret_cast<uint8_t*>(buf.data()) + hdr_size, 0, bloom_filter_size, stream));
@@ -370,48 +372,44 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
   // seed; we use these to validate total size and to build the merged output.
   auto [header, buffer, bloom_filter_bits, seed] = unpack_bloom_filter(lcv.child(), stream);
   auto const hdr_size = bloom_filter_header_size_for_version(header.version);
-  CUDF_EXPECTS(
-    lcv.child().size() == static_cast<cudf::size_type>(
-                            ((buffer.size() * 4) + hdr_size) * bloom_filters.size()),
-    "Encountered invalid/mismatched bloom filter buffer data");
+  CUDF_EXPECTS(lcv.child().size() == static_cast<cudf::size_type>(((buffer.size() * 4) + hdr_size) *
+                                                                  bloom_filters.size()),
+               "Encountered invalid/mismatched bloom filter buffer data");
 
   auto [bloom_filter_size, buf_size] = get_bloom_filter_stride(header.version, header.num_longs);
 
   int32_t raw_hdr[4]     = {};
   int header_field_count = 0;
   if (header.version == bloom_filter_version_1) {
-    raw_hdr[0]          = byte_swap_int32(header.version);
-    raw_hdr[1]          = byte_swap_int32(header.num_hashes);
-    raw_hdr[2]          = byte_swap_int32(header.num_longs);
-    header_field_count  = 3;
+    raw_hdr[0]         = byte_swap_int32(header.version);
+    raw_hdr[1]         = byte_swap_int32(header.num_hashes);
+    raw_hdr[2]         = byte_swap_int32(header.num_longs);
+    header_field_count = 3;
   } else {
-    raw_hdr[0]          = byte_swap_int32(header.version);
-    raw_hdr[1]          = byte_swap_int32(header.num_hashes);
-    raw_hdr[2]          = byte_swap_int32(seed);
-    raw_hdr[3]          = byte_swap_int32(header.num_longs);
-    header_field_count  = 4;
+    raw_hdr[0]         = byte_swap_int32(header.version);
+    raw_hdr[1]         = byte_swap_int32(header.num_hashes);
+    raw_hdr[2]         = byte_swap_int32(seed);
+    raw_hdr[3]         = byte_swap_int32(header.num_longs);
+    header_field_count = 4;
   }
 
   auto dv = cudf::column_device_view::create(bloom_filters);
-  CUDF_EXPECTS(
-    thrust::all_of(
-      rmm::exec_policy(cudf::get_default_stream()),
-      thrust::make_counting_iterator(1),
-      thrust::make_counting_iterator(bloom_filters.size()),
-      bloom_filter_same{
-        {raw_hdr[0], raw_hdr[1], raw_hdr[2], raw_hdr[3]},
-        header_field_count,
-        *dv,
-        static_cast<cudf::size_type>(buf_size)}),
-    "Mismatch of bloom filter parameters");
+  CUDF_EXPECTS(thrust::all_of(rmm::exec_policy(cudf::get_default_stream()),
+                              thrust::make_counting_iterator(1),
+                              thrust::make_counting_iterator(bloom_filters.size()),
+                              bloom_filter_same{{raw_hdr[0], raw_hdr[1], raw_hdr[2], raw_hdr[3]},
+                                                header_field_count,
+                                                *dv,
+                                                static_cast<cudf::size_type>(buf_size)}),
+               "Mismatch of bloom filter parameters");
 
   rmm::device_buffer buf{static_cast<size_t>(buf_size), stream, mr};
   pack_bloom_filter_header(
     {reinterpret_cast<uint8_t*>(buf.data()), static_cast<size_t>(buf_size)}, header, stream, seed);
 
   auto src = lcv.child().data<uint8_t>() + hdr_size;
-  auto dst = reinterpret_cast<cudf::bitmask_type*>(reinterpret_cast<uint8_t*>(buf.data()) +
-                                                   hdr_size);
+  auto dst =
+    reinterpret_cast<cudf::bitmask_type*>(reinterpret_cast<uint8_t*>(buf.data()) + hdr_size);
 
   cudf::size_type num_words = header.num_longs * 2;
   thrust::transform(
@@ -445,9 +443,8 @@ std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
 {
   auto [header, buffer, bloom_filter_bits, seed] = unpack_bloom_filter(bloom_filter, stream);
   auto const hdr_size = bloom_filter_header_size_for_version(header.version);
-  CUDF_EXPECTS(
-    bloom_filter.size() == static_cast<size_t>((buffer.size() * 4) + hdr_size),
-    "Encountered invalid/mismatched bloom filter buffer data");
+  CUDF_EXPECTS(bloom_filter.size() == static_cast<size_t>((buffer.size() * 4) + hdr_size),
+               "Encountered invalid/mismatched bloom filter buffer data");
 
   auto out = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
                                            input.size(),
@@ -457,19 +454,19 @@ std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
                                            mr);
 
   if (header.version == bloom_filter_version_2) {
-    thrust::transform(rmm::exec_policy(stream),
-                      input.begin<int64_t>(),
-                      input.end<int64_t>(),
-                      out->mutable_view().begin<bool>(),
-                      bloom_probe_functor<2>{buffer.data(), bloom_filter_bits,
-                                             header.num_hashes, seed});
+    thrust::transform(
+      rmm::exec_policy(stream),
+      input.begin<int64_t>(),
+      input.end<int64_t>(),
+      out->mutable_view().begin<bool>(),
+      bloom_probe_functor<2>{buffer.data(), bloom_filter_bits, header.num_hashes, seed});
   } else {
-    thrust::transform(rmm::exec_policy(stream),
-                      input.begin<int64_t>(),
-                      input.end<int64_t>(),
-                      out->mutable_view().begin<bool>(),
-                      bloom_probe_functor<1>{buffer.data(), bloom_filter_bits,
-                                             header.num_hashes, seed});
+    thrust::transform(
+      rmm::exec_policy(stream),
+      input.begin<int64_t>(),
+      input.end<int64_t>(),
+      out->mutable_view().begin<bool>(),
+      bloom_probe_functor<1>{buffer.data(), bloom_filter_bits, header.num_hashes, seed});
   }
 
   return out;

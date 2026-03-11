@@ -39,15 +39,17 @@ TEST_F(BloomFilterTest, InitializationV1)
   std::vector<int> expected{1, 2, 3};
 
   for (size_t idx = 0; idx < expected.size(); idx++) {
-    auto bloom_filter = spark_rapids_jni::bloom_filter_create(
-      spark_rapids_jni::bloom_filter_version_1, num_hashes, expected[idx], 0,
-      cudf::get_default_stream());
+    auto bloom_filter =
+      spark_rapids_jni::bloom_filter_create(spark_rapids_jni::bloom_filter_version_1,
+                                            num_hashes,
+                                            expected[idx],
+                                            0,
+                                            cudf::get_default_stream());
 
     auto const bloom_filter_size = expected[idx] * sizeof(int64_t);
-    CUDF_EXPECTS(
-      bloom_filter->view().size() ==
-        spark_rapids_jni::bloom_filter_header_v1_size_bytes + bloom_filter_size,
-      "Bloom filter not of expected size");
+    CUDF_EXPECTS(bloom_filter->view().size() ==
+                   spark_rapids_jni::bloom_filter_header_v1_size_bytes + bloom_filter_size,
+                 "Bloom filter not of expected size");
 
     auto bytes =
       (bloom_filter->view().data<int8_t>()) + spark_rapids_jni::bloom_filter_header_v1_size_bytes;
@@ -186,15 +188,17 @@ TEST_F(BloomFilterTest, InitializationV2)
   std::vector<int> expected{1, 2, 3};
 
   for (size_t idx = 0; idx < expected.size(); idx++) {
-    auto bloom_filter = spark_rapids_jni::bloom_filter_create(
-      spark_rapids_jni::bloom_filter_version_2, num_hashes, expected[idx], seed,
-      cudf::get_default_stream());
+    auto bloom_filter =
+      spark_rapids_jni::bloom_filter_create(spark_rapids_jni::bloom_filter_version_2,
+                                            num_hashes,
+                                            expected[idx],
+                                            seed,
+                                            cudf::get_default_stream());
 
     auto const bloom_filter_size = expected[idx] * sizeof(int64_t);
-    CUDF_EXPECTS(
-      bloom_filter->view().size() ==
-        spark_rapids_jni::bloom_filter_header_v2_size_bytes + bloom_filter_size,
-      "Bloom filter not of expected size");
+    CUDF_EXPECTS(bloom_filter->view().size() ==
+                   spark_rapids_jni::bloom_filter_header_v2_size_bytes + bloom_filter_size,
+                 "Bloom filter not of expected size");
 
     auto bytes =
       (bloom_filter->view().data<int8_t>()) + spark_rapids_jni::bloom_filter_header_v2_size_bytes;
