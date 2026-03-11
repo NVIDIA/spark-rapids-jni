@@ -935,7 +935,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
   using offsets_t = cudf::scalar_type_t<cudf::size_type>;
   auto out_chars_bytes =
     static_cast<offsets_t const&>(*cudf::get_element(offsets_view, offset_count - 1, stream))
-      .value();
+      .value(stream);
 
   // create the chars buffer
   auto d_out_chars = rmm::device_buffer(out_chars_bytes, stream, mr);
