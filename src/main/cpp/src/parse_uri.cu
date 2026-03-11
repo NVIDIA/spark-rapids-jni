@@ -18,7 +18,7 @@
 #include "nvtx_ranges.hpp"
 #include "parse_uri.hpp"
 
-#include <cudf/detail/get_value.cuh>
+#include <cudf/copying.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
@@ -932,7 +932,10 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
 
   // copy the total number of characters of all strings combined (last element of the offset column)
   // to the host memory
-  auto out_chars_bytes = cudf::detail::get_value<size_type>(offsets_view, offset_count - 1, stream);
+  using offsets_t = cudf::scalar_type_t<cudf::size_type>;
+  auto out_chars_bytes =
+    static_cast<offsets_t const&>(*cudf::get_element(offsets_view, offset_count - 1, stream))
+      .value();
 
   // create the chars buffer
   auto d_out_chars = rmm::device_buffer(out_chars_bytes, stream, mr);
