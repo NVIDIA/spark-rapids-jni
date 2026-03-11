@@ -19,11 +19,11 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/cuda_memcpy.hpp>
-#include <cudf/detail/valid_if.cuh>
 #include <cudf/io/detail/json.hpp>
 #include <cudf/io/detail/tokenize_json.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/transform.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 #include <cudf/utilities/span.hpp>
 
@@ -769,10 +769,17 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
                      });
   }
 
-  auto const valid_it          = should_be_nullified->view().begin<bool>();
-  auto [null_mask, null_count] = cudf::detail::valid_if(
-    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not<bool>{}, stream, mr);
-  return {null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr}, null_count};
+  rmm::device_uvector<bool> valids(should_be_nullified->size(), stream);
+  auto const nullify_it = should_be_nullified->view().begin<bool>();
+  thrust::transform(rmm::exec_policy_nosync(stream),
+                    nullify_it,
+                    nullify_it + should_be_nullified->size(),
+                    valids.begin(),
+                    thrust::logical_not<bool>{});
+  auto [null_mask, null_count] =
+    cudf::bools_to_mask(cudf::device_span<bool const>(valids), stream, mr);
+  return {null_count > 0 ? std::move(*null_mask.release()) : rmm::device_buffer{0, stream, mr},
+          null_count};
 }
 
 }  // namespace
