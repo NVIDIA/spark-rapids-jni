@@ -240,6 +240,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       int schema_idx                      = scalar_field_indices[i];
       h_field_descs[i].field_number       = schema[schema_idx].field_number;
       h_field_descs[i].expected_wire_type = schema[schema_idx].wire_type;
+      h_field_descs[i].is_repeated        = false;
     }
 
     rmm::device_uvector<field_descriptor> d_field_descs(num_scalar, stream, mr);
@@ -691,7 +692,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         d_scan_descs.data(),
         static_cast<int>(h_scan_descs.size()),
         d_error.data(),
-        d_fn_to_scan.data(),
+        fn_to_scan_size > 0 ? d_fn_to_scan.data() : nullptr,
         fn_to_scan_size);
     }
 

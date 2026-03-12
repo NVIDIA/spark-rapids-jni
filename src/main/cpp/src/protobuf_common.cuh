@@ -99,6 +99,7 @@ struct field_location {
 struct field_descriptor {
   int field_number;        // Protobuf field number
   int expected_wire_type;  // Expected wire type for this field
+  bool is_repeated;        // Repeated children are scanned via count/scan kernels
 };
 
 /**
@@ -427,11 +428,12 @@ inline std::vector<int> build_field_lookup_table(field_descriptor const* descs, 
  * O(1) lookup of field_number -> field_index using a direct-mapped table.
  * Falls back to linear search when the table is empty (field numbers too large).
  */
-__device__ inline int lookup_field(int field_number,
-                                   int const* lookup_table,
-                                   int lookup_table_size,
-                                   field_descriptor const* field_descs,
-                                   int num_fields)
+// Keep this definition in the header so all CUDA translation units can inline it.
+__device__ __forceinline__ int lookup_field(int field_number,
+                                            int const* lookup_table,
+                                            int lookup_table_size,
+                                            field_descriptor const* field_descs,
+                                            int num_fields)
 {
   if (lookup_table != nullptr && field_number > 0 && field_number < lookup_table_size) {
     return lookup_table[field_number];
@@ -507,10 +509,14 @@ struct NestedRepeatedLocationProvider {
 
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
-    auto occ    = occurrences[thread_idx];
-    auto ploc   = parent_locations[occ.row_idx];
-    data_offset = row_offsets[occ.row_idx] - base_offset + ploc.offset + occ.offset;
-    return {occ.offset, occ.length};
+    auto occ  = occurrences[thread_idx];
+    auto ploc = parent_locations[occ.row_idx];
+    if (ploc.offset >= 0) {
+      data_offset = row_offsets[occ.row_idx] - base_offset + ploc.offset + occ.offset;
+      return {occ.offset, occ.length};
+    }
+    data_offset = 0;
+    return {-1, 0};
   }
 };
 
@@ -1061,7 +1067,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
 
 __global__ void scan_repeated_message_children_kernel(uint8_t const* message_data,
                                                       cudf::size_type message_data_size,
-                                                      int32_t const* msg_row_offsets,
+                                                      cudf::size_type const* msg_row_offsets,
                                                       field_location const* msg_locs,
                                                       int num_occurrences,
                                                       field_descriptor const* child_descs,
@@ -1098,11 +1104,11 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
 
 __global__ void compute_nested_struct_locations_kernel(field_location const* child_locs,
                                                        field_location const* msg_locs,
-                                                       int32_t const* msg_row_offsets,
+                                                       cudf::size_type const* msg_row_offsets,
                                                        int child_idx,
                                                        int num_child_fields,
                                                        field_location* nested_locs,
-                                                       int32_t* nested_row_offsets,
+                                                       cudf::size_type* nested_row_offsets,
                                                        int total_count,
                                                        int* error_flag);
 
@@ -1128,7 +1134,7 @@ __global__ void compute_msg_locations_from_occurrences_kernel(
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   field_location* msg_locs,
-  int32_t* msg_row_offsets,
+  cudf::size_type* msg_row_offsets,
   int total_count,
   int* error_flag);
 

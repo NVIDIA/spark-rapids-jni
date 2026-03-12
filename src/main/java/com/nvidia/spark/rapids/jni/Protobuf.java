@@ -60,7 +60,6 @@ public class Protobuf {
   public static final int WT_64BIT  = 1;
   public static final int WT_LEN    = 2;
   public static final int WT_32BIT  = 5;
-  private static final int MAX_FIELD_NUMBER = (1 << 29) - 1;
 
   /**
    * Decode protobuf messages into a STRUCT column.

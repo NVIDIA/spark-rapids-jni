@@ -467,7 +467,8 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
                                      write_idx[f],
                                      error_flag);
       }
-      return true;
+      set_error_once(error_flag, ERR_WIRE_TYPE);
+      return false;
     };
 
     if (fn_to_desc_idx != nullptr && fn > 0 && fn < fn_to_desc_size) {
@@ -542,6 +543,11 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
 
     for (int f = 0; f < num_fields; f++) {
       if (field_descs[f].field_number == fn) {
+        if (field_descs[f].is_repeated) {
+          // Repeated children are handled by the dedicated count/scan path, not by
+          // the direct-child location scan used for scalar/nested singleton fields.
+          continue;
+        }
         if (wt != field_descs[f].expected_wire_type) {
           set_error_once(error_flag, ERR_WIRE_TYPE);
           return;
@@ -590,7 +596,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
 __global__ void scan_repeated_message_children_kernel(
   uint8_t const* message_data,
   cudf::size_type message_data_size,
-  int32_t const* msg_row_offsets,  // Row offset for each occurrence
+  cudf::size_type const* msg_row_offsets,  // Row offset for each occurrence
   field_location const*
     msg_locs,  // Location of each message occurrence (offset within row, length)
   int num_occurrences,
@@ -612,9 +618,9 @@ __global__ void scan_repeated_message_children_kernel(
   auto const& msg_loc = msg_locs[occ_idx];
   if (msg_loc.offset < 0) return;
 
-  int32_t row_offset    = msg_row_offsets[occ_idx];
-  int64_t msg_start_off = static_cast<int64_t>(row_offset) + msg_loc.offset;
-  int64_t msg_end_off   = msg_start_off + msg_loc.length;
+  cudf::size_type row_offset = msg_row_offsets[occ_idx];
+  int64_t msg_start_off      = static_cast<int64_t>(row_offset) + msg_loc.offset;
+  int64_t msg_end_off        = msg_start_off + msg_loc.length;
   if (msg_start_off < 0 || msg_end_off > message_data_size) {
     set_error_once(error_flag, ERR_BOUNDS);
     return;
@@ -632,53 +638,55 @@ __global__ void scan_repeated_message_children_kernel(
 
     int f = lookup_field(fn, child_lookup, child_lookup_size, child_descs, num_child_fields);
     if (f >= 0) {
-      bool is_packed = (wt == WT_LEN && child_descs[f].expected_wire_type != WT_LEN);
-      if (!is_packed && wt != child_descs[f].expected_wire_type) {
+      if (child_descs[f].is_repeated) {
+        // Repeated children are decoded by build_repeated_child_list_column via the
+        // nested repeated count/scan kernels, so do not record a singleton location here.
+      } else if (wt != child_descs[f].expected_wire_type) {
         set_error_once(error_flag, ERR_WIRE_TYPE);
         return;
-      }
-
-      int data_offset = static_cast<int>(cur - msg_start);
-
-      if (wt == WT_LEN) {
-        uint64_t len;
-        int len_bytes;
-        if (!read_varint(cur, msg_end, len, len_bytes)) {
-          set_error_once(error_flag, ERR_VARINT);
-          return;
-        }
-        if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
-            len > static_cast<uint64_t>(INT_MAX)) {
-          set_error_once(error_flag, ERR_OVERFLOW);
-          return;
-        }
-        child_locs[occ_idx * num_child_fields + f] = {data_offset + len_bytes,
-                                                      static_cast<int32_t>(len)};
       } else {
-        // For varint/fixed types, store offset and estimated length
-        int32_t data_length = 0;
-        if (wt == WT_VARINT) {
-          uint64_t dummy;
-          int vbytes;
-          if (!read_varint(cur, msg_end, dummy, vbytes)) {
+        int data_offset = static_cast<int>(cur - msg_start);
+
+        if (wt == WT_LEN) {
+          uint64_t len;
+          int len_bytes;
+          if (!read_varint(cur, msg_end, len, len_bytes)) {
             set_error_once(error_flag, ERR_VARINT);
             return;
           }
-          data_length = vbytes;
-        } else if (wt == WT_32BIT) {
-          if (msg_end - cur < 4) {
-            set_error_once(error_flag, ERR_FIXED_LEN);
+          if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
+              len > static_cast<uint64_t>(INT_MAX)) {
+            set_error_once(error_flag, ERR_OVERFLOW);
             return;
           }
-          data_length = 4;
-        } else if (wt == WT_64BIT) {
-          if (msg_end - cur < 8) {
-            set_error_once(error_flag, ERR_FIXED_LEN);
-            return;
+          child_locs[occ_idx * num_child_fields + f] = {data_offset + len_bytes,
+                                                        static_cast<int32_t>(len)};
+        } else {
+          // For varint/fixed types, store offset and estimated length
+          int32_t data_length = 0;
+          if (wt == WT_VARINT) {
+            uint64_t dummy;
+            int vbytes;
+            if (!read_varint(cur, msg_end, dummy, vbytes)) {
+              set_error_once(error_flag, ERR_VARINT);
+              return;
+            }
+            data_length = vbytes;
+          } else if (wt == WT_32BIT) {
+            if (msg_end - cur < 4) {
+              set_error_once(error_flag, ERR_FIXED_LEN);
+              return;
+            }
+            data_length = 4;
+          } else if (wt == WT_64BIT) {
+            if (msg_end - cur < 8) {
+              set_error_once(error_flag, ERR_FIXED_LEN);
+              return;
+            }
+            data_length = 8;
           }
-          data_length = 8;
+          child_locs[occ_idx * num_child_fields + f] = {data_offset, data_length};
         }
-        child_locs[occ_idx * num_child_fields + f] = {data_offset, data_length};
       }
     }
 
@@ -846,13 +854,13 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
  * This is a critical performance optimization.
  */
 __global__ void compute_nested_struct_locations_kernel(
-  field_location const* child_locs,  // Child field locations from parent scan
-  field_location const* msg_locs,    // Parent message locations
-  int32_t const* msg_row_offsets,    // Parent message row offsets
-  int child_idx,                     // Which child field is the nested struct
-  int num_child_fields,              // Total number of child fields per occurrence
-  field_location* nested_locs,       // Output: nested struct locations
-  int32_t* nested_row_offsets,       // Output: nested struct row offsets
+  field_location const* child_locs,        // Child field locations from parent scan
+  field_location const* msg_locs,          // Parent message locations
+  cudf::size_type const* msg_row_offsets,  // Parent message row offsets
+  int child_idx,                           // Which child field is the nested struct
+  int num_child_fields,                    // Total number of child fields per occurrence
+  field_location* nested_locs,             // Output: nested struct locations
+  cudf::size_type* nested_row_offsets,     // Output: nested struct row offsets
   int total_count,
   int* error_flag)
 {
@@ -861,13 +869,14 @@ __global__ void compute_nested_struct_locations_kernel(
 
   nested_locs[idx] = child_locs[idx * num_child_fields + child_idx];
   auto sum         = static_cast<int64_t>(msg_row_offsets[idx]) + msg_locs[idx].offset;
-  if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+  if (sum < std::numeric_limits<cudf::size_type>::min() ||
+      sum > std::numeric_limits<cudf::size_type>::max()) {
     nested_locs[idx]        = {-1, 0};
     nested_row_offsets[idx] = 0;
     set_error_once(error_flag, ERR_OVERFLOW);
     return;
   }
-  nested_row_offsets[idx] = static_cast<int32_t>(sum);
+  nested_row_offsets[idx] = static_cast<cudf::size_type>(sum);
 }
 
 /**
@@ -952,7 +961,7 @@ __global__ void compute_msg_locations_from_occurrences_kernel(
   cudf::size_type const* list_offsets,     // List offsets for rows
   cudf::size_type base_offset,             // Base offset to subtract
   field_location* msg_locs,                // Output: message locations
-  int32_t* msg_row_offsets,                // Output: message row offsets
+  cudf::size_type* msg_row_offsets,        // Output: message row offsets
   int total_count,
   int* error_flag)
 {
@@ -961,14 +970,14 @@ __global__ void compute_msg_locations_from_occurrences_kernel(
 
   auto const& occ = occurrences[idx];
   auto row_offset = static_cast<int64_t>(list_offsets[occ.row_idx]) - base_offset;
-  if (row_offset < std::numeric_limits<int32_t>::min() ||
-      row_offset > std::numeric_limits<int32_t>::max()) {
+  if (row_offset < std::numeric_limits<cudf::size_type>::min() ||
+      row_offset > std::numeric_limits<cudf::size_type>::max()) {
     msg_row_offsets[idx] = 0;
     msg_locs[idx]        = {-1, 0};
     set_error_once(error_flag, ERR_OVERFLOW);
     return;
   }
-  msg_row_offsets[idx] = static_cast<int32_t>(row_offset);
+  msg_row_offsets[idx] = static_cast<cudf::size_type>(row_offset);
   msg_locs[idx]        = {occ.offset, occ.length};
 }
 

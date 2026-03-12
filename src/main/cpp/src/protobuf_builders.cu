@@ -27,7 +27,7 @@ namespace spark_rapids_jni::protobuf_detail {
  */
 inline std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   uint8_t const* message_data,
-  rmm::device_uvector<int32_t> const& d_msg_row_offsets,
+  rmm::device_uvector<cudf::size_type> const& d_msg_row_offsets,
   rmm::device_uvector<field_location> const& d_msg_locs,
   rmm::device_uvector<field_location> const& d_child_locs,
   int child_idx,
@@ -337,7 +337,7 @@ std::unique_ptr<cudf::column> build_enum_string_column(
 
 inline std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column(
   uint8_t const* message_data,
-  rmm::device_uvector<int32_t> const& d_msg_row_offsets,
+  rmm::device_uvector<cudf::size_type> const& d_msg_row_offsets,
   rmm::device_uvector<field_location> const& d_msg_locs,
   rmm::device_uvector<field_location> const& d_child_locs,
   int child_idx,
@@ -361,8 +361,14 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column
                                                 child_idx,
                                                 num_child_fields};
   extract_varint_kernel<int32_t, false, RepeatedMsgChildLocationProvider>
-    <<<blocks, threads, 0, stream.value()>>>(
-      message_data, loc_provider, total_count, enum_values.data(), valid.data(), d_error.data());
+    <<<blocks, threads, 0, stream.value()>>>(message_data,
+                                             loc_provider,
+                                             total_count,
+                                             enum_values.data(),
+                                             valid.data(),
+                                             d_error.data(),
+                                             false,
+                                             0);
 
   rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
   CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
@@ -471,8 +477,15 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   rmm::device_uvector<int32_t> enum_ints(total_count, stream, mr);
   rmm::device_uvector<bool> elem_valid(total_count, stream, mr);
   RepeatedLocationProvider rep_loc{list_offsets, base_offset, d_occurrences.data()};
-  extract_varint_kernel<int32_t, false><<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-    message_data, rep_loc, total_count, enum_ints.data(), elem_valid.data(), d_error.data());
+  extract_varint_kernel<int32_t, false>
+    <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(message_data,
+                                                           rep_loc,
+                                                           total_count,
+                                                           enum_ints.data(),
+                                                           elem_valid.data(),
+                                                           d_error.data(),
+                                                           false,
+                                                           0);
 
   // 2. Build device-side enum lookup tables
   rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
@@ -862,6 +875,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     int child_schema_idx                 = child_field_indices[ci];
     h_child_descs[ci].field_number       = h_device_schema[child_schema_idx].field_number;
     h_child_descs[ci].expected_wire_type = h_device_schema[child_schema_idx].wire_type;
+    h_child_descs[ci].is_repeated        = h_device_schema[child_schema_idx].is_repeated;
   }
   rmm::device_uvector<field_descriptor> d_child_descs(num_child_fields, stream, mr);
   CUDF_CUDA_TRY(cudaMemcpyAsync(d_child_descs.data(),
@@ -884,8 +898,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   // Create "virtual" parent locations from the occurrences using GPU kernel
   // This replaces the host-side loop with D->H->D copy pattern (critical performance fix!)
   rmm::device_uvector<field_location> d_msg_locs(total_count, stream, mr);
-  rmm::device_uvector<int32_t> d_msg_row_offsets(total_count, stream, mr);
-  rmm::device_uvector<cudf::size_type> d_msg_row_offsets_size(total_count, stream, mr);
+  rmm::device_uvector<cudf::size_type> d_msg_row_offsets(total_count, stream, mr);
   {
     auto const occ_threads = THREADS_PER_BLOCK;
     auto const occ_blocks  = (total_count + occ_threads - 1u) / occ_threads;
@@ -898,11 +911,6 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
       total_count,
       d_error_top.data());
   }
-  thrust::transform(rmm::exec_policy(stream),
-                    d_msg_row_offsets.data(),
-                    d_msg_row_offsets.end(),
-                    d_msg_row_offsets_size.data(),
-                    [] __device__(int32_t v) { return static_cast<cudf::size_type>(v); });
   rmm::device_uvector<int32_t> d_top_row_indices(total_count, stream, mr);
   thrust::transform(rmm::exec_policy(stream),
                     d_occurrences.data(),
@@ -955,7 +963,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     if (child_is_repeated) {
       struct_children.push_back(build_repeated_child_list_column(message_data,
                                                                  message_data_size,
-                                                                 d_msg_row_offsets_size.data(),
+                                                                 d_msg_row_offsets.data(),
                                                                  0,
                                                                  d_msg_locs.data(),
                                                                  total_count,
@@ -1086,33 +1094,21 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
           // Compute virtual parent locations for each occurrence's nested struct child
           rmm::device_uvector<field_location> d_nested_locs(total_count, stream, mr);
           rmm::device_uvector<cudf::size_type> d_nested_row_offsets(total_count, stream, mr);
-          {
-            // Convert int32_t row offsets to cudf::size_type and compute nested struct locations
-            rmm::device_uvector<int32_t> d_nested_row_offsets_i32(total_count, stream, mr);
-            compute_nested_struct_locations_kernel<<<blocks, threads, 0, stream.value()>>>(
-              d_child_locs.data(),
-              d_msg_locs.data(),
-              d_msg_row_offsets.data(),
-              ci,
-              num_child_fields,
-              d_nested_locs.data(),
-              d_nested_row_offsets_i32.data(),
-              total_count,
-              d_error_top.data());
-            // Add base_offset back so build_nested_struct_column can subtract it
-            thrust::transform(rmm::exec_policy(stream),
-                              d_nested_row_offsets_i32.data(),
-                              d_nested_row_offsets_i32.end(),
-                              d_nested_row_offsets.data(),
-                              [base_offset] __device__(int32_t v) {
-                                return static_cast<cudf::size_type>(v) + base_offset;
-                              });
-          }
+          compute_nested_struct_locations_kernel<<<blocks, threads, 0, stream.value()>>>(
+            d_child_locs.data(),
+            d_msg_locs.data(),
+            d_msg_row_offsets.data(),
+            ci,
+            num_child_fields,
+            d_nested_locs.data(),
+            d_nested_row_offsets.data(),
+            total_count,
+            d_error_top.data());
 
           struct_children.push_back(build_nested_struct_column(message_data,
                                                                message_data_size,
                                                                d_nested_row_offsets.data(),
-                                                               base_offset,
+                                                               0,
                                                                d_nested_locs,
                                                                grandchild_indices,
                                                                schema,
@@ -1222,6 +1218,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     int child_idx                             = child_field_indices[i];
     h_child_field_descs[i].field_number       = schema[child_idx].field_number;
     h_child_field_descs[i].expected_wire_type = schema[child_idx].wire_type;
+    h_child_field_descs[i].is_repeated        = schema[child_idx].is_repeated;
   }
 
   rmm::device_uvector<field_descriptor> d_child_field_descs(num_child_fields, stream, mr);
@@ -1662,7 +1659,9 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                                                  total_rep_count,
                                                                  enum_values.data(),
                                                                  valid.data(),
-                                                                 d_error.data());
+                                                                 d_error.data(),
+                                                                 false,
+                                                                 0);
 
         auto const& valid_enums     = enum_valid_values[child_schema_idx];
         auto const& enum_name_bytes = enum_names[child_schema_idx];

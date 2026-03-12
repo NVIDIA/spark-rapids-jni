@@ -2039,6 +2039,107 @@ public class ProtobufTest {
   }
 
   @Test
+  void testPackedRepeatedChildInsideRepeatedMessage() {
+    // message Item { repeated int32 ids = 1 [packed=true]; optional int32 score = 2; }
+    // message Outer { repeated Item items = 1; }
+    byte[] item0Ids = concatBytes(encodeVarint(10), encodeVarint(20));
+    Byte[] item0 = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(item0Ids.length)),
+        box(item0Ids),
+        box(tag(2, WT_VARINT)),
+        box(encodeVarint(7)));
+    byte[] item1Ids = concatBytes(encodeVarint(30));
+    Byte[] item1 = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(item1Ids.length)),
+        box(item1Ids),
+        box(tag(2, WT_VARINT)),
+        box(encodeVarint(9)));
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(item0.length)),
+        item0,
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(item1.length)),
+        item1);
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expectedItems = ColumnVector.fromLists(
+             new ListType(true,
+                 new StructType(true,
+                     new ListType(true, new BasicType(true, DType.INT32)),
+                     new BasicType(true, DType.INT32))),
+             Arrays.asList(
+                 new StructData(Arrays.asList(10, 20), 7),
+                 new StructData(Arrays.asList(30), 9)));
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedItems);
+         ColumnVector actualStruct = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1, 2},
+             new int[]{-1, 0, 0},
+             new int[]{0, 1, 1},
+             new int[]{WT_LEN, WT_VARINT, WT_VARINT},
+             new int[]{
+                 DType.STRUCT.getTypeId().getNativeId(),
+                 DType.INT32.getTypeId().getNativeId(),
+                 DType.INT32.getTypeId().getNativeId()
+             },
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{true, true, false},
+             new boolean[]{false, false, false},
+             new boolean[]{false, false, false},
+             new long[]{0, 0, 0},
+             new double[]{0.0, 0.0, 0.0},
+             new boolean[]{false, false, false},
+             new byte[][]{null, null, null},
+             new int[][]{null, null, null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testPermissiveRepeatedWrongWireTypeDoesNotCorruptFollowingRow() {
+    // message Msg { repeated int32 ids = 1; }
+    // Row 0 has one valid element, then a malformed fixed32 occurrence for the same field,
+    // then another valid varint that must be ignored once the row is marked malformed.
+    // Row 1 must keep its own slot and not be overwritten by row 0's trailing occurrence.
+    Byte[] row0 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)),
+        box(tag(1, WT_32BIT)), box(encodeFixed32(77)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(2)));
+    Byte[] row1 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(100)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector expectedIds = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT32)),
+             Arrays.asList(1),
+             Arrays.asList(100));
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedIds);
+         ColumnVector actualStruct = decodeRaw(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
   void testRepeatedUint32() {
     Byte[] row = concat(
         box(tag(1, WT_VARINT)), box(encodeVarint(1)),
