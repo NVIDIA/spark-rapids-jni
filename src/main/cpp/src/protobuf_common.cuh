@@ -1144,6 +1144,36 @@ __global__ void check_required_fields_kernel(field_location const* locations,
                                              int num_rows,
                                              int* error_flag);
 
+inline void maybe_check_required_fields(field_location const* locations,
+                                        std::vector<int> const& field_indices,
+                                        std::vector<nested_field_descriptor> const& schema,
+                                        int num_rows,
+                                        int* error_flag,
+                                        rmm::cuda_stream_view stream,
+                                        rmm::device_async_resource_ref mr)
+{
+  if (num_rows == 0 || field_indices.empty()) { return; }
+
+  bool has_required = false;
+  std::vector<uint8_t> h_is_required(field_indices.size());
+  for (size_t i = 0; i < field_indices.size(); ++i) {
+    h_is_required[i] = schema[field_indices[i]].is_required ? 1 : 0;
+    has_required |= (h_is_required[i] != 0);
+  }
+  if (!has_required) { return; }
+
+  rmm::device_uvector<uint8_t> d_is_required(field_indices.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_is_required.data(),
+                                h_is_required.data(),
+                                h_is_required.size() * sizeof(uint8_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  check_required_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    locations, d_is_required.data(), static_cast<int>(field_indices.size()), num_rows, error_flag);
+}
+
 __global__ void validate_enum_values_kernel(int32_t const* values,
                                             bool* valid,
                                             bool* row_has_invalid_enum,
@@ -1247,6 +1277,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   int num_rows,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices,
   int depth);
 
 std::unique_ptr<cudf::column> build_repeated_child_list_column(
@@ -1270,6 +1301,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices,
   int depth);
 
 std::unique_ptr<cudf::column> build_repeated_struct_column(

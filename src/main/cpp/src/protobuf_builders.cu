@@ -335,6 +335,133 @@ std::unique_ptr<cudf::column> build_enum_string_column(
     num_rows, std::move(offsets_col), chars.release(), null_count, std::move(mask));
 }
 
+inline std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column(
+  uint8_t const* message_data,
+  rmm::device_uvector<int32_t> const& d_msg_row_offsets,
+  rmm::device_uvector<field_location> const& d_msg_locs,
+  rmm::device_uvector<field_location> const& d_child_locs,
+  int child_idx,
+  int num_child_fields,
+  int total_count,
+  int32_t const* top_row_indices,
+  std::vector<int32_t> const& valid_enums,
+  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  rmm::device_uvector<bool>& d_row_has_invalid_enum,
+  rmm::device_uvector<int>& d_error,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const threads = THREADS_PER_BLOCK;
+  auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
+
+  rmm::device_uvector<int32_t> enum_values(total_count, stream, mr);
+  rmm::device_uvector<bool> valid((total_count > 0 ? total_count : 1), stream, mr);
+  RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
+                                                0,
+                                                d_msg_locs.data(),
+                                                d_child_locs.data(),
+                                                child_idx,
+                                                num_child_fields};
+  extract_varint_kernel<int32_t, false, RepeatedMsgChildLocationProvider>
+    <<<blocks, threads, 0, stream.value()>>>(
+      message_data, loc_provider, total_count, enum_values.data(), valid.data(), d_error.data());
+
+  rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
+                                valid_enums.data(),
+                                valid_enums.size() * sizeof(int32_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  rmm::device_uvector<bool> d_elem_has_invalid_enum(total_count, stream, mr);
+  thrust::fill(rmm::exec_policy(stream),
+               d_elem_has_invalid_enum.begin(),
+               d_elem_has_invalid_enum.end(),
+               false);
+  validate_enum_values_kernel<<<blocks, threads, 0, stream.value()>>>(
+    enum_values.data(),
+    valid.data(),
+    d_elem_has_invalid_enum.data(),
+    d_valid_enums.data(),
+    static_cast<int>(valid_enums.size()),
+    total_count);
+
+  if (d_row_has_invalid_enum.size() > 0 && total_count > 0) {
+    auto const* elem_invalid = d_elem_has_invalid_enum.data();
+    auto const* parent_rows  = top_row_indices;
+    auto* row_invalid        = d_row_has_invalid_enum.data();
+    thrust::for_each(rmm::exec_policy(stream),
+                     thrust::make_counting_iterator(0),
+                     thrust::make_counting_iterator(total_count),
+                     [elem_invalid, parent_rows, row_invalid] __device__(int idx) {
+                       if (elem_invalid[idx]) { row_invalid[parent_rows[idx]] = true; }
+                     });
+  }
+
+  std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
+  int64_t total_name_chars = 0;
+  for (size_t k = 0; k < enum_name_bytes.size(); ++k) {
+    total_name_chars += static_cast<int64_t>(enum_name_bytes[k].size());
+    CUDF_EXPECTS(total_name_chars <= std::numeric_limits<int32_t>::max(),
+                 "Enum name data exceeds 2 GB limit");
+    h_name_offsets[k + 1] = static_cast<int32_t>(total_name_chars);
+  }
+  std::vector<uint8_t> h_name_chars(total_name_chars);
+  int32_t cursor = 0;
+  for (auto const& name : enum_name_bytes) {
+    if (!name.empty()) {
+      std::copy(name.data(), name.data() + name.size(), h_name_chars.data() + cursor);
+      cursor += static_cast<int32_t>(name.size());
+    }
+  }
+
+  rmm::device_uvector<int32_t> d_name_offsets(h_name_offsets.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_offsets.data(),
+                                h_name_offsets.data(),
+                                h_name_offsets.size() * sizeof(int32_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+  rmm::device_uvector<uint8_t> d_name_chars(total_name_chars, stream, mr);
+  if (total_name_chars > 0) {
+    CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_chars.data(),
+                                  h_name_chars.data(),
+                                  total_name_chars * sizeof(uint8_t),
+                                  cudaMemcpyHostToDevice,
+                                  stream.value()));
+  }
+
+  rmm::device_uvector<int32_t> lengths(total_count, stream, mr);
+  compute_enum_string_lengths_kernel<<<blocks, threads, 0, stream.value()>>>(
+    enum_values.data(),
+    valid.data(),
+    d_valid_enums.data(),
+    d_name_offsets.data(),
+    static_cast<int>(valid_enums.size()),
+    lengths.data(),
+    total_count);
+
+  auto [offsets_col, total_chars] =
+    cudf::strings::detail::make_offsets_child_column(lengths.begin(), lengths.end(), stream, mr);
+
+  rmm::device_uvector<char> chars(total_chars, stream, mr);
+  if (total_chars > 0) {
+    copy_enum_string_chars_kernel<<<blocks, threads, 0, stream.value()>>>(
+      enum_values.data(),
+      valid.data(),
+      d_valid_enums.data(),
+      d_name_offsets.data(),
+      d_name_chars.data(),
+      static_cast<int>(valid_enums.size()),
+      offsets_col->view().data<int32_t>(),
+      chars.data(),
+      total_count);
+  }
+
+  auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
+  return cudf::make_strings_column(
+    total_count, std::move(offsets_col), chars.release(), null_count, std::move(mask));
+}
+
 std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
@@ -631,6 +758,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   int num_rows,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices,
   int depth);
 
 // Forward declaration -- build_repeated_child_list_column is defined after
@@ -657,6 +785,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices,
   int depth);
 
 std::unique_ptr<cudf::column> build_repeated_struct_column(
@@ -788,6 +917,12 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                     d_msg_row_offsets.end(),
                     d_msg_row_offsets_size.data(),
                     [] __device__(int32_t v) { return static_cast<cudf::size_type>(v); });
+  rmm::device_uvector<int32_t> d_top_row_indices(total_count, stream, mr);
+  thrust::transform(rmm::exec_policy(stream),
+                    d_occurrences.data(),
+                    d_occurrences.end(),
+                    d_top_row_indices.data(),
+                    [] __device__(repeated_occurrence const& occ) { return occ.row_idx; });
 
   // Scan for child fields within each message occurrence
   rmm::device_uvector<field_location> d_child_locs(total_count * num_child_fields, stream, mr);
@@ -811,6 +946,10 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     d_error.data(),
     h_child_lookup.empty() ? nullptr : d_child_lookup.data(),
     static_cast<int>(d_child_lookup.size()));
+
+  // Enforce proto2 required semantics for fields inside each repeated message occurrence.
+  maybe_check_required_fields(
+    d_child_locs.data(), child_field_indices, schema, total_count, d_error.data(), stream, mr);
 
   // Note: We no longer need to copy child_locs to host because:
   // 1. All scalar extraction kernels access d_child_locs directly on device
@@ -848,6 +987,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                                  d_error_top,
                                                                  stream,
                                                                  mr,
+                                                                 d_top_row_indices.data(),
                                                                  1));
       continue;
     }
@@ -889,17 +1029,45 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
         break;
       }
       case cudf::type_id::STRING: {
-        struct_children.push_back(build_repeated_msg_child_varlen_column(message_data,
-                                                                         d_msg_row_offsets,
-                                                                         d_msg_locs,
-                                                                         d_child_locs,
-                                                                         ci,
-                                                                         num_child_fields,
-                                                                         total_count,
-                                                                         d_error,
-                                                                         false,
-                                                                         stream,
-                                                                         mr));
+        if (enc == spark_rapids_jni::ENC_ENUM_STRING) {
+          if (child_schema_idx < static_cast<int>(enum_valid_values.size()) &&
+              child_schema_idx < static_cast<int>(enum_names.size()) &&
+              !enum_valid_values[child_schema_idx].empty() &&
+              enum_valid_values[child_schema_idx].size() == enum_names[child_schema_idx].size()) {
+            struct_children.push_back(
+              build_repeated_msg_child_enum_string_column(message_data,
+                                                          d_msg_row_offsets,
+                                                          d_msg_locs,
+                                                          d_child_locs,
+                                                          ci,
+                                                          num_child_fields,
+                                                          total_count,
+                                                          d_top_row_indices.data(),
+                                                          enum_valid_values[child_schema_idx],
+                                                          enum_names[child_schema_idx],
+                                                          d_row_has_invalid_enum,
+                                                          d_error,
+                                                          stream,
+                                                          mr));
+          } else {
+            int err_val = ERR_MISSING_ENUM_META;
+            CUDF_CUDA_TRY(cudaMemcpyAsync(
+              d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+            struct_children.push_back(make_null_column(dt, total_count, stream, mr));
+          }
+        } else {
+          struct_children.push_back(build_repeated_msg_child_varlen_column(message_data,
+                                                                           d_msg_row_offsets,
+                                                                           d_msg_locs,
+                                                                           d_child_locs,
+                                                                           ci,
+                                                                           num_child_fields,
+                                                                           total_count,
+                                                                           d_error,
+                                                                           false,
+                                                                           stream,
+                                                                           mr));
+        }
         break;
       }
       case cudf::type_id::LIST: {
@@ -977,6 +1145,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                                total_count,
                                                                stream,
                                                                mr,
+                                                               d_top_row_indices.data(),
                                                                0));
         }
         break;
@@ -1034,6 +1203,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   int num_rows,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices,
   int depth)
 {
   CUDF_EXPECTS(depth < MAX_NESTED_STRUCT_DECODE_DEPTH,
@@ -1091,6 +1261,10 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     d_child_locations.data(),
     d_error.data());
 
+  // Enforce proto2 required semantics for direct children of this nested message.
+  maybe_check_required_fields(
+    d_child_locations.data(), child_field_indices, schema, num_rows, d_error.data(), stream, mr);
+
   std::vector<std::unique_ptr<cudf::column>> struct_children;
   for (int ci = 0; ci < num_child_fields; ci++) {
     int child_schema_idx = child_field_indices[ci];
@@ -1120,6 +1294,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                                  d_error,
                                                                  stream,
                                                                  mr,
+                                                                 top_row_indices,
                                                                  depth));
       continue;
     }
@@ -1319,6 +1494,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                              num_rows,
                                                              stream,
                                                              mr,
+                                                             top_row_indices,
                                                              depth + 1));
         break;
       }
@@ -1363,6 +1539,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices,
   int depth)
 {
   auto const threads = THREADS_PER_BLOCK;
@@ -1487,20 +1664,146 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                         stream,
                                         mr);
   } else if (elem_type_id == cudf::type_id::STRING || elem_type_id == cudf::type_id::LIST) {
-    bool as_bytes = (elem_type_id == cudf::type_id::LIST);
-    auto valid_fn = [] __device__(cudf::size_type) { return true; };
-    std::vector<uint8_t> empty_default;
-    child_values = extract_and_build_string_or_bytes_column(as_bytes,
-                                                            message_data,
-                                                            total_rep_count,
-                                                            nr_loc,
-                                                            nr_loc,
-                                                            valid_fn,
-                                                            false,
-                                                            empty_default,
-                                                            d_error,
-                                                            stream,
-                                                            mr);
+    if (elem_type_id == cudf::type_id::STRING &&
+        schema[child_schema_idx].encoding == spark_rapids_jni::ENC_ENUM_STRING) {
+      if (child_schema_idx < static_cast<int>(enum_valid_values.size()) &&
+          child_schema_idx < static_cast<int>(enum_names.size()) &&
+          !enum_valid_values[child_schema_idx].empty() &&
+          enum_valid_values[child_schema_idx].size() == enum_names[child_schema_idx].size()) {
+        rmm::device_uvector<int32_t> enum_values(total_rep_count, stream, mr);
+        rmm::device_uvector<bool> valid((total_rep_count > 0 ? total_rep_count : 1), stream, mr);
+        extract_varint_kernel<int32_t, false, NestedRepeatedLocationProvider>
+          <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(message_data,
+                                                                 nr_loc,
+                                                                 total_rep_count,
+                                                                 enum_values.data(),
+                                                                 valid.data(),
+                                                                 d_error.data());
+
+        auto const& valid_enums     = enum_valid_values[child_schema_idx];
+        auto const& enum_name_bytes = enum_names[child_schema_idx];
+        rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
+        CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
+                                      valid_enums.data(),
+                                      valid_enums.size() * sizeof(int32_t),
+                                      cudaMemcpyHostToDevice,
+                                      stream.value()));
+
+        rmm::device_uvector<bool> d_elem_has_invalid_enum(total_rep_count, stream, mr);
+        thrust::fill(rmm::exec_policy(stream),
+                     d_elem_has_invalid_enum.begin(),
+                     d_elem_has_invalid_enum.end(),
+                     false);
+        validate_enum_values_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+          enum_values.data(),
+          valid.data(),
+          d_elem_has_invalid_enum.data(),
+          d_valid_enums.data(),
+          static_cast<int>(valid_enums.size()),
+          total_rep_count);
+
+        if (d_row_has_invalid_enum.size() > 0) {
+          auto const* rep_occs     = d_rep_occs.data();
+          auto const* parent_rows  = top_row_indices;
+          auto const* elem_invalid = d_elem_has_invalid_enum.data();
+          auto* row_invalid        = d_row_has_invalid_enum.data();
+          thrust::for_each(rmm::exec_policy(stream),
+                           thrust::make_counting_iterator(0),
+                           thrust::make_counting_iterator(total_rep_count),
+                           [rep_occs, parent_rows, elem_invalid, row_invalid] __device__(int idx) {
+                             if (elem_invalid[idx]) {
+                               auto const parent_row = rep_occs[idx].row_idx;
+                               auto const top_row =
+                                 parent_rows != nullptr ? parent_rows[parent_row] : parent_row;
+                               row_invalid[top_row] = true;
+                             }
+                           });
+        }
+
+        std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
+        int64_t total_name_chars = 0;
+        for (size_t k = 0; k < enum_name_bytes.size(); ++k) {
+          total_name_chars += static_cast<int64_t>(enum_name_bytes[k].size());
+          CUDF_EXPECTS(total_name_chars <= std::numeric_limits<int32_t>::max(),
+                       "Enum name data exceeds 2 GB limit");
+          h_name_offsets[k + 1] = static_cast<int32_t>(total_name_chars);
+        }
+        std::vector<uint8_t> h_name_chars(total_name_chars);
+        int32_t cursor = 0;
+        for (auto const& name : enum_name_bytes) {
+          if (!name.empty()) {
+            std::copy(name.data(), name.data() + name.size(), h_name_chars.data() + cursor);
+            cursor += static_cast<int32_t>(name.size());
+          }
+        }
+
+        rmm::device_uvector<int32_t> d_name_offsets(h_name_offsets.size(), stream, mr);
+        CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_offsets.data(),
+                                      h_name_offsets.data(),
+                                      h_name_offsets.size() * sizeof(int32_t),
+                                      cudaMemcpyHostToDevice,
+                                      stream.value()));
+        rmm::device_uvector<uint8_t> d_name_chars(total_name_chars, stream, mr);
+        if (total_name_chars > 0) {
+          CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_chars.data(),
+                                        h_name_chars.data(),
+                                        total_name_chars * sizeof(uint8_t),
+                                        cudaMemcpyHostToDevice,
+                                        stream.value()));
+        }
+
+        rmm::device_uvector<int32_t> lengths(total_rep_count, stream, mr);
+        compute_enum_string_lengths_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+          enum_values.data(),
+          valid.data(),
+          d_valid_enums.data(),
+          d_name_offsets.data(),
+          static_cast<int>(valid_enums.size()),
+          lengths.data(),
+          total_rep_count);
+
+        auto [offsets_col, total_chars] = cudf::strings::detail::make_offsets_child_column(
+          lengths.begin(), lengths.end(), stream, mr);
+
+        rmm::device_uvector<char> chars(total_chars, stream, mr);
+        if (total_chars > 0) {
+          copy_enum_string_chars_kernel<<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+            enum_values.data(),
+            valid.data(),
+            d_valid_enums.data(),
+            d_name_offsets.data(),
+            d_name_chars.data(),
+            static_cast<int>(valid_enums.size()),
+            offsets_col->view().data<int32_t>(),
+            chars.data(),
+            total_rep_count);
+        }
+
+        auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
+        child_values            = cudf::make_strings_column(
+          total_rep_count, std::move(offsets_col), chars.release(), null_count, std::move(mask));
+      } else {
+        int err_val = ERR_MISSING_ENUM_META;
+        CUDF_CUDA_TRY(cudaMemcpyAsync(
+          d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+        child_values = make_null_column(cudf::data_type{elem_type_id}, total_rep_count, stream, mr);
+      }
+    } else {
+      bool as_bytes = (elem_type_id == cudf::type_id::LIST);
+      auto valid_fn = [] __device__(cudf::size_type) { return true; };
+      std::vector<uint8_t> empty_default;
+      child_values = extract_and_build_string_or_bytes_column(as_bytes,
+                                                              message_data,
+                                                              total_rep_count,
+                                                              nr_loc,
+                                                              nr_loc,
+                                                              valid_fn,
+                                                              false,
+                                                              empty_default,
+                                                              d_error,
+                                                              stream,
+                                                              mr);
+    }
   } else if (elem_type_id == cudf::type_id::STRUCT) {
     auto gc_indices = find_child_field_indices(schema, num_fields, child_schema_idx);
     if (gc_indices.empty()) {
@@ -1546,6 +1849,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                                 total_rep_count,
                                                 stream,
                                                 mr,
+                                                top_row_indices,
                                                 depth + 1);
     }
   } else {

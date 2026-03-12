@@ -271,31 +271,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       d_locations.data(),
       d_error.data());
 
-    // Check required fields (after scan pass)
-    {
-      bool has_required = false;
-      for (int i = 0; i < num_scalar; i++) {
-        int si = scalar_field_indices[i];
-        if (schema[si].is_required) {
-          has_required = true;
-          break;
-        }
-      }
-      if (has_required) {
-        rmm::device_uvector<uint8_t> d_is_required(num_scalar, stream, mr);
-        std::vector<uint8_t> h_is_required(num_scalar);
-        for (int i = 0; i < num_scalar; i++) {
-          h_is_required[i] = schema[scalar_field_indices[i]].is_required ? 1 : 0;
-        }
-        CUDF_CUDA_TRY(cudaMemcpyAsync(d_is_required.data(),
-                                      h_is_required.data(),
-                                      num_scalar * sizeof(uint8_t),
-                                      cudaMemcpyHostToDevice,
-                                      stream.value()));
-        check_required_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
-          d_locations.data(), d_is_required.data(), num_scalar, num_rows, d_error.data());
-      }
-    }
+    // Required-field validation applies to all scalar leaves, not just top-level numerics.
+    maybe_check_required_fields(
+      d_locations.data(), scalar_field_indices, schema, num_rows, d_error.data(), stream, mr);
 
     // Batched scalar extraction: group non-special fixed-width fields by extraction
     // category and extract all fields of each category with a single 2D kernel launch.
@@ -611,6 +589,11 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       }
     }
   }
+
+  // Required top-level nested messages are tracked in d_nested_locations during the scan/count
+  // pass.
+  maybe_check_required_fields(
+    d_nested_locations.data(), nested_field_indices, schema, num_rows, d_error.data(), stream, mr);
 
   // Process repeated fields (three-phase: offsets → combined scan → build columns)
   if (num_repeated > 0) {
@@ -1013,6 +996,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                  num_rows,
                                                                  stream,
                                                                  mr,
+                                                                 nullptr,
                                                                  0);
     }
   }
