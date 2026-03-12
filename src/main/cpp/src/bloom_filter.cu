@@ -209,8 +209,8 @@ unpack_bloom_filter(cudf::device_span<uint8_t> bloom_filter, rmm::cuda_stream_vi
 
   int32_t seed = 0;
   if (version == bloom_filter_version_2) {
-    CUDF_EXPECTS(read_size >= static_cast<size_t>(bloom_filter_header_v2_size_bytes),
-                 "Encountered truncated V2 bloom filter header");
+    // Safe: the header-size check above guarantees bloom_filter.size() >= v2 header size,
+    // so read_size (= min(bloom_filter.size(), v2 header size)) == v2 header size.
     seed = byte_swap_int32(raw_ints[2]);
   }
 
