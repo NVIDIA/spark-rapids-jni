@@ -28,7 +28,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <random>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -162,6 +164,14 @@ using nfd                    = spark_rapids_jni::nested_field_descriptor;
 using pb_field_location      = spark_rapids_jni::protobuf_detail::field_location;
 using pb_repeated_occurrence = spark_rapids_jni::protobuf_detail::repeated_occurrence;
 
+inline int32_t checked_size_to_i32(size_t value, char const* what)
+{
+  if (value > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+    throw std::overflow_error(std::string("benchmark protobuf size exceeds int32_t for ") + what);
+  }
+  return static_cast<int32_t>(value);
+}
+
 void encode_string_field_record(std::vector<uint8_t>& buf,
                                 int field_number,
                                 std::string const& s,
@@ -170,9 +180,10 @@ void encode_string_field_record(std::vector<uint8_t>& buf,
 {
   encode_tag(buf, field_number, /*WT_LEN=*/2);
   encode_varint(buf, s.size());
-  auto const data_offset = static_cast<int32_t>(buf.size());
+  auto const data_offset = checked_size_to_i32(buf.size(), "string field data offset");
   buf.insert(buf.end(), s.begin(), s.end());
-  out_occurrences.push_back({row_idx, data_offset, static_cast<int32_t>(s.size())});
+  out_occurrences.push_back(
+    {row_idx, data_offset, checked_size_to_i32(s.size(), "string field length")});
 }
 
 // Case 1: Flat scalars only — many top-level scalar fields.
@@ -1055,6 +1066,10 @@ static void BM_protobuf_repeated_child_string_count_scan(nvbench::state& state)
 
   std::vector<int> h_rep_indices(num_repeated_children);
   for (int i = 0; i < num_repeated_children; i++) {
+    CUDF_EXPECTS(h_schema[i].is_repeated,
+                 "count_repeated_in_nested_kernel benchmark expects repeated child fields");
+    CUDF_EXPECTS(h_schema[i].depth == 0,
+                 "count_repeated_in_nested_kernel benchmark expects pre-filtered child depth 0");
     h_rep_indices[i] = i;
   }
   rmm::device_uvector<int> d_rep_indices(num_repeated_children, stream, mr);

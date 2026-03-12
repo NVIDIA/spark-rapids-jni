@@ -33,6 +33,16 @@ import java.util.Set;
 public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   private static final long serialVersionUID = 1L;
   private static final int MAX_FIELD_NUMBER = (1 << 29) - 1;
+  private static final int STRUCT_TYPE_ID = ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId();
+  private static final int STRING_TYPE_ID = ai.rapids.cudf.DType.STRING.getTypeId().getNativeId();
+  private static final int LIST_TYPE_ID = ai.rapids.cudf.DType.LIST.getTypeId().getNativeId();
+  private static final int BOOL8_TYPE_ID = ai.rapids.cudf.DType.BOOL8.getTypeId().getNativeId();
+  private static final int INT32_TYPE_ID = ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
+  private static final int UINT32_TYPE_ID = ai.rapids.cudf.DType.UINT32.getTypeId().getNativeId();
+  private static final int INT64_TYPE_ID = ai.rapids.cudf.DType.INT64.getTypeId().getNativeId();
+  private static final int UINT64_TYPE_ID = ai.rapids.cudf.DType.UINT64.getTypeId().getNativeId();
+  private static final int FLOAT32_TYPE_ID = ai.rapids.cudf.DType.FLOAT32.getTypeId().getNativeId();
+  private static final int FLOAT64_TYPE_ID = ai.rapids.cudf.DType.FLOAT64.getTypeId().getNativeId();
 
   final int[] fieldNumbers;
   final int[] parentIndices;
@@ -181,6 +191,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
               "Top-level field at index " + i + " must have depth 0, got " + depthLevels[i]);
         }
       } else {
+        if (outputTypeIds[pi] != STRUCT_TYPE_ID) {
+          throw new IllegalArgumentException(
+              "Parent at index " + pi + " for field " + i + " must be STRUCT, got type id " +
+              outputTypeIds[pi]);
+        }
         if (depthLevels[i] != depthLevels[pi] + 1) {
           throw new IllegalArgumentException(
               "Field at index " + i + " depth (" + depthLevels[i] +
@@ -203,6 +218,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
       if (enc < Protobuf.ENC_DEFAULT || enc > Protobuf.ENC_ENUM_STRING) {
         throw new IllegalArgumentException(
             "Invalid encoding at index " + i + ": " + enc);
+      }
+      if (!isEncodingCompatible(wt, outputTypeIds[i], enc)) {
+        throw new IllegalArgumentException(
+            "Incompatible wire type / output type / encoding at index " + i +
+            ": wireType=" + wt + ", outputTypeId=" + outputTypeIds[i] + ", encoding=" + enc);
       }
       if (isRepeated[i] && hasDefaultValue[i]) {
         throw new IllegalArgumentException(
@@ -234,6 +254,45 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
             "enumNames[" + i + "] is non-null but enumValidValues[" + i + "] is null; " +
             "both must be provided together for enum-as-string fields");
       }
+    }
+  }
+
+  private static boolean isEncodingCompatible(int wireType, int outputTypeId, int encoding) {
+    switch (encoding) {
+      case Protobuf.ENC_DEFAULT:
+        if (outputTypeId == BOOL8_TYPE_ID || outputTypeId == INT32_TYPE_ID ||
+            outputTypeId == UINT32_TYPE_ID || outputTypeId == INT64_TYPE_ID ||
+            outputTypeId == UINT64_TYPE_ID) {
+          return wireType == Protobuf.WT_VARINT;
+        }
+        if (outputTypeId == FLOAT32_TYPE_ID) {
+          return wireType == Protobuf.WT_32BIT;
+        }
+        if (outputTypeId == FLOAT64_TYPE_ID) {
+          return wireType == Protobuf.WT_64BIT;
+        }
+        if (outputTypeId == STRING_TYPE_ID || outputTypeId == LIST_TYPE_ID ||
+            outputTypeId == STRUCT_TYPE_ID) {
+          return wireType == Protobuf.WT_LEN;
+        }
+        return false;
+      case Protobuf.ENC_FIXED:
+        if (outputTypeId == INT32_TYPE_ID || outputTypeId == UINT32_TYPE_ID ||
+            outputTypeId == FLOAT32_TYPE_ID) {
+          return wireType == Protobuf.WT_32BIT;
+        }
+        if (outputTypeId == INT64_TYPE_ID || outputTypeId == UINT64_TYPE_ID ||
+            outputTypeId == FLOAT64_TYPE_ID) {
+          return wireType == Protobuf.WT_64BIT;
+        }
+        return false;
+      case Protobuf.ENC_ZIGZAG:
+        return wireType == Protobuf.WT_VARINT &&
+            (outputTypeId == INT32_TYPE_ID || outputTypeId == INT64_TYPE_ID);
+      case Protobuf.ENC_ENUM_STRING:
+        return wireType == Protobuf.WT_VARINT && outputTypeId == STRING_TYPE_ID;
+      default:
+        return false;
     }
   }
 }

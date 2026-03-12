@@ -30,10 +30,17 @@
 namespace spark_rapids_jni {
 
 // Encoding constants
-constexpr int ENC_DEFAULT     = 0;
-constexpr int ENC_FIXED       = 1;
-constexpr int ENC_ZIGZAG      = 2;
-constexpr int ENC_ENUM_STRING = 3;
+constexpr int ENC_DEFAULT      = 0;
+constexpr int ENC_FIXED        = 1;
+constexpr int ENC_ZIGZAG       = 2;
+constexpr int ENC_ENUM_STRING  = 3;
+constexpr int MAX_FIELD_NUMBER = (1 << 29) - 1;
+
+// Wire type constants
+constexpr int WT_VARINT = 0;
+constexpr int WT_64BIT  = 1;
+constexpr int WT_LEN    = 2;
+constexpr int WT_32BIT  = 5;
 
 // Maximum nesting depth for nested messages
 constexpr int MAX_NESTING_DEPTH = 10;
@@ -80,6 +87,42 @@ struct ProtobufFieldMetaView {
   std::vector<std::vector<uint8_t>> const& enum_names;
 };
 
+inline bool is_encoding_compatible(nested_field_descriptor const& field,
+                                   cudf::data_type const& type)
+{
+  switch (field.encoding) {
+    case ENC_DEFAULT:
+      switch (type.id()) {
+        case cudf::type_id::BOOL8:
+        case cudf::type_id::INT32:
+        case cudf::type_id::UINT32:
+        case cudf::type_id::INT64:
+        case cudf::type_id::UINT64: return field.wire_type == WT_VARINT;
+        case cudf::type_id::FLOAT32: return field.wire_type == WT_32BIT;
+        case cudf::type_id::FLOAT64: return field.wire_type == WT_64BIT;
+        case cudf::type_id::STRING:
+        case cudf::type_id::LIST:
+        case cudf::type_id::STRUCT: return field.wire_type == WT_LEN;
+        default: return false;
+      }
+    case ENC_FIXED:
+      switch (type.id()) {
+        case cudf::type_id::INT32:
+        case cudf::type_id::UINT32:
+        case cudf::type_id::FLOAT32: return field.wire_type == WT_32BIT;
+        case cudf::type_id::INT64:
+        case cudf::type_id::UINT64:
+        case cudf::type_id::FLOAT64: return field.wire_type == WT_64BIT;
+        default: return false;
+      }
+    case ENC_ZIGZAG:
+      return field.wire_type == WT_VARINT &&
+             (type.id() == cudf::type_id::INT32 || type.id() == cudf::type_id::INT64);
+    case ENC_ENUM_STRING: return field.wire_type == WT_VARINT && type.id() == cudf::type_id::STRING;
+    default: return false;
+  }
+}
+
 inline void validate_decode_context(ProtobufDecodeContext const& context)
 {
   auto const num_fields = context.schema.size();
@@ -105,6 +148,55 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
 
   for (size_t i = 0; i < num_fields; ++i) {
     auto const& field = context.schema[i];
+    auto const& type  = context.schema_output_types[i];
+    if (type.id() != field.output_type) {
+      throw std::invalid_argument(
+        "protobuf decode context: schema_output_types id mismatch at field " + std::to_string(i));
+    }
+    if (field.field_number <= 0 || field.field_number > MAX_FIELD_NUMBER) {
+      throw std::invalid_argument("protobuf decode context: invalid field number at field " +
+                                  std::to_string(i));
+    }
+    if (field.parent_idx < -1 || field.parent_idx >= static_cast<int>(i)) {
+      throw std::invalid_argument("protobuf decode context: invalid parent index at field " +
+                                  std::to_string(i));
+    }
+    if (field.parent_idx == -1) {
+      if (field.depth != 0) {
+        throw std::invalid_argument(
+          "protobuf decode context: top-level field must have depth 0 at field " +
+          std::to_string(i));
+      }
+    } else {
+      auto const& parent = context.schema[field.parent_idx];
+      if (field.depth != parent.depth + 1) {
+        throw std::invalid_argument("protobuf decode context: child depth mismatch at field " +
+                                    std::to_string(i));
+      }
+      if (context.schema_output_types[field.parent_idx].id() != cudf::type_id::STRUCT) {
+        throw std::invalid_argument("protobuf decode context: parent must be STRUCT at field " +
+                                    std::to_string(i));
+      }
+    }
+    if (!(field.wire_type == WT_VARINT || field.wire_type == WT_64BIT ||
+          field.wire_type == WT_LEN || field.wire_type == WT_32BIT)) {
+      throw std::invalid_argument("protobuf decode context: invalid wire type at field " +
+                                  std::to_string(i));
+    }
+    if (field.encoding < ENC_DEFAULT || field.encoding > ENC_ENUM_STRING) {
+      throw std::invalid_argument("protobuf decode context: invalid encoding at field " +
+                                  std::to_string(i));
+    }
+    if (field.is_repeated && field.has_default_value) {
+      throw std::invalid_argument(
+        "protobuf decode context: repeated field cannot carry default value at field " +
+        std::to_string(i));
+    }
+    if (!is_encoding_compatible(field, type)) {
+      throw std::invalid_argument(
+        "protobuf decode context: incompatible wire type/encoding/output type at field " +
+        std::to_string(i));
+    }
     if (field.encoding == ENC_ENUM_STRING &&
         context.enum_valid_values[i].size() != context.enum_names[i].size()) {
       throw std::invalid_argument(

@@ -1449,6 +1449,10 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   rep_desc.encoding          = 0;
   rep_desc.is_required       = false;
   rep_desc.has_default_value = false;
+  CUDF_EXPECTS(schema[child_schema_idx].is_repeated,
+               "count_repeated_in_nested_kernel launch requires repeated child schema");
+  CUDF_EXPECTS(rep_desc.depth == 0,
+               "count_repeated_in_nested_kernel launch requires pre-filtered local depth 0");
 
   std::vector<device_nested_field_descriptor> h_rep_schema = {rep_desc};
   rmm::device_uvector<device_nested_field_descriptor> d_rep_schema(1, stream, mr);

@@ -115,4 +115,66 @@ public class ProtobufSchemaDescriptorTest {
             new int[][]{null, null, null, null},
             new byte[][][]{null, null, null, null}));
   }
+
+  @Test
+  void testChildParentMustBeStruct() {
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1, 2},
+            new int[]{-1, 0},
+            new int[]{0, 1},
+            new int[]{Protobuf.WT_VARINT, Protobuf.WT_VARINT},
+            new int[]{
+                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+            new boolean[]{false, false},
+            new boolean[]{false, false},
+            new boolean[]{false, false},
+            new long[]{0, 0},
+            new double[]{0.0, 0.0},
+            new boolean[]{false, false},
+            new byte[][]{null, null},
+            new int[][]{null, null},
+            new byte[][][]{null, null}));
+  }
+
+  @Test
+  void testEncodingCompatibilityValidation() {
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1},
+            new int[]{-1},
+            new int[]{0},
+            new int[]{Protobuf.WT_32BIT},
+            new int[]{ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT},
+            new boolean[]{false},
+            new boolean[]{false},
+            new boolean[]{false},
+            new long[]{0},
+            new double[]{0.0},
+            new boolean[]{false},
+            new byte[][]{null},
+            new int[][]{null},
+            new byte[][][]{null}));
+
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1},
+            new int[]{-1},
+            new int[]{0},
+            new int[]{Protobuf.WT_LEN},
+            new int[]{ai.rapids.cudf.DType.STRING.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_ENUM_STRING},
+            new boolean[]{false},
+            new boolean[]{false},
+            new boolean[]{false},
+            new long[]{0},
+            new double[]{0.0},
+            new boolean[]{false},
+            new byte[][]{null},
+            new int[][]{{0, 1}},
+            new byte[][][]{new byte[][]{"A".getBytes(), "B".getBytes()}}));
+  }
 }
