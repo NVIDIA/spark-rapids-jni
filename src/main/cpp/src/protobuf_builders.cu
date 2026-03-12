@@ -343,10 +343,8 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column
   int child_idx,
   int num_child_fields,
   int total_count,
-  int32_t const* top_row_indices,
   std::vector<int32_t> const& valid_enums,
   std::vector<std::vector<uint8_t>> const& enum_name_bytes,
-  rmm::device_uvector<bool>& d_row_has_invalid_enum,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -385,18 +383,6 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column
     d_valid_enums.data(),
     static_cast<int>(valid_enums.size()),
     total_count);
-
-  if (d_row_has_invalid_enum.size() > 0 && total_count > 0) {
-    auto const* elem_invalid = d_elem_has_invalid_enum.data();
-    auto const* parent_rows  = top_row_indices;
-    auto* row_invalid        = d_row_has_invalid_enum.data();
-    thrust::for_each(rmm::exec_policy(stream),
-                     thrust::make_counting_iterator(0),
-                     thrust::make_counting_iterator(total_count),
-                     [elem_invalid, parent_rows, row_invalid] __device__(int idx) {
-                       if (elem_invalid[idx]) { row_invalid[parent_rows[idx]] = true; }
-                     });
-  }
 
   std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
   int64_t total_name_chars = 0;
@@ -1042,10 +1028,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                           ci,
                                                           num_child_fields,
                                                           total_count,
-                                                          d_top_row_indices.data(),
                                                           enum_valid_values[child_schema_idx],
                                                           enum_names[child_schema_idx],
-                                                          d_row_has_invalid_enum,
                                                           d_error,
                                                           stream,
                                                           mr));
@@ -1701,24 +1685,6 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
           d_valid_enums.data(),
           static_cast<int>(valid_enums.size()),
           total_rep_count);
-
-        if (d_row_has_invalid_enum.size() > 0) {
-          auto const* rep_occs     = d_rep_occs.data();
-          auto const* parent_rows  = top_row_indices;
-          auto const* elem_invalid = d_elem_has_invalid_enum.data();
-          auto* row_invalid        = d_row_has_invalid_enum.data();
-          thrust::for_each(rmm::exec_policy(stream),
-                           thrust::make_counting_iterator(0),
-                           thrust::make_counting_iterator(total_rep_count),
-                           [rep_occs, parent_rows, elem_invalid, row_invalid] __device__(int idx) {
-                             if (elem_invalid[idx]) {
-                               auto const parent_row = rep_occs[idx].row_idx;
-                               auto const top_row =
-                                 parent_rows != nullptr ? parent_rows[parent_row] : parent_row;
-                               row_invalid[top_row] = true;
-                             }
-                           });
-        }
 
         std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
         int64_t total_name_chars = 0;

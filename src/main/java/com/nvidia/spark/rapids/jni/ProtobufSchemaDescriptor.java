@@ -16,6 +16,9 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Immutable descriptor for a flattened protobuf schema, grouping the parallel arrays
  * that describe field structure, types, defaults, and enum metadata.
@@ -159,6 +162,7 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
       throw new IllegalArgumentException("All schema arrays must have the same length");
     }
 
+    Set<Long> seenFieldNumbers = new HashSet<>();
     for (int i = 0; i < n; i++) {
       if (fieldNumbers[i] <= 0 || fieldNumbers[i] > MAX_FIELD_NUMBER) {
         throw new IllegalArgumentException(
@@ -182,6 +186,12 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
               "Field at index " + i + " depth (" + depthLevels[i] +
               ") must be parent depth (" + depthLevels[pi] + ") + 1");
         }
+      }
+      long fieldKey = (((long) pi) << 32) | (fieldNumbers[i] & 0xFFFFFFFFL);
+      if (!seenFieldNumbers.add(fieldKey)) {
+        throw new IllegalArgumentException(
+            "Duplicate field number " + fieldNumbers[i] +
+            " under parent index " + pi + " at schema index " + i);
       }
       int wt = wireTypes[i];
       if (wt != 0 && wt != 1 && wt != 2 && wt != 5) {

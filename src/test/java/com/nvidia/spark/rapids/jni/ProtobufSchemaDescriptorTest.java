@@ -18,6 +18,7 @@ package com.nvidia.spark.rapids.jni;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class ProtobufSchemaDescriptorTest {
@@ -60,5 +61,58 @@ public class ProtobufSchemaDescriptorTest {
     assertThrows(IllegalArgumentException.class, () ->
         makeDescriptor(false, false, Protobuf.ENC_ENUM_STRING, null,
             new byte[][]{"A".getBytes(), "B".getBytes()}));
+  }
+
+  @Test
+  void testDuplicateFieldNumbersUnderSameParentRejected() {
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1, 7, 7},
+            new int[]{-1, 0, 0},
+            new int[]{0, 1, 1},
+            new int[]{Protobuf.WT_LEN, Protobuf.WT_VARINT, Protobuf.WT_VARINT},
+            new int[]{
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+            new boolean[]{false, false, false},
+            new boolean[]{false, false, false},
+            new boolean[]{false, false, false},
+            new long[]{0, 0, 0},
+            new double[]{0.0, 0.0, 0.0},
+            new boolean[]{false, false, false},
+            new byte[][]{null, null, null},
+            new int[][]{null, null, null},
+            new byte[][][]{null, null, null}));
+  }
+
+  @Test
+  void testDuplicateFieldNumbersUnderDifferentParentsAllowed() {
+    assertDoesNotThrow(() ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1, 2, 7, 7},
+            new int[]{-1, -1, 0, 1},
+            new int[]{0, 0, 1, 1},
+            new int[]{Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_VARINT, Protobuf.WT_VARINT},
+            new int[]{
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
+            new int[]{
+                Protobuf.ENC_DEFAULT,
+                Protobuf.ENC_DEFAULT,
+                Protobuf.ENC_DEFAULT,
+                Protobuf.ENC_DEFAULT},
+            new boolean[]{false, false, false, false},
+            new boolean[]{false, false, false, false},
+            new boolean[]{false, false, false, false},
+            new long[]{0, 0, 0, 0},
+            new double[]{0.0, 0.0, 0.0, 0.0},
+            new boolean[]{false, false, false, false},
+            new byte[][]{null, null, null, null},
+            new int[][]{null, null, null, null},
+            new byte[][][]{null, null, null, null}));
   }
 }
