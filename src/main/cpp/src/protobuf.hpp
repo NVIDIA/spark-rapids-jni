@@ -89,9 +89,10 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
                                 std::to_string(num_fields) + ")");
   };
 
-  if (context.schema_output_types.size() != num_fields) fail_size("schema_output_types",
-                                                                   context.schema_output_types.size());
-  if (context.default_ints.size() != num_fields) fail_size("default_ints", context.default_ints.size());
+  if (context.schema_output_types.size() != num_fields)
+    fail_size("schema_output_types", context.schema_output_types.size());
+  if (context.default_ints.size() != num_fields)
+    fail_size("default_ints", context.default_ints.size());
   if (context.default_floats.size() != num_fields)
     fail_size("default_floats", context.default_floats.size());
   if (context.default_bools.size() != num_fields)
@@ -106,13 +107,14 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
     auto const& field = context.schema[i];
     if (field.encoding == ENC_ENUM_STRING &&
         context.enum_valid_values[i].size() != context.enum_names[i].size()) {
-      throw std::invalid_argument("protobuf decode context: enum-as-string metadata mismatch at field " +
-                                  std::to_string(i));
+      throw std::invalid_argument(
+        "protobuf decode context: enum-as-string metadata mismatch at field " + std::to_string(i));
     }
   }
 }
 
-inline ProtobufFieldMetaView make_field_meta_view(ProtobufDecodeContext const& context, int schema_idx)
+inline ProtobufFieldMetaView make_field_meta_view(ProtobufDecodeContext const& context,
+                                                  int schema_idx)
 {
   auto const idx = static_cast<size_t>(schema_idx);
   return ProtobufFieldMetaView{context.schema.at(idx),

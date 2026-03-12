@@ -158,8 +158,8 @@ std::unique_ptr<cudf::column> make_binary_column(std::vector<std::vector<uint8_t
 // Schema + message generators for different benchmark scenarios
 // ---------------------------------------------------------------------------
 
-using nfd = spark_rapids_jni::nested_field_descriptor;
-using pb_field_location = spark_rapids_jni::protobuf_detail::field_location;
+using nfd                    = spark_rapids_jni::nested_field_descriptor;
+using pb_field_location      = spark_rapids_jni::protobuf_detail::field_location;
 using pb_repeated_occurrence = spark_rapids_jni::protobuf_detail::repeated_occurrence;
 
 void encode_string_field_record(std::vector<uint8_t>& buf,
@@ -653,8 +653,8 @@ struct RepeatedChildListCase {
       for (int item_idx = 0; item_idx < num_items; item_idx++) {
         encode_nested_message(buf, 2, [&](std::vector<uint8_t>& inner) {
           for (int child_idx = 0; child_idx < num_repeated_children; child_idx++) {
-            int fn       = child_idx + 1;
-            bool is_str  = child_is_string(child_idx);
+            int fn        = child_idx + 1;
+            bool is_str   = child_is_string(child_idx);
             int num_elems = vary(avg_child_elems);
             if (is_str) {
               for (int j = 0; j < num_elems; j++) {
@@ -714,7 +714,7 @@ struct RepeatedChildStringOnlyCase {
     for (int row = 0; row < num_rows; row++) {
       auto& buf = out.messages[row];
       for (int child_idx = 0; child_idx < num_repeated_children; child_idx++) {
-        int fn      = child_idx + 1;
+        int fn        = child_idx + 1;
         int num_elems = vary(avg_child_elems);
         out.counts_by_child[child_idx].push_back(num_elems);
         for (int j = 0; j < num_elems; j++) {
@@ -1018,9 +1018,8 @@ static void BM_protobuf_repeated_child_string_count_scan(nvbench::state& state)
   auto binary_col = make_binary_column(data.messages);
 
   cudf::lists_column_view in_list(binary_col->view());
-  auto const* row_offsets = in_list.offsets().data<cudf::size_type>();
-  auto const* message_data =
-    reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
+  auto const* row_offsets      = in_list.offsets().data<cudf::size_type>();
+  auto const* message_data     = reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
   auto const message_data_size = static_cast<cudf::size_type>(in_list.child().size());
 
   auto stream = cudf::get_default_stream();
@@ -1076,19 +1075,20 @@ static void BM_protobuf_repeated_child_string_count_scan(nvbench::state& state)
 
     rmm::device_uvector<spark_rapids_jni::protobuf_detail::repeated_field_info> d_rep_info(
       static_cast<size_t>(num_rows) * num_repeated_children, stream, mr);
-    spark_rapids_jni::protobuf_detail::count_repeated_in_nested_kernel<<<
-      (num_rows + 255) / 256, 256, 0, stream.value()>>>(message_data,
-                                                         message_data_size,
-                                                         row_offsets,
-                                                         0,
-                                                         d_parent_locs.data(),
-                                                         num_rows,
-                                                         d_schema.data(),
-                                                         num_repeated_children,
-                                                         d_rep_info.data(),
-                                                         num_repeated_children,
-                                                         d_rep_indices.data(),
-                                                         d_error.data());
+    spark_rapids_jni::protobuf_detail::
+      count_repeated_in_nested_kernel<<<(num_rows + 255) / 256, 256, 0, stream.value()>>>(
+        message_data,
+        message_data_size,
+        row_offsets,
+        0,
+        d_parent_locs.data(),
+        num_rows,
+        d_schema.data(),
+        num_repeated_children,
+        d_rep_info.data(),
+        num_repeated_children,
+        d_rep_indices.data(),
+        d_error.data());
 
     struct rep_work {
       rmm::device_uvector<int32_t> counts;
@@ -1125,21 +1125,21 @@ static void BM_protobuf_repeated_child_string_count_scan(nvbench::state& state)
     for (int ri = 0; ri < num_repeated_children; ri++) {
       auto& w = *work[ri];
       if (w.total_count > 0) {
-        w.occs = std::make_unique<rmm::device_uvector<pb_repeated_occurrence>>(w.total_count,
-                                                                                stream,
-                                                                                mr);
-        spark_rapids_jni::protobuf_detail::scan_repeated_in_nested_kernel<<<
-          (num_rows + 255) / 256, 256, 0, stream.value()>>>(message_data,
-                                                             message_data_size,
-                                                             row_offsets,
-                                                             0,
-                                                             d_parent_locs.data(),
-                                                             num_rows,
-                                                             d_schema.data(),
-                                                             w.offsets.data(),
-                                                             d_rep_indices.data() + ri,
-                                                             w.occs->data(),
-                                                             d_error.data());
+        w.occs =
+          std::make_unique<rmm::device_uvector<pb_repeated_occurrence>>(w.total_count, stream, mr);
+        spark_rapids_jni::protobuf_detail::
+          scan_repeated_in_nested_kernel<<<(num_rows + 255) / 256, 256, 0, stream.value()>>>(
+            message_data,
+            message_data_size,
+            row_offsets,
+            0,
+            d_parent_locs.data(),
+            num_rows,
+            d_schema.data(),
+            w.offsets.data(),
+            d_rep_indices.data() + ri,
+            w.occs->data(),
+            d_error.data());
       }
     }
   });
@@ -1169,9 +1169,8 @@ static void BM_protobuf_repeated_child_string_build(nvbench::state& state)
   auto binary_col = make_binary_column(data.messages);
 
   cudf::lists_column_view in_list(binary_col->view());
-  auto const* row_offsets = in_list.offsets().data<cudf::size_type>();
-  auto const* message_data =
-    reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
+  auto const* row_offsets  = in_list.offsets().data<cudf::size_type>();
+  auto const* message_data = reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
 
   auto stream = cudf::get_default_stream();
   auto mr     = cudf::get_current_device_resource_ref();
@@ -1240,14 +1239,24 @@ static void BM_protobuf_repeated_child_string_build(nvbench::state& state)
         row_offsets, 0, d_parent_locs.data(), c.occs.data()};
       auto valid_fn = [] __device__(cudf::size_type) { return true; };
       std::vector<uint8_t> empty_default;
-      auto child_values = spark_rapids_jni::protobuf_detail::extract_and_build_string_or_bytes_column(
-        false, message_data, c.total_count, nr_loc, nr_loc, valid_fn, false, empty_default, d_error, stream, mr);
+      auto child_values =
+        spark_rapids_jni::protobuf_detail::extract_and_build_string_or_bytes_column(false,
+                                                                                    message_data,
+                                                                                    c.total_count,
+                                                                                    nr_loc,
+                                                                                    nr_loc,
+                                                                                    valid_fn,
+                                                                                    false,
+                                                                                    empty_default,
+                                                                                    d_error,
+                                                                                    stream,
+                                                                                    mr);
       auto list_offs_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                           num_rows + 1,
                                                           list_offs.release(),
                                                           rmm::device_buffer{},
                                                           0);
-      auto result = cudf::make_lists_column(
+      auto result        = cudf::make_lists_column(
         num_rows, std::move(list_offs_col), std::move(child_values), 0, rmm::device_buffer{});
     }
   });
