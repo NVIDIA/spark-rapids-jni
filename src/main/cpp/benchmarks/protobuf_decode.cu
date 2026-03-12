@@ -23,6 +23,7 @@
 
 #include <nvbench/nvbench.cuh>
 #include <protobuf.hpp>
+#include <protobuf_common.cuh>
 
 #include <algorithm>
 #include <cstdint>
@@ -158,6 +159,21 @@ std::unique_ptr<cudf::column> make_binary_column(std::vector<std::vector<uint8_t
 // ---------------------------------------------------------------------------
 
 using nfd = spark_rapids_jni::nested_field_descriptor;
+using pb_field_location = spark_rapids_jni::protobuf_detail::field_location;
+using pb_repeated_occurrence = spark_rapids_jni::protobuf_detail::repeated_occurrence;
+
+void encode_string_field_record(std::vector<uint8_t>& buf,
+                                int field_number,
+                                std::string const& s,
+                                std::vector<pb_repeated_occurrence>& out_occurrences,
+                                int32_t row_idx)
+{
+  encode_tag(buf, field_number, /*WT_LEN=*/2);
+  encode_varint(buf, s.size());
+  auto const data_offset = static_cast<int32_t>(buf.size());
+  buf.insert(buf.end(), s.begin(), s.end());
+  out_occurrences.push_back({row_idx, data_offset, static_cast<int32_t>(s.size())});
+}
 
 // Case 1: Flat scalars only — many top-level scalar fields.
 //   message FlatMessage {
@@ -548,7 +564,171 @@ struct WideRepeatedMessageCase {
   }
 };
 
-// Case 4: Many repeated fields — stress-tests per-repeated-field sync overhead.
+// Case 5: Repeated child lists — stress-tests repeated fields inside a repeated
+// struct child, which exercises build_repeated_child_list_column().
+//   message OuterMessage {
+//     int32         id = 1;
+//     repeated Item items = 2;
+//   }
+//   message Item {
+//     repeated int32  r_int_* = 1..N
+//     repeated string r_str_* = ...
+//   }
+//
+// This case is intentionally generic and contains no customer schema details.
+struct RepeatedChildListCase {
+  int num_repeated_children;
+  int avg_items_per_row;
+  int avg_child_elems;
+  std::string child_mix;
+
+  bool child_is_string(int child_idx) const
+  {
+    if (child_mix == "string_only") return true;
+    if (child_mix == "int_only") return false;
+    return (child_idx % 4 == 3);
+  }
+
+  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  {
+    spark_rapids_jni::ProtobufDecodeContext ctx;
+    ctx.fail_on_errors = true;
+
+    // idx 0: id (scalar)
+    ctx.schema.push_back({1, -1, 0, 0, cudf::type_id::INT32, 0, false, false, false});
+    // idx 1: items (repeated STRUCT)
+    ctx.schema.push_back({2, -1, 0, 2, cudf::type_id::STRUCT, 0, true, false, false});
+
+    for (int i = 0; i < num_repeated_children; i++) {
+      bool as_string = child_is_string(i);
+      ctx.schema.push_back({i + 1,
+                            1,
+                            1,
+                            as_string ? 2 : 0,
+                            as_string ? cudf::type_id::STRING : cudf::type_id::INT32,
+                            0,
+                            true,
+                            false,
+                            false});
+    }
+
+    size_t n = ctx.schema.size();
+    for (auto const& f : ctx.schema) {
+      ctx.schema_output_types.emplace_back(f.output_type);
+    }
+    ctx.default_ints.resize(n, 0);
+    ctx.default_floats.resize(n, 0.0);
+    ctx.default_bools.resize(n, false);
+    ctx.default_strings.resize(n);
+    ctx.enum_valid_values.resize(n);
+    ctx.enum_names.resize(n);
+    return ctx;
+  }
+
+  std::vector<std::vector<uint8_t>> generate_messages(int num_rows, std::mt19937& rng) const
+  {
+    std::vector<std::vector<uint8_t>> messages(num_rows);
+    std::uniform_int_distribution<int32_t> int_dist(0, 100000);
+    std::uniform_int_distribution<int> str_len_dist(4, 16);
+    std::string alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+    auto random_string = [&](int len) {
+      std::string s(len, ' ');
+      for (int c = 0; c < len; c++)
+        s[c] = alphabet[rng() % alphabet.size()];
+      return s;
+    };
+
+    auto vary = [&](int avg) -> int {
+      int lo = std::max(0, avg / 2);
+      int hi = avg + avg / 2;
+      return std::uniform_int_distribution<int>(lo, std::max(lo, hi))(rng);
+    };
+
+    for (int r = 0; r < num_rows; r++) {
+      auto& buf = messages[r];
+      encode_varint_field(buf, 1, int_dist(rng));
+
+      int num_items = vary(avg_items_per_row);
+      for (int item_idx = 0; item_idx < num_items; item_idx++) {
+        encode_nested_message(buf, 2, [&](std::vector<uint8_t>& inner) {
+          for (int child_idx = 0; child_idx < num_repeated_children; child_idx++) {
+            int fn       = child_idx + 1;
+            bool is_str  = child_is_string(child_idx);
+            int num_elems = vary(avg_child_elems);
+            if (is_str) {
+              for (int j = 0; j < num_elems; j++) {
+                encode_string_field(inner, fn, random_string(str_len_dist(rng)));
+              }
+            } else {
+              if (num_elems > 0) {
+                std::vector<int32_t> vals(num_elems);
+                for (auto& v : vals)
+                  v = int_dist(rng);
+                encode_packed_repeated_int32(inner, fn, vals);
+              }
+            }
+          }
+        });
+      }
+    }
+    return messages;
+  }
+};
+
+struct RepeatedChildStringBenchData {
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<pb_field_location> parent_locs;
+  std::vector<std::vector<int32_t>> counts_by_child;
+  std::vector<std::vector<pb_repeated_occurrence>> occurrences_by_child;
+};
+
+struct RepeatedChildStringOnlyCase {
+  int num_repeated_children;
+  int avg_child_elems;
+
+  RepeatedChildStringBenchData generate_data(int num_rows, std::mt19937& rng) const
+  {
+    RepeatedChildStringBenchData out;
+    out.messages.resize(num_rows);
+    out.parent_locs.resize(num_rows);
+    out.counts_by_child.resize(num_repeated_children);
+    out.occurrences_by_child.resize(num_repeated_children);
+
+    std::uniform_int_distribution<int> str_len_dist(4, 16);
+    std::string alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+    auto random_string = [&](int len) {
+      std::string s(len, ' ');
+      for (int c = 0; c < len; c++)
+        s[c] = alphabet[rng() % alphabet.size()];
+      return s;
+    };
+
+    auto vary = [&](int avg) -> int {
+      int lo = std::max(0, avg / 2);
+      int hi = avg + avg / 2;
+      return std::uniform_int_distribution<int>(lo, std::max(lo, hi))(rng);
+    };
+
+    for (int row = 0; row < num_rows; row++) {
+      auto& buf = out.messages[row];
+      for (int child_idx = 0; child_idx < num_repeated_children; child_idx++) {
+        int fn      = child_idx + 1;
+        int num_elems = vary(avg_child_elems);
+        out.counts_by_child[child_idx].push_back(num_elems);
+        for (int j = 0; j < num_elems; j++) {
+          encode_string_field_record(
+            buf, fn, random_string(str_len_dist(rng)), out.occurrences_by_child[child_idx], row);
+        }
+      }
+      out.parent_locs[row] = {0, static_cast<int32_t>(buf.size())};
+    }
+    return out;
+  }
+};
+
+// Case 6: Many repeated fields — stress-tests per-repeated-field sync overhead.
 //   message WideRepeatedMessage {
 //     int32              id = 1;
 //     repeated int32     r_int_1 = 2;
@@ -783,7 +963,307 @@ NVBENCH_BENCH(BM_protobuf_wide_repeated_message)
   .add_int64_axis("avg_items", {1, 5, 10});
 
 // ===========================================================================
-// Benchmark 5: Many repeated fields — measures per-field sync overhead at scale
+// Benchmark 5: Repeated child lists — measures repeated-in-nested list overhead
+// ===========================================================================
+static void BM_protobuf_repeated_child_lists(nvbench::state& state)
+{
+  auto const num_rows              = static_cast<int>(state.get_int64("num_rows"));
+  auto const num_repeated_children = static_cast<int>(state.get_int64("num_repeated_children"));
+  auto const avg_items             = static_cast<int>(state.get_int64("avg_items"));
+  auto const avg_child_elems       = static_cast<int>(state.get_int64("avg_child_elems"));
+  auto const child_mix             = state.get_string("child_mix");
+
+  RepeatedChildListCase list_case{
+    num_repeated_children, avg_items, avg_child_elems, std::string(child_mix)};
+  auto ctx = list_case.build_context();
+
+  std::mt19937 rng(42);
+  auto messages   = list_case.generate_messages(num_rows, rng);
+  auto binary_col = make_binary_column(messages);
+
+  size_t total_bytes = 0;
+  for (auto const& m : messages)
+    total_bytes += m.size();
+
+  auto stream = cudf::get_default_stream();
+  state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
+    auto result = spark_rapids_jni::decode_protobuf_to_struct(binary_col->view(), ctx, stream);
+  });
+
+  state.add_element_count(num_rows, "Rows");
+  state.add_global_memory_reads<nvbench::int8_t>(total_bytes);
+}
+
+NVBENCH_BENCH(BM_protobuf_repeated_child_lists)
+  .set_name("Protobuf Repeated Child Lists")
+  .add_int64_axis("num_rows", {10'000, 20'000})
+  .add_int64_axis("num_repeated_children", {1, 4, 8})
+  .add_int64_axis("avg_items", {1, 5})
+  .add_int64_axis("avg_child_elems", {1, 5})
+  .add_string_axis("child_mix", {"int_only", "mixed", "string_only"});
+
+// ===========================================================================
+// Benchmark 6: Repeated child string count+scan only
+// ===========================================================================
+static void BM_protobuf_repeated_child_string_count_scan(nvbench::state& state)
+{
+  auto const num_rows              = static_cast<int>(state.get_int64("num_rows"));
+  auto const num_repeated_children = static_cast<int>(state.get_int64("num_repeated_children"));
+  auto const avg_child_elems       = static_cast<int>(state.get_int64("avg_child_elems"));
+
+  RepeatedChildStringOnlyCase list_case{num_repeated_children, avg_child_elems};
+  std::mt19937 rng(42);
+  auto data       = list_case.generate_data(num_rows, rng);
+  auto binary_col = make_binary_column(data.messages);
+
+  cudf::lists_column_view in_list(binary_col->view());
+  auto const* row_offsets = in_list.offsets().data<cudf::size_type>();
+  auto const* message_data =
+    reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
+  auto const message_data_size = static_cast<cudf::size_type>(in_list.child().size());
+
+  auto stream = cudf::get_default_stream();
+  auto mr     = cudf::get_current_device_resource_ref();
+
+  rmm::device_uvector<pb_field_location> d_parent_locs(num_rows, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_parent_locs.data(),
+                                data.parent_locs.data(),
+                                num_rows * sizeof(pb_field_location),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  std::vector<spark_rapids_jni::protobuf_detail::device_nested_field_descriptor> h_schema(
+    num_repeated_children);
+  for (int i = 0; i < num_repeated_children; i++) {
+    h_schema[i].field_number      = i + 1;
+    h_schema[i].parent_idx        = -1;
+    h_schema[i].depth             = 0;
+    h_schema[i].wire_type         = spark_rapids_jni::protobuf_detail::WT_LEN;
+    h_schema[i].output_type_id    = static_cast<int>(cudf::type_id::STRING);
+    h_schema[i].encoding          = 0;
+    h_schema[i].is_repeated       = true;
+    h_schema[i].is_required       = false;
+    h_schema[i].has_default_value = false;
+  }
+  rmm::device_uvector<spark_rapids_jni::protobuf_detail::device_nested_field_descriptor> d_schema(
+    num_repeated_children, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_schema.data(),
+                                h_schema.data(),
+                                num_repeated_children * sizeof(h_schema[0]),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  std::vector<int> h_rep_indices(num_repeated_children);
+  for (int i = 0; i < num_repeated_children; i++) {
+    h_rep_indices[i] = i;
+  }
+  rmm::device_uvector<int> d_rep_indices(num_repeated_children, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_rep_indices.data(),
+                                h_rep_indices.data(),
+                                num_repeated_children * sizeof(int),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  size_t total_bytes = 0;
+  for (auto const& m : data.messages)
+    total_bytes += m.size();
+
+  state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
+    rmm::device_uvector<int> d_error(1, stream, mr);
+    CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
+
+    rmm::device_uvector<spark_rapids_jni::protobuf_detail::repeated_field_info> d_rep_info(
+      static_cast<size_t>(num_rows) * num_repeated_children, stream, mr);
+    spark_rapids_jni::protobuf_detail::count_repeated_in_nested_kernel<<<
+      (num_rows + 255) / 256, 256, 0, stream.value()>>>(message_data,
+                                                         message_data_size,
+                                                         row_offsets,
+                                                         0,
+                                                         d_parent_locs.data(),
+                                                         num_rows,
+                                                         d_schema.data(),
+                                                         num_repeated_children,
+                                                         d_rep_info.data(),
+                                                         num_repeated_children,
+                                                         d_rep_indices.data(),
+                                                         d_error.data());
+
+    struct rep_work {
+      rmm::device_uvector<int32_t> counts;
+      rmm::device_uvector<int32_t> offsets;
+      int32_t total_count{0};
+      std::unique_ptr<rmm::device_uvector<pb_repeated_occurrence>> occs;
+      rep_work(int n, rmm::cuda_stream_view s, rmm::device_async_resource_ref m)
+        : counts(n, s, m), offsets(n + 1, s, m)
+      {
+      }
+    };
+
+    std::vector<std::unique_ptr<rep_work>> work;
+    work.reserve(num_repeated_children);
+    for (int ri = 0; ri < num_repeated_children; ri++) {
+      auto& w = *work.emplace_back(std::make_unique<rep_work>(num_rows, stream, mr));
+      thrust::transform(rmm::exec_policy(stream),
+                        thrust::make_counting_iterator(0),
+                        thrust::make_counting_iterator(num_rows),
+                        w.counts.data(),
+                        spark_rapids_jni::protobuf_detail::extract_strided_count{
+                          d_rep_info.data(), ri, num_repeated_children});
+      CUDF_CUDA_TRY(cudaMemsetAsync(w.offsets.data(), 0, sizeof(int32_t), stream.value()));
+      thrust::inclusive_scan(
+        rmm::exec_policy(stream), w.counts.begin(), w.counts.end(), w.offsets.data() + 1);
+      CUDF_CUDA_TRY(cudaMemcpyAsync(&w.total_count,
+                                    w.offsets.data() + num_rows,
+                                    sizeof(int32_t),
+                                    cudaMemcpyDeviceToHost,
+                                    stream.value()));
+    }
+    stream.synchronize();
+
+    for (int ri = 0; ri < num_repeated_children; ri++) {
+      auto& w = *work[ri];
+      if (w.total_count > 0) {
+        w.occs = std::make_unique<rmm::device_uvector<pb_repeated_occurrence>>(w.total_count,
+                                                                                stream,
+                                                                                mr);
+        spark_rapids_jni::protobuf_detail::scan_repeated_in_nested_kernel<<<
+          (num_rows + 255) / 256, 256, 0, stream.value()>>>(message_data,
+                                                             message_data_size,
+                                                             row_offsets,
+                                                             0,
+                                                             d_parent_locs.data(),
+                                                             num_rows,
+                                                             d_schema.data(),
+                                                             w.offsets.data(),
+                                                             d_rep_indices.data() + ri,
+                                                             w.occs->data(),
+                                                             d_error.data());
+      }
+    }
+  });
+
+  state.add_element_count(num_rows, "Rows");
+  state.add_global_memory_reads<nvbench::int8_t>(total_bytes);
+}
+
+NVBENCH_BENCH(BM_protobuf_repeated_child_string_count_scan)
+  .set_name("Protobuf Repeated Child String CountScan")
+  .add_int64_axis("num_rows", {10'000, 20'000})
+  .add_int64_axis("num_repeated_children", {1, 4, 8})
+  .add_int64_axis("avg_child_elems", {1, 5});
+
+// ===========================================================================
+// Benchmark 7: Repeated child string build-only
+// ===========================================================================
+static void BM_protobuf_repeated_child_string_build(nvbench::state& state)
+{
+  auto const num_rows              = static_cast<int>(state.get_int64("num_rows"));
+  auto const num_repeated_children = static_cast<int>(state.get_int64("num_repeated_children"));
+  auto const avg_child_elems       = static_cast<int>(state.get_int64("avg_child_elems"));
+
+  RepeatedChildStringOnlyCase list_case{num_repeated_children, avg_child_elems};
+  std::mt19937 rng(42);
+  auto data       = list_case.generate_data(num_rows, rng);
+  auto binary_col = make_binary_column(data.messages);
+
+  cudf::lists_column_view in_list(binary_col->view());
+  auto const* row_offsets = in_list.offsets().data<cudf::size_type>();
+  auto const* message_data =
+    reinterpret_cast<uint8_t const*>(in_list.child().data<int8_t>());
+
+  auto stream = cudf::get_default_stream();
+  auto mr     = cudf::get_current_device_resource_ref();
+
+  rmm::device_uvector<pb_field_location> d_parent_locs(num_rows, stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_parent_locs.data(),
+                                data.parent_locs.data(),
+                                num_rows * sizeof(pb_field_location),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  struct precomputed_child {
+    rmm::device_uvector<int32_t> counts;
+    rmm::device_uvector<pb_repeated_occurrence> occs;
+    int total_count;
+    precomputed_child(int nrows,
+                      int total,
+                      rmm::cuda_stream_view s,
+                      rmm::device_async_resource_ref m)
+      : counts(nrows, s, m), occs(total, s, m), total_count(total)
+    {
+    }
+  };
+
+  std::vector<std::unique_ptr<precomputed_child>> children;
+  children.reserve(num_repeated_children);
+  for (int i = 0; i < num_repeated_children; i++) {
+    int total = static_cast<int>(data.occurrences_by_child[i].size());
+    auto& c =
+      *children.emplace_back(std::make_unique<precomputed_child>(num_rows, total, stream, mr));
+    CUDF_CUDA_TRY(cudaMemcpyAsync(c.counts.data(),
+                                  data.counts_by_child[i].data(),
+                                  num_rows * sizeof(int32_t),
+                                  cudaMemcpyHostToDevice,
+                                  stream.value()));
+    if (total > 0) {
+      CUDF_CUDA_TRY(cudaMemcpyAsync(c.occs.data(),
+                                    data.occurrences_by_child[i].data(),
+                                    total * sizeof(pb_repeated_occurrence),
+                                    cudaMemcpyHostToDevice,
+                                    stream.value()));
+    }
+  }
+
+  size_t total_bytes = 0;
+  for (auto const& m : data.messages)
+    total_bytes += m.size();
+
+  state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
+    rmm::device_uvector<int> d_error(1, stream, mr);
+    CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
+
+    for (int i = 0; i < num_repeated_children; i++) {
+      auto& c = *children[i];
+      rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
+      thrust::exclusive_scan(
+        rmm::exec_policy(stream), c.counts.begin(), c.counts.end(), list_offs.begin(), 0);
+      CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
+                                    &c.total_count,
+                                    sizeof(int32_t),
+                                    cudaMemcpyHostToDevice,
+                                    stream.value()));
+
+      spark_rapids_jni::protobuf_detail::NestedRepeatedLocationProvider nr_loc{
+        row_offsets, 0, d_parent_locs.data(), c.occs.data()};
+      auto valid_fn = [] __device__(cudf::size_type) { return true; };
+      std::vector<uint8_t> empty_default;
+      auto child_values = spark_rapids_jni::protobuf_detail::extract_and_build_string_or_bytes_column(
+        false, message_data, c.total_count, nr_loc, nr_loc, valid_fn, false, empty_default, d_error, stream, mr);
+      auto list_offs_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
+                                                          num_rows + 1,
+                                                          list_offs.release(),
+                                                          rmm::device_buffer{},
+                                                          0);
+      auto result = cudf::make_lists_column(
+        num_rows, std::move(list_offs_col), std::move(child_values), 0, rmm::device_buffer{});
+    }
+  });
+
+  state.add_element_count(num_rows, "Rows");
+  state.add_global_memory_reads<nvbench::int8_t>(total_bytes);
+}
+
+NVBENCH_BENCH(BM_protobuf_repeated_child_string_build)
+  .set_name("Protobuf Repeated Child String Build")
+  .add_int64_axis("num_rows", {10'000, 20'000})
+  .add_int64_axis("num_repeated_children", {1, 4, 8})
+  .add_int64_axis("avg_child_elems", {1, 5});
+
+// ===========================================================================
+// Benchmark 8: Many repeated fields — measures per-field sync overhead at scale
 // ===========================================================================
 static void BM_protobuf_many_repeated(nvbench::state& state)
 {

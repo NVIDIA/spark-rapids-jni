@@ -23,6 +23,8 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace spark_rapids_jni {
@@ -66,6 +68,62 @@ struct ProtobufDecodeContext {
   std::vector<std::vector<std::vector<uint8_t>>> enum_names;
   bool fail_on_errors;
 };
+
+struct ProtobufFieldMetaView {
+  nested_field_descriptor const& schema;
+  cudf::data_type const& output_type;
+  int64_t default_int;
+  double default_float;
+  bool default_bool;
+  std::vector<uint8_t> const& default_string;
+  std::vector<int32_t> const& enum_valid_values;
+  std::vector<std::vector<uint8_t>> const& enum_names;
+};
+
+inline void validate_decode_context(ProtobufDecodeContext const& context)
+{
+  auto const num_fields = context.schema.size();
+  auto const fail_size  = [&](char const* name, size_t actual) {
+    throw std::invalid_argument(std::string("protobuf decode context: ") + name +
+                                " size mismatch with schema (" + std::to_string(actual) + " vs " +
+                                std::to_string(num_fields) + ")");
+  };
+
+  if (context.schema_output_types.size() != num_fields) fail_size("schema_output_types",
+                                                                   context.schema_output_types.size());
+  if (context.default_ints.size() != num_fields) fail_size("default_ints", context.default_ints.size());
+  if (context.default_floats.size() != num_fields)
+    fail_size("default_floats", context.default_floats.size());
+  if (context.default_bools.size() != num_fields)
+    fail_size("default_bools", context.default_bools.size());
+  if (context.default_strings.size() != num_fields)
+    fail_size("default_strings", context.default_strings.size());
+  if (context.enum_valid_values.size() != num_fields)
+    fail_size("enum_valid_values", context.enum_valid_values.size());
+  if (context.enum_names.size() != num_fields) fail_size("enum_names", context.enum_names.size());
+
+  for (size_t i = 0; i < num_fields; ++i) {
+    auto const& field = context.schema[i];
+    if (field.encoding == ENC_ENUM_STRING &&
+        context.enum_valid_values[i].size() != context.enum_names[i].size()) {
+      throw std::invalid_argument("protobuf decode context: enum-as-string metadata mismatch at field " +
+                                  std::to_string(i));
+    }
+  }
+}
+
+inline ProtobufFieldMetaView make_field_meta_view(ProtobufDecodeContext const& context, int schema_idx)
+{
+  auto const idx = static_cast<size_t>(schema_idx);
+  return ProtobufFieldMetaView{context.schema.at(idx),
+                               context.schema_output_types.at(idx),
+                               context.default_ints.at(idx),
+                               context.default_floats.at(idx),
+                               context.default_bools.at(idx),
+                               context.default_strings.at(idx),
+                               context.enum_valid_values.at(idx),
+                               context.enum_names.at(idx)};
+}
 
 /**
  * Decode protobuf messages (one message per row) from a LIST<INT8/UINT8> column into a STRUCT

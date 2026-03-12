@@ -26,6 +26,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                         ProtobufDecodeContext const& context,
                                                         rmm::cuda_stream_view stream)
 {
+  validate_decode_context(context);
   auto const& schema              = context.schema;
   auto const& schema_output_types = context.schema_output_types;
   auto const& default_ints        = context.default_ints;
@@ -462,10 +463,11 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       // Per-field fallback (INT32 with enum, etc.)
       for (int i : group_lists[GRP_FALLBACK]) {
-        int schema_idx = scalar_field_indices[i];
-        auto const dt  = schema_output_types[schema_idx];
-        auto const enc = schema[schema_idx].encoding;
-        bool has_def   = schema[schema_idx].has_default_value;
+        int schema_idx        = scalar_field_indices[i];
+        auto const field_meta = make_field_meta_view(context, schema_idx);
+        auto const dt         = field_meta.output_type;
+        auto const enc        = field_meta.schema.encoding;
+        bool has_def          = field_meta.schema.has_default_value;
         TopLevelLocationProvider loc_provider{
           list_offsets, base_offset, d_locations.data(), i, num_scalar};
         column_map[schema_idx] = extract_typed_column(dt,
@@ -476,10 +478,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                       blocks,
                                                       threads,
                                                       has_def,
-                                                      has_def ? default_ints[schema_idx] : 0,
-                                                      has_def ? default_floats[schema_idx] : 0.0,
-                                                      has_def ? default_bools[schema_idx] : false,
-                                                      default_strings[schema_idx],
+                                                      has_def ? field_meta.default_int : 0,
+                                                      has_def ? field_meta.default_float : 0.0,
+                                                      has_def ? field_meta.default_bool : false,
+                                                      field_meta.default_string,
                                                       schema_idx,
                                                       enum_valid_values,
                                                       enum_names,
@@ -492,11 +494,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
     // Per-field extraction for STRING and LIST types
     for (int i = 0; i < num_scalar; i++) {
-      int schema_idx = scalar_field_indices[i];
-      auto const dt  = schema_output_types[schema_idx];
+      int schema_idx        = scalar_field_indices[i];
+      auto const field_meta = make_field_meta_view(context, schema_idx);
+      auto const dt         = field_meta.output_type;
       if (dt.id() != cudf::type_id::STRING && dt.id() != cudf::type_id::LIST) continue;
-      auto const enc = schema[schema_idx].encoding;
-      bool has_def   = schema[schema_idx].has_default_value;
+      auto const enc = field_meta.schema.encoding;
+      bool has_def   = field_meta.schema.has_default_value;
 
       switch (dt.id()) {
         case cudf::type_id::STRING: {
@@ -507,7 +510,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             // 3. Convert INT32 -> UTF-8 enum name bytes.
             rmm::device_uvector<int32_t> out(num_rows, stream, mr);
             rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
-            int64_t def_int = has_def ? default_ints[schema_idx] : 0;
+            int64_t def_int = has_def ? field_meta.default_int : 0;
             TopLevelLocationProvider loc_provider{
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
             extract_varint_kernel<int32_t, false, TopLevelLocationProvider>
@@ -553,7 +556,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           } else {
             // Regular protobuf STRING (length-delimited)
             bool has_def_str    = has_def;
-            auto const& def_str = default_strings[schema_idx];
+            auto const& def_str = field_meta.default_string;
             TopLevelLocationProvider len_provider{
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
             TopLevelLocationProvider copy_provider{
@@ -579,7 +582,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         case cudf::type_id::LIST: {
           // bytes (BinaryType) represented as LIST<UINT8>
           bool has_def_bytes    = has_def;
-          auto const& def_bytes = default_strings[schema_idx];
+          auto const& def_bytes = field_meta.default_string;
           TopLevelLocationProvider len_provider{
             list_offsets, base_offset, d_locations.data(), i, num_scalar};
           TopLevelLocationProvider copy_provider{
@@ -832,12 +835,11 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                     mr);
             break;
           case cudf::type_id::STRING: {
-            auto enc = schema[schema_idx].encoding;
+            auto const field_meta = make_field_meta_view(context, schema_idx);
+            auto enc              = field_meta.schema.encoding;
             if (enc == spark_rapids_jni::ENC_ENUM_STRING) {
-              if (schema_idx < static_cast<int>(enum_valid_values.size()) &&
-                  schema_idx < static_cast<int>(enum_names.size()) &&
-                  !enum_valid_values[schema_idx].empty() &&
-                  enum_valid_values[schema_idx].size() == enum_names[schema_idx].size()) {
+              if (!field_meta.enum_valid_values.empty() &&
+                  field_meta.enum_valid_values.size() == field_meta.enum_names.size()) {
                 column_map[schema_idx] =
                   build_repeated_enum_string_column(binary_input,
                                                     message_data,
@@ -847,8 +849,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                     d_occurrences,
                                                     total_count,
                                                     num_rows,
-                                                    enum_valid_values[schema_idx],
-                                                    enum_names[schema_idx],
+                                                    field_meta.enum_valid_values,
+                                                    field_meta.enum_names,
                                                     d_row_has_invalid_enum,
                                                     d_error,
                                                     stream,

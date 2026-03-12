@@ -194,6 +194,16 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
         throw new IllegalArgumentException(
             "Invalid encoding at index " + i + ": " + enc);
       }
+      if (isRepeated[i] && hasDefaultValue[i]) {
+        throw new IllegalArgumentException(
+            "Repeated field at index " + i + " cannot carry a default value");
+      }
+      if (enc == Protobuf.ENC_ENUM_STRING &&
+          (enumValidValues[i] == null || enumNames[i] == null)) {
+        throw new IllegalArgumentException(
+            "Enum-as-string field at index " + i +
+            " must provide both enumValidValues and enumNames");
+      }
       if (enumValidValues[i] != null) {
         int[] ev = enumValidValues[i];
         for (int j = 1; j < ev.length; j++) {
