@@ -33,20 +33,6 @@ public class BloomFilter {
   }
 
   /**
-   * Create a V2 bloom filter with the specified number of hashes and bloom filter bits,
-   * using the default seed (0).
-   *
-   * @param numHashes Number of bit positions set (and checked) per key. Higher values reduce
-   *        false positives but increase work per put/probe.
-   * @param bloomFilterBits Total size of the bloom filter in bits (will be rounded up to a
-   *        multiple of 64).
-   * @return A Scalar wrapping the GPU bloom filter (Spark V2 format).
-   */
-  public static Scalar create(int numHashes, long bloomFilterBits) {
-    return create(VERSION_2, numHashes, bloomFilterBits, DEFAULT_SEED);
-  }
-
-  /**
    * Create a bloom filter with the specified version, number of hashes, bloom filter bits,
    * and hash seed.
    *

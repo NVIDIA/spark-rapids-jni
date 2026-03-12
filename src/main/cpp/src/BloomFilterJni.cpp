@@ -20,6 +20,8 @@
 #include "jni_utils.hpp"
 #include "utilities.hpp"
 
+#include <limits>
+
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_creategpu(
@@ -29,7 +31,13 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_creategpu(
   {
     cudf::jni::auto_set_device(env);
 
-    int bloom_filter_longs = static_cast<int>((bloomFilterBits + 63) / 64);
+    jlong bloom_filter_longs_long = (bloomFilterBits + 63) / 64;
+    JNI_ARG_CHECK(
+      env,
+      bloom_filter_longs_long >= 0 && bloom_filter_longs_long <= std::numeric_limits<int>::max(),
+      "bloom filter bit count overflows int when converted to longs",
+      0);
+    int bloom_filter_longs = static_cast<int>(bloom_filter_longs_long);
     auto bloom_filter =
       spark_rapids_jni::bloom_filter_create(version, numHashes, bloom_filter_longs, seed);
     return reinterpret_cast<jlong>(bloom_filter.release());
