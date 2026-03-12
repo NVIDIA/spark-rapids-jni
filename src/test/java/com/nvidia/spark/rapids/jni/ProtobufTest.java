@@ -2644,6 +2644,45 @@ public class ProtobufTest {
   }
 
   @Test
+  void testRepeatedStructEnumInvalidNullsCorrectTopLevelRow() {
+    // enum Color { RED=0; GREEN=1; BLUE=2; }
+    // message Item { Color color = 1; }
+    // message Msg { repeated Item items = 1; }
+    Byte[] item00 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(0)));    // valid
+    Byte[] item01 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(999)));  // invalid
+    Byte[] row0 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(item00.length)), item00,
+        box(tag(1, WT_LEN)), box(encodeVarint(item01.length)), item01);
+    Byte[] item10 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(1)));    // valid
+    Byte[] row1 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(item10.length)), item10);
+
+    try (Table input = new Table.TestBuilder().column(row0, row1).build();
+         ColumnVector actualStruct = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1},
+             new int[]{-1, 0},
+             new int[]{0, 1},
+             new int[]{WT_LEN, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{true, false},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new long[]{0, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             new int[][]{null, new int[]{0, 1, 2}},
+             false);
+         HostColumnVector hostStruct = actualStruct.copyToHost()) {
+      assertEquals(1, actualStruct.getNullCount(), "Exactly one top-level row should be null");
+      assertTrue(hostStruct.isNull(0), "Row 0 should be null because one repeated child enum is invalid");
+      assertFalse(hostStruct.isNull(1), "Row 1 should remain valid");
+    }
+  }
+
+  @Test
   void testEnumMissingFieldDoesNotNullRow() {
     // Missing enum field should return null for the field, but NOT null the entire row
     // Only unknown enum values (present but invalid) trigger row-level null

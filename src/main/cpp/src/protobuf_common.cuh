@@ -39,8 +39,11 @@
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/reduce.h>
+#include <thrust/remove.h>
 #include <thrust/scan.h>
+#include <thrust/sort.h>
 #include <thrust/transform.h>
+#include <thrust/unique.h>
 
 #include <algorithm>
 #include <array>
@@ -1205,6 +1208,83 @@ __global__ void copy_enum_string_chars_kernel(int32_t const* values,
                                               char* out_chars,
                                               int num_rows);
 
+inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
+                                                 rmm::device_uvector<bool>& row_invalid,
+                                                 int num_items,
+                                                 int32_t const* top_row_indices,
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::device_async_resource_ref mr)
+{
+  if (num_items == 0 || row_invalid.size() == 0) { return; }
+
+  if (top_row_indices == nullptr) {
+    CUDF_EXPECTS(static_cast<size_t>(num_items) <= row_invalid.size(),
+                 "enum invalid-row propagation exceeded row buffer");
+    thrust::transform(rmm::exec_policy(stream),
+                      row_invalid.begin(),
+                      row_invalid.begin() + num_items,
+                      item_invalid.begin(),
+                      row_invalid.begin(),
+                      [] __device__(bool row_is_invalid, bool item_is_invalid) {
+                        return row_is_invalid || item_is_invalid;
+                      });
+    return;
+  }
+
+  rmm::device_uvector<int32_t> invalid_rows(num_items, stream, mr);
+  thrust::transform(rmm::exec_policy(stream),
+                    thrust::make_counting_iterator(0),
+                    thrust::make_counting_iterator(num_items),
+                    invalid_rows.begin(),
+                    [item_invalid = item_invalid.data(), top_row_indices] __device__(int idx) {
+                      return item_invalid[idx] ? top_row_indices[idx] : -1;
+                    });
+
+  auto valid_end =
+    thrust::remove(rmm::exec_policy(stream), invalid_rows.begin(), invalid_rows.end(), -1);
+  thrust::sort(rmm::exec_policy(stream), invalid_rows.begin(), valid_end);
+  auto unique_end = thrust::unique(rmm::exec_policy(stream), invalid_rows.begin(), valid_end);
+  thrust::for_each(rmm::exec_policy(stream),
+                   invalid_rows.begin(),
+                   unique_end,
+                   [row_invalid = row_invalid.data()] __device__(int32_t row_idx) {
+                     row_invalid[row_idx] = true;
+                   });
+}
+
+inline void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
+                                             rmm::device_uvector<bool>& valid,
+                                             std::vector<int32_t> const& valid_enums,
+                                             rmm::device_uvector<bool>& row_invalid,
+                                             int num_items,
+                                             int32_t const* top_row_indices,
+                                             rmm::cuda_stream_view stream,
+                                             rmm::device_async_resource_ref mr)
+{
+  if (num_items == 0 || valid_enums.empty()) { return; }
+
+  auto const blocks = static_cast<int>((num_items + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
+                                valid_enums.data(),
+                                valid_enums.size() * sizeof(int32_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  rmm::device_uvector<bool> item_invalid(num_items, stream, mr);
+  thrust::fill(rmm::exec_policy(stream), item_invalid.begin(), item_invalid.end(), false);
+  validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    values.data(),
+    valid.data(),
+    item_invalid.data(),
+    d_valid_enums.data(),
+    static_cast<int>(valid_enums.size()),
+    num_items);
+
+  propagate_invalid_enum_flags_to_rows(
+    item_invalid, row_invalid, num_items, top_row_indices, stream, mr);
+}
+
 // ============================================================================
 // Forward declarations of builder/utility functions
 // ============================================================================
@@ -1228,7 +1308,8 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   rmm::device_uvector<bool>& d_row_has_invalid_enum,
   int num_rows,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr);
+  rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices = nullptr);
 
 // Complex builder forward declarations
 std::unique_ptr<cudf::column> build_repeated_enum_string_column(
@@ -1422,7 +1503,8 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
   rmm::device_uvector<bool>& d_row_has_invalid_enum,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+  rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices = nullptr)
 {
   switch (dt.id()) {
     case cudf::type_id::BOOL8: {
@@ -1463,19 +1545,14 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
       if (schema_idx < static_cast<int>(enum_valid_values.size())) {
         auto const& valid_enums = enum_valid_values[schema_idx];
         if (!valid_enums.empty()) {
-          rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
-          CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
-                                        valid_enums.data(),
-                                        valid_enums.size() * sizeof(int32_t),
-                                        cudaMemcpyHostToDevice,
-                                        stream.value()));
-          validate_enum_values_kernel<<<blocks, threads_per_block, 0, stream.value()>>>(
-            out.data(),
-            valid.data(),
-            d_row_has_invalid_enum.data(),
-            d_valid_enums.data(),
-            static_cast<int>(valid_enums.size()),
-            num_items);
+          validate_enum_and_propagate_rows(out,
+                                           valid,
+                                           valid_enums,
+                                           d_row_has_invalid_enum,
+                                           num_items,
+                                           top_row_indices,
+                                           stream,
+                                           mr);
         }
       }
       auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
