@@ -177,4 +177,41 @@ public class ProtobufSchemaDescriptorTest {
             new int[][]{{0, 1}},
             new byte[][][]{new byte[][]{"A".getBytes(), "B".getBytes()}}));
   }
+
+  @Test
+  void testDepthAboveSupportedLimitRejected() {
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+            new int[]{-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+            new int[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+            new int[]{Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_LEN,
+                Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_LEN,
+                Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_VARINT},
+            new int[]{
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
+                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
+                Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
+                Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
+                Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+            new boolean[]{false, false, false, false, false, false, false, false, false, false, false},
+            new boolean[]{false, false, false, false, false, false, false, false, false, false, false},
+            new boolean[]{false, false, false, false, false, false, false, false, false, false, false},
+            new long[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+            new double[]{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+            new boolean[]{false, false, false, false, false, false, false, false, false, false, false},
+            new byte[][]{null, null, null, null, null, null, null, null, null, null, null},
+            new int[][]{null, null, null, null, null, null, null, null, null, null, null},
+            new byte[][][]{null, null, null, null, null, null, null, null, null, null, null}));
+  }
 }

@@ -35,6 +35,7 @@ import java.util.Set;
 public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   private static final long serialVersionUID = 1L;
   private static final int MAX_FIELD_NUMBER = (1 << 29) - 1;
+  private static final int MAX_NESTING_DEPTH = 10;
   private static final int STRUCT_TYPE_ID = ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId();
   private static final int STRING_TYPE_ID = ai.rapids.cudf.DType.STRING.getTypeId().getNativeId();
   private static final int LIST_TYPE_ID = ai.rapids.cudf.DType.LIST.getTypeId().getNativeId();
@@ -183,6 +184,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
         throw new IllegalArgumentException(
             "Invalid field number at index " + i + ": " + fieldNumbers[i] +
             " (must be 1-" + MAX_FIELD_NUMBER + ")");
+      }
+      if (depthLevels[i] < 0 || depthLevels[i] >= MAX_NESTING_DEPTH) {
+        throw new IllegalArgumentException(
+            "Invalid depth at index " + i + ": " + depthLevels[i] +
+            " (must be 0-" + (MAX_NESTING_DEPTH - 1) + ")");
       }
       int pi = parentIndices[i];
       if (pi < -1 || pi >= i) {

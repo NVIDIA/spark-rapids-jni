@@ -23,6 +23,7 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -146,6 +147,7 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
     fail_size("enum_valid_values", context.enum_valid_values.size());
   if (context.enum_names.size() != num_fields) fail_size("enum_names", context.enum_names.size());
 
+  std::set<std::pair<int, int>> seen_field_numbers;
   for (size_t i = 0; i < num_fields; ++i) {
     auto const& field = context.schema[i];
     auto const& type  = context.schema_output_types[i];
@@ -157,9 +159,19 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
       throw std::invalid_argument("protobuf decode context: invalid field number at field " +
                                   std::to_string(i));
     }
+    if (field.depth < 0 || field.depth >= MAX_NESTING_DEPTH) {
+      throw std::invalid_argument(
+        "protobuf decode context: field depth exceeds supported limit at field " +
+        std::to_string(i));
+    }
     if (field.parent_idx < -1 || field.parent_idx >= static_cast<int>(i)) {
       throw std::invalid_argument("protobuf decode context: invalid parent index at field " +
                                   std::to_string(i));
+    }
+    if (!seen_field_numbers.emplace(field.parent_idx, field.field_number).second) {
+      throw std::invalid_argument(
+        "protobuf decode context: duplicate field number under same parent at field " +
+        std::to_string(i));
     }
     if (field.parent_idx == -1) {
       if (field.depth != 0) {
