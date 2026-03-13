@@ -18,7 +18,15 @@ package com.nvidia.spark.rapids.jni;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class ProtobufSchemaDescriptorTest {
@@ -213,5 +221,49 @@ public class ProtobufSchemaDescriptorTest {
             new byte[][]{null, null, null, null, null, null, null, null, null, null, null},
             new int[][]{null, null, null, null, null, null, null, null, null, null, null},
             new byte[][][]{null, null, null, null, null, null, null, null, null, null, null}));
+  }
+
+  @Test
+  void testSerializationRoundTripPreservesContentsAndIsolation() throws Exception {
+    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptor(
+        new int[]{1},
+        new int[]{-1},
+        new int[]{0},
+        new int[]{Protobuf.WT_VARINT},
+        new int[]{ai.rapids.cudf.DType.STRING.getTypeId().getNativeId()},
+        new int[]{Protobuf.ENC_ENUM_STRING},
+        new boolean[]{false},
+        new boolean[]{false},
+        new boolean[]{false},
+        new long[]{7},
+        new double[]{0.0},
+        new boolean[]{false},
+        new byte[][]{"def".getBytes()},
+        new int[][]{{0, 1}},
+        new byte[][][]{new byte[][]{"A".getBytes(), "B".getBytes()}});
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+      oos.writeObject(original);
+    }
+
+    ProtobufSchemaDescriptor roundTrip;
+    try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()))) {
+      roundTrip = (ProtobufSchemaDescriptor) ois.readObject();
+    }
+
+    assertEquals(original.numFields(), roundTrip.numFields());
+    assertArrayEquals(original.fieldNumbers, roundTrip.fieldNumbers);
+    assertArrayEquals(original.defaultStrings[0], roundTrip.defaultStrings[0]);
+    assertArrayEquals(original.enumValidValues[0], roundTrip.enumValidValues[0]);
+    assertArrayEquals(original.enumNames[0][0], roundTrip.enumNames[0][0]);
+    assertArrayEquals(original.enumNames[0][1], roundTrip.enumNames[0][1]);
+    assertNotSame(original.defaultStrings, roundTrip.defaultStrings);
+    assertNotSame(original.defaultStrings[0], roundTrip.defaultStrings[0]);
+    assertNotSame(original.enumValidValues, roundTrip.enumValidValues);
+    assertNotSame(original.enumValidValues[0], roundTrip.enumValidValues[0]);
+    assertNotSame(original.enumNames, roundTrip.enumNames);
+    assertNotSame(original.enumNames[0], roundTrip.enumNames[0]);
+    assertNotSame(original.enumNames[0][0], roundTrip.enumNames[0][0]);
   }
 }

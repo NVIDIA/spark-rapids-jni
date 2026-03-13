@@ -371,6 +371,10 @@ __device__ inline bool decode_tag(uint8_t const*& cur,
   }
   tag.field_number = static_cast<int>(fn);
   tag.wire_type    = static_cast<int>(key & 0x7);
+  if (tag.wire_type == WT_SGROUP || tag.wire_type == WT_EGROUP) {
+    set_error_once(error_flag, ERR_WIRE_TYPE);
+    return false;
+  }
   return true;
 }
 

@@ -22,6 +22,60 @@ using namespace spark_rapids_jni::protobuf_detail;
 
 namespace spark_rapids_jni {
 
+namespace {
+
+void apply_parent_mask_to_row_aligned_column(cudf::column& col,
+                                             cudf::bitmask_type const* parent_mask_ptr,
+                                             cudf::size_type parent_null_count,
+                                             cudf::size_type num_rows,
+                                             rmm::cuda_stream_view stream,
+                                             rmm::device_async_resource_ref mr)
+{
+  auto child_view = col.mutable_view();
+  CUDF_EXPECTS(child_view.size() == num_rows,
+               "struct child size must match parent row count for null propagation");
+
+  if (child_view.nullable()) {
+    auto const child_mask_words =
+      cudf::num_bitmask_words(static_cast<size_t>(child_view.size() + child_view.offset()));
+    std::array<cudf::bitmask_type const*, 2> masks{child_view.null_mask(), parent_mask_ptr};
+    std::array<cudf::size_type, 2> begin_bits{child_view.offset(), 0};
+    auto const valid_count = cudf::detail::inplace_bitmask_and(
+      cudf::device_span<cudf::bitmask_type>(child_view.null_mask(), child_mask_words),
+      cudf::host_span<cudf::bitmask_type const* const>(masks.data(), masks.size()),
+      cudf::host_span<cudf::size_type const>(begin_bits.data(), begin_bits.size()),
+      child_view.size(),
+      stream);
+    col.set_null_count(child_view.size() - valid_count);
+  } else {
+    auto child_mask = cudf::detail::copy_bitmask(parent_mask_ptr, 0, num_rows, stream, mr);
+    col.set_null_mask(std::move(child_mask), parent_null_count);
+  }
+}
+
+void propagate_struct_nulls_to_descendants(cudf::column& struct_col,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::device_async_resource_ref mr)
+{
+  if (struct_col.type().id() != cudf::type_id::STRUCT || struct_col.null_count() == 0) { return; }
+
+  auto const struct_view      = struct_col.view();
+  auto const* struct_mask_ptr = struct_view.null_mask();
+  auto const num_rows         = struct_view.size();
+  auto const null_count       = struct_col.null_count();
+
+  for (cudf::size_type i = 0; i < struct_col.num_children(); ++i) {
+    auto& child = struct_col.child(i);
+    apply_parent_mask_to_row_aligned_column(
+      child, struct_mask_ptr, null_count, num_rows, stream, mr);
+    if (child.type().id() == cudf::type_id::STRUCT) {
+      propagate_struct_nulls_to_descendants(child, stream, mr);
+    }
+  }
+}
+
+}  // namespace
+
 std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
                                                         ProtobufDecodeContext const& context,
                                                         rmm::cuda_stream_view stream)
@@ -1061,26 +1115,15 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   }
 
   // cuDF struct child views do not inherit parent nulls. Push PERMISSIVE invalid-enum nulls
-  // down into every top-level child so extracted fields respect "null struct => null field".
+  // down into every top-level child, then recursively into nested STRUCT descendants, so
+  // callers that access grandchildren directly still observe logically-null rows.
   if (has_enum_fields && struct_null_count > 0) {
     auto const* struct_mask_ptr = static_cast<cudf::bitmask_type const*>(struct_mask.data());
     for (auto& child : top_level_children) {
-      auto child_view = child->mutable_view();
-      if (child_view.nullable()) {
-        auto const child_mask_words =
-          cudf::num_bitmask_words(static_cast<size_t>(child_view.size() + child_view.offset()));
-        std::array<cudf::bitmask_type const*, 2> masks{child_view.null_mask(), struct_mask_ptr};
-        std::array<cudf::size_type, 2> begin_bits{child_view.offset(), 0};
-        auto const valid_count = cudf::detail::inplace_bitmask_and(
-          cudf::device_span<cudf::bitmask_type>(child_view.null_mask(), child_mask_words),
-          cudf::host_span<cudf::bitmask_type const* const>(masks.data(), masks.size()),
-          cudf::host_span<cudf::size_type const>(begin_bits.data(), begin_bits.size()),
-          child_view.size(),
-          stream);
-        child->set_null_count(child_view.size() - valid_count);
-      } else {
-        auto child_mask = cudf::detail::copy_bitmask(struct_mask_ptr, 0, num_rows, stream, mr);
-        child->set_null_mask(std::move(child_mask), struct_null_count);
+      apply_parent_mask_to_row_aligned_column(
+        *child, struct_mask_ptr, struct_null_count, num_rows, stream, mr);
+      if (child->type().id() == cudf::type_id::STRUCT) {
+        propagate_struct_nulls_to_descendants(*child, stream, mr);
       }
     }
   }
