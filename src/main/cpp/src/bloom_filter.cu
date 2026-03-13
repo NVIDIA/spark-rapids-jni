@@ -334,9 +334,8 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
 {
   auto [header, buffer, bloom_filter_bits, seed] = unpack_bloom_filter(bloom_filter.view(), stream);
   auto const hdr_size = bloom_filter_header_size_for_version(header.version);
-  CUDF_EXPECTS(
-    static_cast<size_t>(bloom_filter.view().size()) == (buffer.size() * 4) + hdr_size,
-    "Encountered invalid/mismatched bloom filter buffer data");
+  CUDF_EXPECTS(static_cast<size_t>(bloom_filter.view().size()) == (buffer.size() * 4) + hdr_size,
+               "Encountered invalid/mismatched bloom filter buffer data");
 
   constexpr int block_size = 256;
   auto grid                = cudf::detail::grid_1d{input.size(), block_size, 1};
@@ -396,14 +395,14 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
   }
 
   auto dv = cudf::column_device_view::create(bloom_filters);
-  CUDF_EXPECTS(thrust::all_of(rmm::exec_policy(cudf::get_default_stream()),
-                              thrust::make_counting_iterator(1),
-                              thrust::make_counting_iterator(bloom_filters.size()),
-                              bloom_filter_same{{raw_hdr[0], raw_hdr[1], raw_hdr[2], raw_hdr[3]},
-                                                header_field_count,
-                                                *dv,
-                                                buf_size}),
-               "Mismatch of bloom filter parameters");
+  CUDF_EXPECTS(
+    thrust::all_of(
+      rmm::exec_policy(cudf::get_default_stream()),
+      thrust::make_counting_iterator(1),
+      thrust::make_counting_iterator(bloom_filters.size()),
+      bloom_filter_same{
+        {raw_hdr[0], raw_hdr[1], raw_hdr[2], raw_hdr[3]}, header_field_count, *dv, buf_size}),
+    "Mismatch of bloom filter parameters");
 
   rmm::device_buffer buf{static_cast<size_t>(buf_size), stream, mr};
   pack_bloom_filter_header(
