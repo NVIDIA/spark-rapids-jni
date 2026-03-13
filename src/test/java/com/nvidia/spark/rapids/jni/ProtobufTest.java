@@ -2362,6 +2362,23 @@ public class ProtobufTest {
   }
 
   @Test
+  void testFailfastFieldNumberAboveSpecLimit() {
+    // Protobuf field numbers must be <= 2^29 - 1.
+    Byte[] row = concat(box(tag(1 << 29, WT_VARINT)), box(encodeVarint(42)));
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+        try (ColumnVector result = decodeAllFields(
+            input.getColumn(0),
+            new int[]{1},
+            new int[]{DType.INT64.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT},
+            true)) {
+        }
+      });
+    }
+  }
+
+  @Test
   void testFailfastValidDataDoesNotThrow() {
     // Valid protobuf should not throw even with failOnErrors = true
     Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));

@@ -542,7 +542,11 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
             auto valid_fn = [locs = d_locations.data(), i, num_scalar, has_def_str] __device__(
                               cudf::size_type row) {
-              return locs[row * num_scalar + i].offset >= 0 || has_def_str;
+              return locs[protobuf_detail::flat_index(static_cast<size_t>(row),
+                                                      static_cast<size_t>(num_scalar),
+                                                      static_cast<size_t>(i))]
+                         .offset >= 0 ||
+                     has_def_str;
             };
             column_map[schema_idx] = extract_and_build_string_or_bytes_column(false,
                                                                               message_data,
@@ -568,7 +572,11 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             list_offsets, base_offset, d_locations.data(), i, num_scalar};
           auto valid_fn = [locs = d_locations.data(), i, num_scalar, has_def_bytes] __device__(
                             cudf::size_type row) {
-            return locs[row * num_scalar + i].offset >= 0 || has_def_bytes;
+            return locs[protobuf_detail::flat_index(static_cast<size_t>(row),
+                                                    static_cast<size_t>(num_scalar),
+                                                    static_cast<size_t>(i))]
+                       .offset >= 0 ||
+                   has_def_bytes;
           };
           column_map[schema_idx] = extract_and_build_string_or_bytes_column(true,
                                                                             message_data,

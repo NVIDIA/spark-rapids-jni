@@ -319,6 +319,21 @@ __device__ inline bool get_field_data_location(
   return true;
 }
 
+__device__ __host__ inline size_t flat_index(size_t row, size_t width, size_t col)
+{
+  return row * width + col;
+}
+
+__device__ inline bool checked_add_int32(int32_t lhs, int32_t rhs, int32_t& out)
+{
+  auto const sum = static_cast<int64_t>(lhs) + rhs;
+  if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+    return false;
+  }
+  out = static_cast<int32_t>(sum);
+  return true;
+}
+
 __device__ inline bool check_message_bounds(int32_t start,
                                             int32_t end_pos,
                                             cudf::size_type total_size,
@@ -350,7 +365,7 @@ __device__ inline bool decode_tag(uint8_t const*& cur,
 
   cur += key_bytes;
   uint64_t fn = key >> 3;
-  if (fn == 0 || fn > static_cast<uint64_t>(INT_MAX)) {
+  if (fn == 0 || fn > static_cast<uint64_t>(spark_rapids_jni::MAX_FIELD_NUMBER)) {
     set_error_once(error_flag, ERR_FIELD_NUMBER);
     return false;
   }
@@ -464,7 +479,9 @@ struct TopLevelLocationProvider {
 
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
-    auto loc = locations[thread_idx * num_fields + field_idx];
+    auto loc = locations[flat_index(static_cast<size_t>(thread_idx),
+                                    static_cast<size_t>(num_fields),
+                                    static_cast<size_t>(field_idx))];
     if (loc.offset >= 0) { data_offset = offsets[thread_idx] - base_offset + loc.offset; }
     return loc;
   }
@@ -494,7 +511,9 @@ struct NestedLocationProvider {
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
     auto ploc = parent_locations[thread_idx];
-    auto cloc = child_locations[thread_idx * num_fields + field_idx];
+    auto cloc = child_locations[flat_index(static_cast<size_t>(thread_idx),
+                                           static_cast<size_t>(num_fields),
+                                           static_cast<size_t>(field_idx))];
     if (ploc.offset >= 0 && cloc.offset >= 0) {
       data_offset = row_offsets[thread_idx] - base_offset + ploc.offset + cloc.offset;
     } else {
@@ -534,7 +553,9 @@ struct RepeatedMsgChildLocationProvider {
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
     auto mloc = msg_locations[thread_idx];
-    auto cloc = child_locations[thread_idx * num_fields + field_idx];
+    auto cloc = child_locations[flat_index(static_cast<size_t>(thread_idx),
+                                           static_cast<size_t>(num_fields),
+                                           static_cast<size_t>(field_idx))];
     if (mloc.offset >= 0 && cloc.offset >= 0) {
       data_offset = row_offsets[thread_idx] - base_offset + mloc.offset + cloc.offset;
     } else {
@@ -957,7 +978,13 @@ struct extract_strided_count {
   int field_idx;
   int num_fields;
 
-  __device__ int32_t operator()(int row) const { return info[row * num_fields + field_idx].count; }
+  __device__ int32_t operator()(int row) const
+  {
+    return info[flat_index(static_cast<size_t>(row),
+                           static_cast<size_t>(num_fields),
+                           static_cast<size_t>(field_idx))]
+      .count;
+  }
 };
 
 /**

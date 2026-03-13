@@ -43,7 +43,8 @@ __global__ void scan_all_fields_kernel(
   if (row >= in.size()) return;
 
   for (int f = 0; f < num_fields; f++) {
-    locations[row * num_fields + f] = {-1, 0};
+    locations[flat_index(
+      static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {-1, 0};
   }
 
   if (in.nullable() && in.is_null(row)) { return; }
@@ -89,7 +90,14 @@ __global__ void scan_all_fields_kernel(
           return;
         }
         // Record offset pointing to the actual data (after length prefix)
-        locations[row * num_fields + f] = {data_offset + len_bytes, static_cast<int32_t>(len)};
+        int32_t data_location;
+        if (!checked_add_int32(data_offset, len_bytes, data_location)) {
+          set_error_once(error_flag, ERR_OVERFLOW);
+          return;
+        }
+        locations[flat_index(
+          static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
+          data_location, static_cast<int32_t>(len)};
       } else {
         // For fixed-size and varint fields, record offset and compute length
         int field_size = get_wire_type_size(wt, cur, msg_end);
@@ -97,7 +105,9 @@ __global__ void scan_all_fields_kernel(
           set_error_once(error_flag, ERR_FIELD_SIZE);
           return;
         }
-        locations[row * num_fields + f] = {data_offset, field_size};
+        locations[flat_index(
+          static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
+          data_offset, field_size};
       }
     }
 
@@ -305,12 +315,16 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
 
   // Initialize repeated counts to 0
   for (int f = 0; f < num_repeated_fields; f++) {
-    repeated_info[row * num_repeated_fields + f] = {0, 0};
+    repeated_info[flat_index(
+      static_cast<size_t>(row), static_cast<size_t>(num_repeated_fields), static_cast<size_t>(f))] =
+      {0, 0};
   }
 
   // Initialize nested locations to not found
   for (int f = 0; f < num_nested_fields; f++) {
-    nested_locations[row * num_nested_fields + f] = {-1, 0};
+    nested_locations[flat_index(
+      static_cast<size_t>(row), static_cast<size_t>(num_nested_fields), static_cast<size_t>(f))] = {
+      -1, 0};
   }
 
   if (in.nullable() && in.is_null(row)) { return; }
@@ -336,12 +350,15 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
       if (i >= 0) {
         int schema_idx = repeated_field_indices[i];
         if (schema[schema_idx].depth == depth_level &&
-            !count_repeated_element(cur,
-                                    msg_end,
-                                    wt,
-                                    schema[schema_idx].wire_type,
-                                    repeated_info[row * num_repeated_fields + i],
-                                    error_flag)) {
+            !count_repeated_element(
+              cur,
+              msg_end,
+              wt,
+              schema[schema_idx].wire_type,
+              repeated_info[flat_index(static_cast<size_t>(row),
+                                       static_cast<size_t>(num_repeated_fields),
+                                       static_cast<size_t>(i))],
+              error_flag)) {
           return;
         }
       }
@@ -349,12 +366,15 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
       for (int i = 0; i < num_repeated_fields; i++) {
         int schema_idx = repeated_field_indices[i];
         if (schema[schema_idx].field_number == fn && schema[schema_idx].depth == depth_level) {
-          if (!count_repeated_element(cur,
-                                      msg_end,
-                                      wt,
-                                      schema[schema_idx].wire_type,
-                                      repeated_info[row * num_repeated_fields + i],
-                                      error_flag)) {
+          if (!count_repeated_element(
+                cur,
+                msg_end,
+                wt,
+                schema[schema_idx].wire_type,
+                repeated_info[flat_index(static_cast<size_t>(row),
+                                         static_cast<size_t>(num_repeated_fields),
+                                         static_cast<size_t>(i))],
+                error_flag)) {
             return;
           }
         }
@@ -378,8 +398,20 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
         set_error_once(error_flag, ERR_OVERFLOW);
         return false;
       }
-      int32_t msg_offset = static_cast<int32_t>(cur - bytes - start) + len_bytes;
-      nested_locations[row * num_nested_fields + i] = {msg_offset, static_cast<int32_t>(len)};
+      auto const rel_offset64 = static_cast<int64_t>(cur - bytes - start);
+      if (rel_offset64 < std::numeric_limits<int32_t>::min() ||
+          rel_offset64 > std::numeric_limits<int32_t>::max()) {
+        set_error_once(error_flag, ERR_OVERFLOW);
+        return false;
+      }
+      int32_t msg_offset;
+      if (!checked_add_int32(static_cast<int32_t>(rel_offset64), len_bytes, msg_offset)) {
+        set_error_once(error_flag, ERR_OVERFLOW);
+        return false;
+      }
+      nested_locations[flat_index(
+        static_cast<size_t>(row), static_cast<size_t>(num_nested_fields), static_cast<size_t>(i))] =
+        {msg_offset, static_cast<int32_t>(len)};
       return true;
     };
 
@@ -517,7 +549,8 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
   if (row >= num_parent_rows) return;
 
   for (int f = 0; f < num_fields; f++) {
-    output_locations[row * num_fields + f] = {-1, 0};
+    output_locations[flat_index(
+      static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {-1, 0};
   }
 
   auto const& parent_loc = parent_locations[row];
@@ -567,15 +600,23 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
             set_error_once(error_flag, ERR_OVERFLOW);
             return;
           }
-          output_locations[row * num_fields + f] = {data_offset + len_bytes,
-                                                    static_cast<int32_t>(len)};
+          int32_t data_location;
+          if (!checked_add_int32(data_offset, len_bytes, data_location)) {
+            set_error_once(error_flag, ERR_OVERFLOW);
+            return;
+          }
+          output_locations[flat_index(
+            static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
+            data_location, static_cast<int32_t>(len)};
         } else {
           int field_size = get_wire_type_size(wt, cur, nested_end);
           if (field_size < 0) {
             set_error_once(error_flag, ERR_FIELD_SIZE);
             return;
           }
-          output_locations[row * num_fields + f] = {data_offset, field_size};
+          output_locations[flat_index(
+            static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
+            data_offset, field_size};
         }
       }
     }
@@ -612,7 +653,9 @@ __global__ void scan_repeated_message_children_kernel(
 
   // Initialize child locations to not found
   for (int f = 0; f < num_child_fields; f++) {
-    child_locs[occ_idx * num_child_fields + f] = {-1, 0};
+    child_locs[flat_index(static_cast<size_t>(occ_idx),
+                          static_cast<size_t>(num_child_fields),
+                          static_cast<size_t>(f))] = {-1, 0};
   }
 
   auto const& msg_loc = msg_locs[occ_idx];
@@ -659,8 +702,15 @@ __global__ void scan_repeated_message_children_kernel(
             set_error_once(error_flag, ERR_OVERFLOW);
             return;
           }
-          child_locs[occ_idx * num_child_fields + f] = {data_offset + len_bytes,
-                                                        static_cast<int32_t>(len)};
+          int32_t data_location;
+          if (!checked_add_int32(data_offset, len_bytes, data_location)) {
+            set_error_once(error_flag, ERR_OVERFLOW);
+            return;
+          }
+          child_locs[flat_index(static_cast<size_t>(occ_idx),
+                                static_cast<size_t>(num_child_fields),
+                                static_cast<size_t>(f))] = {data_location,
+                                                            static_cast<int32_t>(len)};
         } else {
           // For varint/fixed types, store offset and estimated length
           int32_t data_length = 0;
@@ -685,7 +735,9 @@ __global__ void scan_repeated_message_children_kernel(
             }
             data_length = 8;
           }
-          child_locs[occ_idx * num_child_fields + f] = {data_offset, data_length};
+          child_locs[flat_index(static_cast<size_t>(occ_idx),
+                                static_cast<size_t>(num_child_fields),
+                                static_cast<size_t>(f))] = {data_offset, data_length};
         }
       }
     }
@@ -727,7 +779,9 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
 
   // Initialize counts
   for (int ri = 0; ri < num_repeated; ri++) {
-    repeated_info[row * num_repeated + ri] = {0, 0};
+    repeated_info[flat_index(
+      static_cast<size_t>(row), static_cast<size_t>(num_repeated), static_cast<size_t>(ri))] = {0,
+                                                                                                0};
   }
 
   auto const& parent_loc = parent_locs[row];
@@ -762,7 +816,9 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
                                     msg_end,
                                     wt,
                                     schema[schema_idx].wire_type,
-                                    repeated_info[row * num_repeated + ri],
+                                    repeated_info[flat_index(static_cast<size_t>(row),
+                                                             static_cast<size_t>(num_repeated),
+                                                             static_cast<size_t>(ri))],
                                     error_flag)) {
           return;
         }
@@ -867,7 +923,9 @@ __global__ void compute_nested_struct_locations_kernel(
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= total_count) return;
 
-  nested_locs[idx] = child_locs[idx * num_child_fields + child_idx];
+  nested_locs[idx] = child_locs[flat_index(static_cast<size_t>(idx),
+                                           static_cast<size_t>(num_child_fields),
+                                           static_cast<size_t>(child_idx))];
   auto sum         = static_cast<int64_t>(msg_row_offsets[idx]) + msg_locs[idx].offset;
   if (sum < std::numeric_limits<cudf::size_type>::min() ||
       sum > std::numeric_limits<cudf::size_type>::max()) {
@@ -897,7 +955,9 @@ __global__ void compute_grandchild_parent_locations_kernel(
   if (row >= num_rows) return;
 
   auto const& parent_loc = parent_locs[row];
-  auto const& child_loc  = child_locs[row * num_child_fields + child_idx];
+  auto const& child_loc  = child_locs[flat_index(static_cast<size_t>(row),
+                                                static_cast<size_t>(num_child_fields),
+                                                static_cast<size_t>(child_idx))];
 
   if (parent_loc.offset >= 0 && child_loc.offset >= 0) {
     // Absolute offset = parent offset + child's relative offset
@@ -993,7 +1053,8 @@ __global__ void extract_strided_locations_kernel(field_location const* nested_lo
 {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
   if (row >= num_rows) return;
-  parent_locs[row] = nested_locations[row * num_fields + field_idx];
+  parent_locs[row] = nested_locations[flat_index(
+    static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(field_idx))];
 }
 
 // ============================================================================
@@ -1015,7 +1076,10 @@ __global__ void check_required_fields_kernel(
   if (row >= num_rows) return;
 
   for (int f = 0; f < num_fields; f++) {
-    if (is_required[f] != 0 && locations[row * num_fields + f].offset < 0) {
+    if (is_required[f] != 0 && locations[flat_index(static_cast<size_t>(row),
+                                                    static_cast<size_t>(num_fields),
+                                                    static_cast<size_t>(f))]
+                                   .offset < 0) {
       // Required field is missing - set error flag
       set_error_once(error_flag, ERR_REQUIRED);
       return;  // No need to check other fields for this row

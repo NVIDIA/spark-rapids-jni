@@ -46,7 +46,7 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   }
 
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = (total_count + threads - 1u) / threads;
+  auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
 
   rmm::device_uvector<int32_t> d_lengths(total_count, stream, mr);
   thrust::transform(
@@ -55,7 +55,8 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
     thrust::make_counting_iterator(total_count),
     d_lengths.data(),
     [child_locs = d_child_locs.data(), ci = child_idx, ncf = num_child_fields] __device__(int idx) {
-      auto const& loc = child_locs[idx * ncf + ci];
+      auto const& loc = child_locs[flat_index(
+        static_cast<size_t>(idx), static_cast<size_t>(ncf), static_cast<size_t>(ci))];
       return loc.offset >= 0 ? loc.length : 0;
     });
 
@@ -71,7 +72,10 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
     thrust::make_counting_iterator(total_count),
     d_valid.data(),
     [child_locs = d_child_locs.data(), ci = child_idx, ncf = num_child_fields] __device__(int idx) {
-      return child_locs[idx * ncf + ci].offset >= 0;
+      return child_locs[flat_index(static_cast<size_t>(idx),
+                                   static_cast<size_t>(ncf),
+                                   static_cast<size_t>(ci))]
+               .offset >= 0;
     });
 
   if (total_data > 0) {
@@ -1291,7 +1295,11 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                            ci,
                            num_child_fields,
                            has_def_str] __device__(cudf::size_type row) {
-            return (plocs[row].offset >= 0 && flocs[row * num_child_fields + ci].offset >= 0) ||
+            return (plocs[row].offset >= 0 &&
+                    flocs[flat_index(static_cast<size_t>(row),
+                                     static_cast<size_t>(num_child_fields),
+                                     static_cast<size_t>(ci))]
+                        .offset >= 0) ||
                    has_def_str;
           };
           struct_children.push_back(extract_and_build_string_or_bytes_column(false,
@@ -1329,7 +1337,10 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                          ci,
                          num_child_fields,
                          has_def_bytes] __device__(cudf::size_type row) {
-          return (plocs[row].offset >= 0 && flocs[row * num_child_fields + ci].offset >= 0) ||
+          return (plocs[row].offset >= 0 && flocs[flat_index(static_cast<size_t>(row),
+                                                             static_cast<size_t>(num_child_fields),
+                                                             static_cast<size_t>(ci))]
+                                                .offset >= 0) ||
                  has_def_bytes;
         };
         struct_children.push_back(extract_and_build_string_or_bytes_column(true,
