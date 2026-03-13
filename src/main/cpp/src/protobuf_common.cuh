@@ -1252,10 +1252,11 @@ inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const
                                                  rmm::device_uvector<bool>& row_invalid,
                                                  int num_items,
                                                  int32_t const* top_row_indices,
+                                                 bool propagate_to_rows,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
-  if (num_items == 0 || row_invalid.size() == 0) { return; }
+  if (num_items == 0 || row_invalid.size() == 0 || !propagate_to_rows) { return; }
 
   if (top_row_indices == nullptr) {
     CUDF_EXPECTS(static_cast<size_t>(num_items) <= row_invalid.size(),
@@ -1298,6 +1299,7 @@ inline void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const&
                                              rmm::device_uvector<bool>& row_invalid,
                                              int num_items,
                                              int32_t const* top_row_indices,
+                                             bool propagate_to_rows,
                                              rmm::cuda_stream_view stream,
                                              rmm::device_async_resource_ref mr)
 {
@@ -1322,7 +1324,7 @@ inline void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const&
     num_items);
 
   propagate_invalid_enum_flags_to_rows(
-    item_invalid, row_invalid, num_items, top_row_indices, stream, mr);
+    item_invalid, row_invalid, num_items, top_row_indices, propagate_to_rows, stream, mr);
 }
 
 // ============================================================================
@@ -1349,7 +1351,8 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   int num_rows,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
-  int32_t const* top_row_indices = nullptr);
+  int32_t const* top_row_indices = nullptr,
+  bool propagate_invalid_rows    = true);
 
 // Complex builder forward declarations
 std::unique_ptr<cudf::column> build_repeated_enum_string_column(
@@ -1405,7 +1408,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
   int32_t const* top_row_indices,
-  int depth);
+  int depth,
+  bool propagate_invalid_rows = true);
 
 std::unique_ptr<cudf::column> build_repeated_child_list_column(
   uint8_t const* message_data,
@@ -1429,7 +1433,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
   int32_t const* top_row_indices,
-  int depth);
+  int depth,
+  bool propagate_invalid_rows = true);
 
 std::unique_ptr<cudf::column> build_repeated_struct_column(
   cudf::column_view const& binary_input,
@@ -1480,7 +1485,7 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
 
   rmm::device_uvector<int32_t> lengths(num_rows, stream, mr);
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = (num_rows + threads - 1) / threads;
+  auto const blocks  = static_cast<int>((num_rows + threads - 1u) / threads);
   extract_lengths_kernel<LengthProvider><<<blocks, threads, 0, stream.value()>>>(
     length_provider, num_rows, lengths.data(), has_default, def_len);
 
@@ -1544,7 +1549,8 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
-  int32_t const* top_row_indices = nullptr)
+  int32_t const* top_row_indices = nullptr,
+  bool propagate_invalid_rows    = true)
 {
   switch (dt.id()) {
     case cudf::type_id::BOOL8: {
@@ -1591,6 +1597,7 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
                                            d_row_has_invalid_enum,
                                            num_items,
                                            top_row_indices,
+                                           propagate_invalid_rows,
                                            stream,
                                            mr);
         }
@@ -1733,8 +1740,9 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
+  int32_t total_count_i32 = static_cast<int32_t>(total_count);
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
-                                &total_count,
+                                &total_count_i32,
                                 sizeof(int32_t),
                                 cudaMemcpyHostToDevice,
                                 stream.value()));
@@ -1742,7 +1750,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   rmm::device_uvector<T> values(total_count, stream, mr);
 
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = (total_count + threads - 1) / threads;
+  auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
 
   int encoding = field_desc.encoding;
   bool zigzag  = (encoding == spark_rapids_jni::ENC_ZIGZAG);

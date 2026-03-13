@@ -355,7 +355,8 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   int num_rows,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
-  int32_t const* top_row_indices)
+  int32_t const* top_row_indices,
+  bool propagate_invalid_rows)
 {
   auto const threads = THREADS_PER_BLOCK;
   auto const blocks  = static_cast<int>((num_rows + threads - 1u) / threads);
@@ -373,8 +374,13 @@ std::unique_ptr<cudf::column> build_enum_string_column(
     lookup.d_valid_enums.data(),
     static_cast<int>(valid_enums.size()),
     num_rows);
-  propagate_invalid_enum_flags_to_rows(
-    d_item_has_invalid_enum, d_row_has_invalid_enum, num_rows, top_row_indices, stream, mr);
+  propagate_invalid_enum_flags_to_rows(d_item_has_invalid_enum,
+                                       d_row_has_invalid_enum,
+                                       num_rows,
+                                       top_row_indices,
+                                       propagate_invalid_rows,
+                                       stream,
+                                       mr);
   return build_enum_string_values_column(enum_values, valid, lookup, num_rows, stream, mr);
 }
 
@@ -390,6 +396,7 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column
   std::vector<std::vector<uint8_t>> const& enum_name_bytes,
   rmm::device_uvector<bool>& d_row_has_invalid_enum,
   int32_t const* top_row_indices,
+  bool propagate_invalid_rows,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -428,8 +435,13 @@ inline std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column
     lookup.d_valid_enums.data(),
     static_cast<int>(valid_enums.size()),
     total_count);
-  propagate_invalid_enum_flags_to_rows(
-    d_elem_has_invalid_enum, d_row_has_invalid_enum, total_count, top_row_indices, stream, mr);
+  propagate_invalid_enum_flags_to_rows(d_elem_has_invalid_enum,
+                                       d_row_has_invalid_enum,
+                                       total_count,
+                                       top_row_indices,
+                                       propagate_invalid_rows,
+                                       stream,
+                                       mr);
   return build_enum_string_values_column(enum_values, valid, lookup, total_count, stream, mr);
 }
 
@@ -493,6 +505,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
                                        d_row_has_invalid_enum,
                                        total_count,
                                        d_top_row_indices.data(),
+                                       true,
                                        stream,
                                        mr);
 
@@ -663,7 +676,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
   int32_t const* top_row_indices,
-  int depth);
+  int depth,
+  bool propagate_invalid_rows);
 
 // Forward declaration -- build_repeated_child_list_column is defined after
 // build_nested_struct_column but both build_repeated_struct_column and build_nested_struct_column
@@ -690,7 +704,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
   int32_t const* top_row_indices,
-  int depth);
+  int depth,
+  bool propagate_invalid_rows);
 
 std::unique_ptr<cudf::column> build_repeated_struct_column(
   cudf::column_view const& binary_input,
@@ -896,7 +911,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                                  stream,
                                                                  mr,
                                                                  d_top_row_indices.data(),
-                                                                 1));
+                                                                 1,
+                                                                 false));
       continue;
     }
 
@@ -934,7 +950,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                d_error,
                                stream,
                                mr,
-                               d_top_row_indices.data()));
+                               d_top_row_indices.data(),
+                               true));
         break;
       }
       case cudf::type_id::STRING: {
@@ -955,6 +972,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                           enum_names[child_schema_idx],
                                                           d_row_has_invalid_enum,
                                                           d_top_row_indices.data(),
+                                                          true,
                                                           d_error,
                                                           stream,
                                                           mr));
@@ -1043,7 +1061,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                                stream,
                                                                mr,
                                                                d_top_row_indices.data(),
-                                                               0));
+                                                               0,
+                                                               false));
         }
         break;
       }
@@ -1101,7 +1120,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
   int32_t const* top_row_indices,
-  int depth)
+  int depth,
+  bool propagate_invalid_rows)
 {
   CUDF_EXPECTS(depth < MAX_NESTED_STRUCT_DECODE_DEPTH,
                "Nested protobuf struct depth exceeds supported decode recursion limit");
@@ -1201,7 +1221,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                                  stream,
                                                                  mr,
                                                                  top_row_indices,
-                                                                 depth));
+                                                                 depth,
+                                                                 false));
       continue;
     }
 
@@ -1239,7 +1260,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                d_error,
                                stream,
                                mr,
-                               top_row_indices));
+                               top_row_indices,
+                               propagate_invalid_rows));
         break;
       }
       case cudf::type_id::STRING: {
@@ -1276,7 +1298,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                                  num_rows,
                                                                  stream,
                                                                  mr,
-                                                                 top_row_indices));
+                                                                 top_row_indices,
+                                                                 propagate_invalid_rows));
             } else {
               {
                 int err_val = ERR_MISSING_ENUM_META;
@@ -1410,7 +1433,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                              stream,
                                                              mr,
                                                              top_row_indices,
-                                                             depth + 1));
+                                                             depth + 1,
+                                                             propagate_invalid_rows));
         break;
       }
       default: struct_children.push_back(make_null_column(dt, num_rows, stream, mr)); break;
@@ -1455,7 +1479,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
   int32_t const* top_row_indices,
-  int depth)
+  int depth,
+  bool propagate_invalid_rows)
 {
   auto const threads = THREADS_PER_BLOCK;
   auto const blocks  = static_cast<int>((num_parent_rows + threads - 1u) / threads);
@@ -1592,7 +1617,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                         d_error,
                                         stream,
                                         mr,
-                                        d_rep_top_row_indices.data());
+                                        d_rep_top_row_indices.data(),
+                                        propagate_invalid_rows);
   } else if (elem_type_id == cudf::type_id::STRING || elem_type_id == cudf::type_id::LIST) {
     if (elem_type_id == cudf::type_id::STRING &&
         schema[child_schema_idx].encoding == spark_rapids_jni::ENC_ENUM_STRING) {
@@ -1630,6 +1656,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                              d_row_has_invalid_enum,
                                              total_rep_count,
                                              d_rep_top_row_indices.data(),
+                                             propagate_invalid_rows,
                                              stream,
                                              mr);
         child_values =
@@ -1702,7 +1729,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                                 stream,
                                                 mr,
                                                 d_rep_top_row_indices.data(),
-                                                depth + 1);
+                                                depth + 1,
+                                                propagate_invalid_rows);
     }
   } else {
     child_values = make_empty_column_safe(cudf::data_type{elem_type_id}, stream, mr);
