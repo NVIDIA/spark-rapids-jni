@@ -306,6 +306,8 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_create(int version,
   CUDF_EXPECTS(version == bloom_filter_version_1 || version == bloom_filter_version_2,
                "Bloom filter version must be 1 or 2");
 
+  CUDF_EXPECTS(bloom_filter_longs >= 0, "Bloom filter bit count must be non-negative");
+
   auto [bloom_filter_size, buf_size] = get_bloom_filter_stride(version, bloom_filter_longs);
   auto const hdr_size                = bloom_filter_header_size_for_version(version);
 
