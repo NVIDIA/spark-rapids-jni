@@ -28,6 +28,12 @@ namespace spark_rapids_jni::protobuf_detail {
  *
  * For "last one wins" semantics (protobuf standard for repeated scalars),
  * we continue scanning even after finding a field.
+ *
+ * If a row hits a parse error that leaves the cursor in an unsafe state (for example, malformed
+ * varint bytes or a schema-matching field with the wrong wire type), the scan aborts for that row
+ * instead of guessing where the next field begins. In permissive mode this means fields after the
+ * error position are treated as "not found" and therefore fall back to the usual null/default
+ * missing-field semantics.
  */
 __global__ void scan_all_fields_kernel(
   cudf::column_device_view const d_in,
