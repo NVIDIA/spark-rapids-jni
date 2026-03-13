@@ -274,12 +274,14 @@ struct bloom_filter_same {
   - second: total size in bytes of the serialized bloom filter buffer (header + bit array).
   Uses the version-specific header size.
 */
-std::pair<int64_t, int64_t> get_bloom_filter_stride(int version, int bloom_filter_longs)
+std::tuple<int32_t, int32_t> get_bloom_filter_stride(int version, int bloom_filter_longs)
 {
   auto const bloom_filter_size = static_cast<int64_t>(bloom_filter_longs) * sizeof(int64_t);
   auto const hdr_size          = bloom_filter_header_size_for_version(version);
   auto const buf_size          = hdr_size + bloom_filter_size;
-  return {bloom_filter_size, buf_size};
+  CUDF_EXPECTS(buf_size <= std::numeric_limits<int32_t>::max(),
+               "Bloom filter buffer size exceeds int32 range");
+  return {static_cast<int32_t>(bloom_filter_size), static_cast<int32_t>(buf_size)};
 }
 
 }  // anonymous namespace
@@ -333,7 +335,7 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
   auto [header, buffer, bloom_filter_bits, seed] = unpack_bloom_filter(bloom_filter.view(), stream);
   auto const hdr_size = bloom_filter_header_size_for_version(header.version);
   CUDF_EXPECTS(
-    bloom_filter.view().size() == static_cast<cudf::size_type>((buffer.size() * 4) + hdr_size),
+    static_cast<size_t>(bloom_filter.view().size()) == (buffer.size() * 4) + hdr_size,
     "Encountered invalid/mismatched bloom filter buffer data");
 
   constexpr int block_size = 256;
@@ -400,7 +402,7 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
                               bloom_filter_same{{raw_hdr[0], raw_hdr[1], raw_hdr[2], raw_hdr[3]},
                                                 header_field_count,
                                                 *dv,
-                                                static_cast<cudf::size_type>(buf_size)}),
+                                                buf_size}),
                "Mismatch of bloom filter parameters");
 
   rmm::device_buffer buf{static_cast<size_t>(buf_size), stream, mr};
