@@ -373,9 +373,10 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
   // seed; we use these to validate total size and to build the merged output.
   auto [header, buffer, bloom_filter_bits, seed] = unpack_bloom_filter(lcv.child(), stream);
   auto const hdr_size = bloom_filter_header_size_for_version(header.version);
-  CUDF_EXPECTS(lcv.child().size() == static_cast<cudf::size_type>(((buffer.size() * 4) + hdr_size) *
-                                                                  bloom_filters.size()),
-               "Encountered invalid/mismatched bloom filter buffer data");
+  CUDF_EXPECTS(
+    static_cast<size_t>(lcv.child().size()) == (buffer.size() * 4 + static_cast<size_t>(hdr_size)) *
+                                                 static_cast<size_t>(bloom_filters.size()),
+    "Encountered invalid/mismatched bloom filter buffer data");
 
   auto [bloom_filter_size, buf_size] = get_bloom_filter_stride(header.version, header.num_longs);
 
