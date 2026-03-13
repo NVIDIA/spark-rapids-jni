@@ -848,8 +848,16 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     static_cast<int>(d_child_lookup.size()));
 
   // Enforce proto2 required semantics for fields inside each repeated message occurrence.
-  maybe_check_required_fields(
-    d_child_locs.data(), child_field_indices, schema, total_count, d_error.data(), stream, mr);
+  maybe_check_required_fields(d_child_locs.data(),
+                              child_field_indices,
+                              schema,
+                              total_count,
+                              nullptr,
+                              0,
+                              nullptr,
+                              d_error.data(),
+                              stream,
+                              mr);
 
   // Note: We no longer need to copy child_locs to host because:
   // 1. All scalar extraction kernels access d_child_locs directly on device
@@ -1152,8 +1160,16 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     d_error.data());
 
   // Enforce proto2 required semantics for direct children of this nested message.
-  maybe_check_required_fields(
-    d_child_locations.data(), child_field_indices, schema, num_rows, d_error.data(), stream, mr);
+  maybe_check_required_fields(d_child_locations.data(),
+                              child_field_indices,
+                              schema,
+                              num_rows,
+                              nullptr,
+                              0,
+                              d_parent_locs.data(),
+                              d_error.data(),
+                              stream,
+                              mr);
 
   std::vector<std::unique_ptr<cudf::column>> struct_children;
   for (int ci = 0; ci < num_child_fields; ci++) {

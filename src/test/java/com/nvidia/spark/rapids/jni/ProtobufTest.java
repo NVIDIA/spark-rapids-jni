@@ -1317,6 +1317,30 @@ public class ProtobufTest {
   }
 
   @Test
+  void testRequiredFieldIgnoresNullInputRow_Failfast() {
+    Byte[] row0 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
+    Byte[] row1 = null;
+
+    try (Table input = new Table.TestBuilder().column(row0, row1).build();
+         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true},
+             true);
+         ColumnVector idCol = actualStruct.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostStruct = actualStruct.copyToHost();
+         HostColumnVector hostId = idCol.copyToHost()) {
+      assertEquals(0, actualStruct.getNullCount(), "Null input rows keep the top-level struct row");
+      assertFalse(hostStruct.isNull(0), "Present required field should keep row 0 valid");
+      assertFalse(hostStruct.isNull(1), "Null input row should not trigger required-field failure");
+      assertEquals(1, idCol.getNullCount(), "The required child value should be null on the null input row");
+      assertTrue(hostId.isNull(1), "Null input row should produce a null child value, not ERR_REQUIRED");
+    }
+  }
+
+  @Test
   void testRequiredNestedMessageMissing_Failfast() {
     // message Outer { required Inner detail = 1; }
     // message Inner { optional int32 id = 1; }
@@ -1380,6 +1404,40 @@ public class ProtobufTest {
             true)) {
         }
       });
+    }
+  }
+
+  @Test
+  void testAbsentNestedParentSkipsRequiredChildCheck_Failfast() {
+    // message Outer { optional Inner detail = 1; }
+    // message Inner { required int32 id = 1; }
+    Byte[] row = new Byte[0];
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector actual = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1},
+             new int[]{-1, 0},
+             new int[]{0, 1},
+             new int[]{WT_LEN, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},
+             new boolean[]{false, true},
+             new boolean[]{false, false},
+             new long[]{0, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             new int[][]{null, null},
+             true);
+         ColumnVector detailCol = actual.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostStruct = actual.copyToHost();
+         HostColumnVector hostDetail = detailCol.copyToHost()) {
+      assertEquals(0, actual.getNullCount(), "Outer row should remain valid");
+      assertFalse(hostStruct.isNull(0), "Top-level row should not be null");
+      assertEquals(1, detailCol.getNullCount(), "Absent nested parent should stay null");
+      assertTrue(hostDetail.isNull(0), "Missing optional nested struct should skip required-child error");
     }
   }
 
@@ -2379,18 +2437,20 @@ public class ProtobufTest {
   }
 
   @Test
-  void testFailfastUnknownEndGroupWireType() {
-    Byte[] row = concat(box(tag(5, 4)));
-    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
-      assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
-            input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT64.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT},
-            true)) {
-        }
-      });
+  void testUnknownEndGroupWireTypeDoesNotAbortDecode() {
+    Byte[] row = concat(
+        box(tag(5, 4)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(42)));
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector expected = ColumnVector.fromBoxedLongs(42L);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expected);
+         ColumnVector actual = decodeAllFields(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actual);
     }
   }
 

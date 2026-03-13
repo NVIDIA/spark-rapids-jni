@@ -371,10 +371,6 @@ __device__ inline bool decode_tag(uint8_t const*& cur,
   }
   tag.field_number = static_cast<int>(fn);
   tag.wire_type    = static_cast<int>(key & 0x7);
-  if (tag.wire_type == WT_SGROUP || tag.wire_type == WT_EGROUP) {
-    set_error_once(error_flag, ERR_WIRE_TYPE);
-    return false;
-  }
   return true;
 }
 
@@ -1182,12 +1178,18 @@ __global__ void check_required_fields_kernel(field_location const* locations,
                                              uint8_t const* is_required,
                                              int num_fields,
                                              int num_rows,
+                                             cudf::bitmask_type const* input_null_mask,
+                                             cudf::size_type input_offset,
+                                             field_location const* parent_locs,
                                              int* error_flag);
 
 inline void maybe_check_required_fields(field_location const* locations,
                                         std::vector<int> const& field_indices,
                                         std::vector<nested_field_descriptor> const& schema,
                                         int num_rows,
+                                        cudf::bitmask_type const* input_null_mask,
+                                        cudf::size_type input_offset,
+                                        field_location const* parent_locs,
                                         int* error_flag,
                                         rmm::cuda_stream_view stream,
                                         rmm::device_async_resource_ref mr)
@@ -1211,7 +1213,14 @@ inline void maybe_check_required_fields(field_location const* locations,
 
   auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   check_required_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-    locations, d_is_required.data(), static_cast<int>(field_indices.size()), num_rows, error_flag);
+    locations,
+    d_is_required.data(),
+    static_cast<int>(field_indices.size()),
+    num_rows,
+    input_null_mask,
+    input_offset,
+    parent_locs,
+    error_flag);
 }
 
 __global__ void validate_enum_values_kernel(int32_t const* values,

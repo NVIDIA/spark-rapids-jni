@@ -157,7 +157,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                 stream.value()));
 
   auto d_in = cudf::column_device_view::create(binary_input, stream);
-
   // Identify repeated and nested fields at depth 0
   std::vector<int> repeated_field_indices;
   std::vector<int> nested_field_indices;
@@ -327,8 +326,16 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       d_error.data());
 
     // Required-field validation applies to all scalar leaves, not just top-level numerics.
-    maybe_check_required_fields(
-      d_locations.data(), scalar_field_indices, schema, num_rows, d_error.data(), stream, mr);
+    maybe_check_required_fields(d_locations.data(),
+                                scalar_field_indices,
+                                schema,
+                                num_rows,
+                                binary_input.null_count() > 0 ? binary_input.null_mask() : nullptr,
+                                binary_input.offset(),
+                                nullptr,
+                                d_error.data(),
+                                stream,
+                                mr);
 
     // Batched scalar extraction: group non-special fixed-width fields by extraction
     // category and extract all fields of each category with a single 2D kernel launch.
@@ -655,8 +662,16 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Required top-level nested messages are tracked in d_nested_locations during the scan/count
   // pass.
-  maybe_check_required_fields(
-    d_nested_locations.data(), nested_field_indices, schema, num_rows, d_error.data(), stream, mr);
+  maybe_check_required_fields(d_nested_locations.data(),
+                              nested_field_indices,
+                              schema,
+                              num_rows,
+                              binary_input.null_count() > 0 ? binary_input.null_mask() : nullptr,
+                              binary_input.offset(),
+                              nullptr,
+                              d_error.data(),
+                              stream,
+                              mr);
 
   // Process repeated fields (three-phase: offsets → combined scan → build columns)
   if (num_repeated > 0) {

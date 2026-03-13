@@ -1074,10 +1074,17 @@ __global__ void check_required_fields_kernel(
   uint8_t const* is_required,       // [num_fields] (1 = required, 0 = optional)
   int num_fields,
   int num_rows,
+  cudf::bitmask_type const* input_null_mask,  // optional top-level input null mask
+  cudf::size_type input_offset,               // bit offset for sliced top-level input
+  field_location const* parent_locs,          // [num_rows] optional parent presence for nested rows
   int* error_flag)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
+  if (input_null_mask != nullptr && !cudf::bit_is_set(input_null_mask, row + input_offset)) {
+    return;
+  }
+  if (parent_locs != nullptr && parent_locs[row].offset < 0) return;
 
   for (int f = 0; f < num_fields; f++) {
     if (is_required[f] != 0 && locations[flat_index(static_cast<size_t>(row),
