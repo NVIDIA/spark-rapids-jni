@@ -951,7 +951,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                stream,
                                mr,
                                d_top_row_indices.data(),
-                               true));
+                               false));
         break;
       }
       case cudf::type_id::STRING: {
@@ -972,7 +972,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                           enum_names[child_schema_idx],
                                                           d_row_has_invalid_enum,
                                                           d_top_row_indices.data(),
-                                                          true,
+                                                          false,
                                                           d_error,
                                                           stream,
                                                           mr));
