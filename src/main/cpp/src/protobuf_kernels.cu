@@ -533,6 +533,10 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
  * Scan nested message fields.
  * Each row represents a nested message at a specific parent location.
  * This kernel finds fields within the nested message bytes.
+ *
+ * Note: this path intentionally keeps a linear child-field scan. Unlike repeated-message child
+ * scanning, previous benchmarking did not show a stable win from adding a host-built lookup table
+ * here, so we keep the simpler implementation unless that trade-off changes.
  */
 __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
                                                   cudf::size_type message_data_size,

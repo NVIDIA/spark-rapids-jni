@@ -26,9 +26,11 @@ import java.util.Set;
  * <p>Use this class instead of passing 15+ individual arrays through the JNI boundary.
  * Validation is performed once in the constructor (and again on deserialization).
  *
- * <p>All arrays are defensively copied in the constructor to guarantee immutability.
- * Package-private field access from {@link Protobuf} is safe because the stored arrays
- * cannot be mutated by the original caller.
+ * <p>All arrays provided to the constructor are defensively copied to guarantee immutability.
+ * During deserialization, {@code defaultReadObject()} reconstructs a fresh object graph and
+ * {@link #readObject(java.io.ObjectInputStream)} re-validates the schema invariants before the
+ * instance becomes visible. Package-private field access from {@link Protobuf} is therefore safe
+ * because constructor callers cannot retain mutable aliases into the stored arrays.
  */
 public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   private static final long serialVersionUID = 1L;
@@ -106,6 +108,9 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
 
   private void readObject(java.io.ObjectInputStream in)
       throws java.io.IOException, ClassNotFoundException {
+    // defaultReadObject() reconstructs new array objects from the serialized stream; we do not
+    // receive caller-owned array aliases here. Re-run validate() so deserialization cannot bypass
+    // the constructor's schema invariants.
     in.defaultReadObject();
     try {
       validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,

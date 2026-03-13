@@ -572,8 +572,9 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
+  int32_t total_count_i32 = static_cast<int32_t>(total_count);
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
-                                &total_count,
+                                &total_count_i32,
                                 sizeof(int32_t),
                                 cudaMemcpyHostToDevice,
                                 stream.value()));
@@ -767,8 +768,9 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
+  int32_t total_count_i32 = static_cast<int32_t>(total_count);
   CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
-                                &total_count,
+                                &total_count_i32,
                                 sizeof(int32_t),
                                 cudaMemcpyHostToDevice,
                                 stream.value()));
