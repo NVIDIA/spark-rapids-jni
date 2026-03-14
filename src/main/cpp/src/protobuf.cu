@@ -24,6 +24,10 @@ namespace spark_rapids_jni {
 
 namespace {
 
+void propagate_nulls_to_descendants(cudf::column& col,
+                                    rmm::cuda_stream_view stream,
+                                    rmm::device_async_resource_ref mr);
+
 void apply_parent_mask_to_row_aligned_column(cudf::column& col,
                                              cudf::bitmask_type const* parent_mask_ptr,
                                              cudf::size_type parent_null_count,
@@ -53,6 +57,53 @@ void apply_parent_mask_to_row_aligned_column(cudf::column& col,
   }
 }
 
+void propagate_list_nulls_to_descendants(cudf::column& list_col,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
+{
+  if (list_col.type().id() != cudf::type_id::LIST || list_col.null_count() == 0) { return; }
+
+  cudf::lists_column_view const list_view(list_col.view());
+  auto const* list_mask_ptr = list_view.null_mask();
+  auto const num_rows       = list_view.size();
+  auto& child               = list_col.child(cudf::lists_column_view::child_column_index);
+  auto const child_size     = child.size();
+  if (child_size == 0) { return; }
+
+  CUDF_EXPECTS(list_view.offset() == 0,
+               "decoder list null propagation expects unsliced list columns");
+  auto const* offsets_begin = list_view.offsets_begin();
+  // LIST children are not row-aligned with their parent. Expand the list-row null mask across
+  // every covered child element so direct access to the backing child column also observes nulls.
+  auto [element_mask, element_null_count] = cudf::detail::valid_if(
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(child_size),
+    [list_mask_ptr, offsets_begin, num_rows] __device__(cudf::size_type idx) {
+      cudf::size_type lo = 0;
+      cudf::size_type hi = num_rows;
+      while (lo < hi) {
+        auto const mid = lo + (hi - lo) / 2;
+        if (offsets_begin[mid + 1] <= idx) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      return list_mask_ptr == nullptr || cudf::bit_is_set(list_mask_ptr, lo);
+    },
+    stream,
+    mr);
+
+  apply_parent_mask_to_row_aligned_column(
+    child,
+    static_cast<cudf::bitmask_type const*>(element_mask.data()),
+    element_null_count,
+    child_size,
+    stream,
+    mr);
+  propagate_nulls_to_descendants(child, stream, mr);
+}
+
 void propagate_struct_nulls_to_descendants(cudf::column& struct_col,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
@@ -68,9 +119,18 @@ void propagate_struct_nulls_to_descendants(cudf::column& struct_col,
     auto& child = struct_col.child(i);
     apply_parent_mask_to_row_aligned_column(
       child, struct_mask_ptr, null_count, num_rows, stream, mr);
-    if (child.type().id() == cudf::type_id::STRUCT) {
-      propagate_struct_nulls_to_descendants(child, stream, mr);
-    }
+    propagate_nulls_to_descendants(child, stream, mr);
+  }
+}
+
+void propagate_nulls_to_descendants(cudf::column& col,
+                                    rmm::cuda_stream_view stream,
+                                    rmm::device_async_resource_ref mr)
+{
+  switch (col.type().id()) {
+    case cudf::type_id::STRUCT: propagate_struct_nulls_to_descendants(col, stream, mr); break;
+    case cudf::type_id::LIST: propagate_list_nulls_to_descendants(col, stream, mr); break;
+    default: break;
   }
 }
 
@@ -1120,17 +1180,15 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     struct_null_count = null_count;
   }
 
-  // cuDF struct child views do not inherit parent nulls. Push PERMISSIVE invalid-enum nulls
-  // down into every top-level child, then recursively into nested STRUCT descendants, so
-  // callers that access grandchildren directly still observe logically-null rows.
+  // cuDF child views do not automatically inherit parent nulls. Push PERMISSIVE invalid-enum
+  // nulls down into every top-level child, then recursively through nested STRUCT/LIST children,
+  // so callers that access backing grandchildren directly still observe logically-null rows.
   if (has_enum_fields && struct_null_count > 0) {
     auto const* struct_mask_ptr = static_cast<cudf::bitmask_type const*>(struct_mask.data());
     for (auto& child : top_level_children) {
       apply_parent_mask_to_row_aligned_column(
         *child, struct_mask_ptr, struct_null_count, num_rows, stream, mr);
-      if (child->type().id() == cudf::type_id::STRUCT) {
-        propagate_struct_nulls_to_descendants(*child, stream, mr);
-      }
+      propagate_nulls_to_descendants(*child, stream, mr);
     }
   }
 

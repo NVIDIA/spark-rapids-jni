@@ -895,7 +895,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                                  mr,
                                                                  d_top_row_indices.data(),
                                                                  1,
-                                                                 false));
+                                                                 true));
       continue;
     }
 
@@ -934,7 +934,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                stream,
                                mr,
                                d_top_row_indices.data(),
-                               false));
+                               true));
         break;
       }
       case cudf::type_id::STRING: {
@@ -955,7 +955,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                           enum_names[child_schema_idx],
                                                           d_row_has_invalid_enum,
                                                           d_top_row_indices.data(),
-                                                          false,
+                                                          true,
                                                           d_error,
                                                           stream,
                                                           mr));
@@ -1043,7 +1043,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                                mr,
                                                                d_top_row_indices.data(),
                                                                0,
-                                                               false));
+                                                               true));
         }
         break;
       }
@@ -1203,7 +1203,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                                  mr,
                                                                  top_row_indices,
                                                                  depth,
-                                                                 false));
+                                                                 propagate_invalid_rows));
       continue;
     }
 

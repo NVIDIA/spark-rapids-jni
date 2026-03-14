@@ -21,6 +21,7 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
+import ai.rapids.cudf.HostColumnVectorCore;
 import ai.rapids.cudf.HostColumnVector.*;
 import ai.rapids.cudf.Table;
 import org.junit.jupiter.api.Disabled;
@@ -2772,6 +2773,75 @@ public class ProtobufTest {
       assertEquals(1, actualStruct.getNullCount(), "Exactly one top-level row should be null");
       assertTrue(hostStruct.isNull(0), "Row 0 should be null because one repeated child enum is invalid");
       assertFalse(hostStruct.isNull(1), "Row 1 should remain valid");
+    }
+  }
+
+  @Test
+  void testRepeatedStructEnumInvalidNullsListBackingStructChildren() {
+    // enum Color { RED=0; GREEN=1; BLUE=2; }
+    // message Item { Color color = 1; int32 count = 2; }
+    // message Msg { repeated Item items = 1; }
+    Byte[] item00 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(0)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(10)));
+    Byte[] item01 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(999)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(20)));
+    Byte[] row0 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(item00.length)), item00,
+        box(tag(1, WT_LEN)), box(encodeVarint(item01.length)), item01);
+    Byte[] item10 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(30)));
+    Byte[] row1 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(item10.length)), item10);
+
+    try (Table input = new Table.TestBuilder().column(row0, row1).build();
+         ColumnVector actual = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1, 2},
+             new int[]{-1, 0, 0},
+             new int[]{0, 1, 1},
+             new int[]{WT_LEN, WT_VARINT, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{true, false, false},
+             new boolean[]{false, false, false},
+             new boolean[]{false, false, false},
+             new long[]{0, 0, 0},
+             new double[]{0.0, 0.0, 0.0},
+             new boolean[]{false, false, false},
+             new byte[][]{null, null, null},
+             new int[][]{null, new int[]{0, 1, 2}, null},
+             false);
+         ColumnView itemsView = actual.getChildColumnView(0);
+         ColumnView itemStructView = itemsView.getChildColumnView(0);
+         ColumnView countView = itemStructView.getChildColumnView(1);
+         ColumnVector countVector = countView.copyToColumnVector();
+         HostColumnVector hostStruct = actual.copyToHost();
+         HostColumnVector hostCounts = countVector.copyToHost()) {
+      HostColumnVectorCore hostItems = hostStruct.getChildColumnView(0);
+
+      assertEquals(1, actual.getNullCount(), "Exactly one top-level row should be null");
+      assertTrue(hostStruct.isNull(0), "Row 0 should be null because one repeated child enum is invalid");
+      assertFalse(hostStruct.isNull(1), "Row 1 should remain valid");
+
+      assertEquals(1, hostItems.getNullCount(), "LIST row should inherit the top-level null");
+      assertTrue(hostItems.isNull(0), "items[0] should be null");
+      assertFalse(hostItems.isNull(1), "items[1] should remain valid");
+
+      assertEquals(1, itemStructView.getRowCount(),
+          "Direct list child view should not expose stale elements from the null list row");
+      assertEquals(0, itemStructView.getNullCount(),
+          "Direct list child view should be sanitized rather than carrying non-empty nulls");
+      assertEquals(1, countView.getRowCount(),
+          "Direct grandchild view should only expose elements from valid list rows");
+      assertEquals(0, countView.getNullCount(),
+          "Direct grandchild view should also be sanitized");
+      assertEquals(30, hostCounts.getInt(0),
+          "The remaining direct child value should come from the valid list row only");
     }
   }
 
