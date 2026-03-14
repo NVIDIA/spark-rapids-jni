@@ -1076,7 +1076,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                  mr,
                                                                  nullptr,
                                                                  0,
-                                                                 false);
+                                                                 true);
     }
   }
 

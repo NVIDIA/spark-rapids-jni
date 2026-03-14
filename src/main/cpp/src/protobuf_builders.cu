@@ -595,7 +595,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   // Extract string lengths from occurrences
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, mr);
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = (total_count + threads - 1u) / threads;
+  auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
   RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   extract_lengths_kernel<RepeatedLocationProvider>
     <<<blocks, threads, 0, stream.value()>>>(loc_provider, total_count, str_lengths.data());
@@ -822,7 +822,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   rmm::device_uvector<cudf::size_type> d_msg_row_offsets(total_count, stream, mr);
   {
     auto const occ_threads = THREADS_PER_BLOCK;
-    auto const occ_blocks  = (total_count + occ_threads - 1u) / occ_threads;
+    auto const occ_blocks  = static_cast<int>((total_count + occ_threads - 1u) / occ_threads);
     compute_msg_locations_from_occurrences_kernel<<<occ_blocks, occ_threads, 0, stream.value()>>>(
       d_occurrences.data(),
       list_offsets,
@@ -845,7 +845,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   auto& d_error = d_error_top;
 
   auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = (total_count + threads - 1u) / threads;
+  auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
 
   // Use a custom kernel to scan child fields within message occurrences
   // This is similar to scan_nested_message_fields_kernel but operates on occurrences
