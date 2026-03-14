@@ -110,9 +110,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         if (schema[i].is_repeated && field_type.id() == cudf::type_id::STRUCT) {
           // Repeated message field - build empty LIST with proper struct element
           rmm::device_uvector<int32_t> offsets(1, stream, mr);
-          int32_t zero = 0;
-          CUDF_CUDA_TRY(cudaMemcpyAsync(
-            offsets.data(), &zero, sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
+          CUDF_CUDA_TRY(cudaMemsetAsync(offsets.data(), 0, sizeof(int32_t), stream.value()));
           auto offsets_col = std::make_unique<cudf::column>(
             cudf::data_type{cudf::type_id::INT32}, 1, offsets.release(), rmm::device_buffer{}, 0);
           auto empty_struct = make_empty_struct_column_with_schema(
@@ -199,6 +197,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       case ERR_MISSING_ENUM_META:
         return "Protobuf decode error: missing or mismatched enum metadata for enum-as-string "
                "field";
+      case ERR_REPEATED_COUNT_MISMATCH:
+        return "Protobuf decode error: repeated-field count/scan mismatch";
       default: return "Protobuf decode error: unknown error";
     }
   };
@@ -578,19 +578,11 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                   mr);
               } else {
                 // Missing enum metadata for enum-as-string field; mark as decode error.
-                {
-                  int err_val = ERR_MISSING_ENUM_META;
-                  CUDF_CUDA_TRY(cudaMemcpyAsync(
-                    d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
-                }
+                thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
                 column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
               }
             } else {
-              {
-                int err_val = ERR_MISSING_ENUM_META;
-                CUDF_CUDA_TRY(cudaMemcpyAsync(
-                  d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
-              }
+              thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
               column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
             }
           } else {
@@ -917,9 +909,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                     stream,
                                                     mr);
               } else {
-                int err_val = ERR_MISSING_ENUM_META;
-                CUDF_CUDA_TRY(cudaMemcpyAsync(
-                  d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+                thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
                 column_map[schema_idx] =
                   make_null_column(schema_output_types[schema_idx], num_rows, stream, mr);
               }

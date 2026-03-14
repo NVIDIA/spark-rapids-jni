@@ -180,12 +180,8 @@ std::unique_ptr<cudf::column> make_empty_column_safe(cudf::data_type dtype,
                                        rmm::device_buffer{},
                                        0);
       // Initialize offset to 0
-      int32_t zero = 0;
-      CUDF_CUDA_TRY(cudaMemcpyAsync(offsets_col->mutable_view().data<int32_t>(),
-                                    &zero,
-                                    sizeof(int32_t),
-                                    cudaMemcpyHostToDevice,
-                                    stream.value()));
+      CUDF_CUDA_TRY(cudaMemsetAsync(
+        offsets_col->mutable_view().data<int32_t>(), 0, sizeof(int32_t), stream.value()));
       auto child_col = std::make_unique<cudf::column>(
         cudf::data_type{cudf::type_id::UINT8}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
       return cudf::make_lists_column(
@@ -237,12 +233,8 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
                                                     rmm::device_buffer(sizeof(int32_t), stream, mr),
                                                     rmm::device_buffer{},
                                                     0);
-  int32_t zero     = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(offsets_col->mutable_view().data<int32_t>(),
-                                &zero,
-                                sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  CUDF_CUDA_TRY(cudaMemsetAsync(
+    offsets_col->mutable_view().data<int32_t>(), 0, sizeof(int32_t), stream.value()));
   return cudf::make_lists_column(
     0, std::move(offsets_col), std::move(element_col), 0, rmm::device_buffer{});
 }
@@ -517,8 +509,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), lo.begin(), 0);
   int32_t tc_i32 = static_cast<int32_t>(total_count);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    lo.data() + num_rows, &tc_i32, sizeof(int32_t), cudaMemcpyHostToDevice, stream.value()));
+  thrust::fill_n(rmm::exec_policy(stream), lo.data() + num_rows, 1, tc_i32);
 
   auto list_offs_col = std::make_unique<cudf::column>(
     cudf::data_type{cudf::type_id::INT32}, num_rows + 1, lo.release(), rmm::device_buffer{}, 0);
@@ -586,11 +577,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
   int32_t total_count_i32 = static_cast<int32_t>(total_count);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
-                                &total_count_i32,
-                                sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  thrust::fill_n(rmm::exec_policy(stream), list_offs.data() + num_rows, 1, total_count_i32);
 
   // Extract string lengths from occurrences
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, mr);
@@ -784,11 +771,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
   int32_t total_count_i32 = static_cast<int32_t>(total_count);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
-                                &total_count_i32,
-                                sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  thrust::fill_n(rmm::exec_policy(stream), list_offs.data() + num_rows, 1, total_count_i32);
 
   // Build child field descriptors for scanning within each message occurrence
   std::vector<field_descriptor> h_child_descs(num_child_fields);
@@ -977,9 +960,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                           stream,
                                                           mr));
           } else {
-            int err_val = ERR_MISSING_ENUM_META;
-            CUDF_CUDA_TRY(cudaMemcpyAsync(
-              d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+            thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
             struct_children.push_back(make_null_column(dt, total_count, stream, mr));
           }
         } else {
@@ -1301,19 +1282,11 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                                  top_row_indices,
                                                                  propagate_invalid_rows));
             } else {
-              {
-                int err_val = ERR_MISSING_ENUM_META;
-                CUDF_CUDA_TRY(cudaMemcpyAsync(
-                  d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
-              }
+              thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
               struct_children.push_back(make_null_column(dt, num_rows, stream, mr));
             }
           } else {
-            {
-              int err_val = ERR_MISSING_ENUM_META;
-              CUDF_CUDA_TRY(cudaMemcpyAsync(
-                d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
-            }
+            thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
             struct_children.push_back(make_null_column(dt, num_rows, stream, mr));
           }
         } else {
@@ -1560,11 +1533,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   rmm::device_uvector<int32_t> list_offs(num_parent_rows + 1, stream, mr);
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_rep_counts.data(), d_rep_counts.end(), list_offs.begin(), 0);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_parent_rows,
-                                &total_rep_count,
-                                sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  thrust::fill_n(rmm::exec_policy(stream), list_offs.data() + num_parent_rows, 1, total_rep_count);
 
   rmm::device_uvector<repeated_occurrence> d_rep_occs(total_rep_count, stream, mr);
   scan_repeated_in_nested_kernel<<<blocks, threads, 0, stream.value()>>>(message_data,
@@ -1662,9 +1631,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
         child_values =
           build_enum_string_values_column(enum_values, valid, lookup, total_rep_count, stream, mr);
       } else {
-        int err_val = ERR_MISSING_ENUM_META;
-        CUDF_CUDA_TRY(cudaMemcpyAsync(
-          d_error.data(), &err_val, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+        thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
         child_values = make_null_column(cudf::data_type{elem_type_id}, total_rep_count, stream, mr);
       }
     } else {

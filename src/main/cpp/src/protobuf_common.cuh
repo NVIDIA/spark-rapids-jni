@@ -68,17 +68,18 @@ constexpr int MAX_VARINT_BYTES = 10;
 constexpr int THREADS_PER_BLOCK = 256;
 
 // Error codes for kernel error reporting.
-constexpr int ERR_BOUNDS            = 1;
-constexpr int ERR_VARINT            = 2;
-constexpr int ERR_FIELD_NUMBER      = 3;
-constexpr int ERR_WIRE_TYPE         = 4;
-constexpr int ERR_OVERFLOW          = 5;
-constexpr int ERR_FIELD_SIZE        = 6;
-constexpr int ERR_SKIP              = 7;
-constexpr int ERR_FIXED_LEN         = 8;
-constexpr int ERR_REQUIRED          = 9;
-constexpr int ERR_SCHEMA_TOO_LARGE  = 10;
-constexpr int ERR_MISSING_ENUM_META = 11;
+constexpr int ERR_BOUNDS                  = 1;
+constexpr int ERR_VARINT                  = 2;
+constexpr int ERR_FIELD_NUMBER            = 3;
+constexpr int ERR_WIRE_TYPE               = 4;
+constexpr int ERR_OVERFLOW                = 5;
+constexpr int ERR_FIELD_SIZE              = 6;
+constexpr int ERR_SKIP                    = 7;
+constexpr int ERR_FIXED_LEN               = 8;
+constexpr int ERR_REQUIRED                = 9;
+constexpr int ERR_SCHEMA_TOO_LARGE        = 10;
+constexpr int ERR_MISSING_ENUM_META       = 11;
+constexpr int ERR_REPEATED_COUNT_MISMATCH = 12;
 
 // Maximum supported nesting depth for recursive struct decoding.
 constexpr int MAX_NESTED_STRUCT_DECODE_DEPTH = 10;
@@ -1741,11 +1742,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
 
   int32_t total_count_i32 = static_cast<int32_t>(total_count);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
-                                &total_count_i32,
-                                sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  thrust::fill_n(rmm::exec_policy(stream), list_offs.data() + num_rows, 1, total_count_i32);
 
   rmm::device_uvector<T> values(total_count, stream, mr);
 

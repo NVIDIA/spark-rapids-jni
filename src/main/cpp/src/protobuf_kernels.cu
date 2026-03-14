@@ -219,6 +219,7 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
                                       int32_t row,
                                       repeated_occurrence* occurrences,
                                       int& write_idx,
+                                      int write_end,
                                       int* error_flag)
 {
   bool is_packed = (wt == WT_LEN && expected_wt != WT_LEN);
@@ -252,6 +253,10 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
           set_error_once(error_flag, ERR_VARINT);
           return false;
         }
+        if (write_idx >= write_end) {
+          set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
+          return false;
+        }
         occurrences[write_idx] = {row, elem_offset, vbytes};
         write_idx++;
         p += vbytes;
@@ -262,6 +267,10 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
         return false;
       }
       for (uint64_t i = 0; i < packed_len; i += 4) {
+        if (write_idx >= write_end) {
+          set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
+          return false;
+        }
         occurrences[write_idx] = {row, static_cast<int32_t>(packed_start - msg_base + i), 4};
         write_idx++;
       }
@@ -271,6 +280,10 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
         return false;
       }
       for (uint64_t i = 0; i < packed_len; i += 8) {
+        if (write_idx >= write_end) {
+          set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
+          return false;
+        }
         occurrences[write_idx] = {row, static_cast<int32_t>(packed_start - msg_base + i), 8};
         write_idx++;
       }
@@ -279,6 +292,10 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
     int32_t data_offset, data_length;
     if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
       set_error_once(error_flag, ERR_FIELD_SIZE);
+      return false;
+    }
+    if (write_idx >= write_end) {
+      set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
       return false;
     }
     int32_t abs_offset     = static_cast<int32_t>(cur - msg_base) + data_offset;
@@ -503,6 +520,7 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
                                      static_cast<int32_t>(row),
                                      scan_descs[f].occurrences,
                                      write_idx[f],
+                                     scan_descs[f].row_offsets[row + 1],
                                      error_flag);
       }
       set_error_once(error_flag, ERR_WIRE_TYPE);
@@ -528,6 +546,13 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
       return;
     }
     cur = next;
+  }
+
+  for (int f = 0; f < num_scan_fields; f++) {
+    if (write_idx[f] != scan_descs[f].row_offsets[row + 1]) {
+      set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
+      return;
+    }
   }
 }
 
@@ -866,8 +891,13 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
   auto row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
 
+  int write_idx          = occ_prefix_sums[row];
+  int write_end          = occ_prefix_sums[row + 1];
   auto const& parent_loc = parent_locs[row];
-  if (parent_loc.offset < 0) return;
+  if (parent_loc.offset < 0) {
+    if (write_idx != write_end) { set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH); }
+    return;
+  }
 
   cudf::size_type row_off = row_offsets[row] - base_offset;
 
@@ -882,7 +912,6 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
   uint8_t const* msg_end   = msg_start + parent_loc.length;
   uint8_t const* cur       = msg_start;
 
-  int write_idx  = occ_prefix_sums[row];
   int schema_idx = repeated_indices[0];
 
   while (cur < msg_end) {
@@ -900,6 +929,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
                                  static_cast<int32_t>(row),
                                  occurrences,
                                  write_idx,
+                                 write_end,
                                  error_flag)) {
         return;
       }
@@ -912,6 +942,8 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
     }
     cur = next;
   }
+
+  if (write_idx != write_end) { set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH); }
 }
 
 /**
