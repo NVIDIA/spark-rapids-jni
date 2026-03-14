@@ -90,8 +90,8 @@ CUDF_KERNEL void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
     for (auto idx = 1; idx <= num_hashes; idx++) {
       bloom_hash_type combined_hash = h1 + (idx * h2);
       auto const bit_pos =
-        static_cast<int64_t>((combined_hash < 0 ? ~combined_hash : combined_hash) %
-                             static_cast<bloom_hash_type>(bloom_filter_bits));
+        static_cast<int64_t>(combined_hash < 0 ? ~combined_hash : combined_hash) %
+        bloom_filter_bits;
       auto const [word_index, mask] = gpu_bit_to_word_mask(bit_pos);
       atomicOr(bloom_filter + word_index, mask);
     }
@@ -126,8 +126,8 @@ struct bloom_probe_functor {
       for (auto idx = 1; idx <= num_hashes; idx++) {
         bloom_hash_type combined_hash = h1 + (idx * h2);
         auto const bit_pos =
-          static_cast<int64_t>((combined_hash < 0 ? ~combined_hash : combined_hash) %
-                               static_cast<bloom_hash_type>(bloom_filter_bits));
+          static_cast<int64_t>(combined_hash < 0 ? ~combined_hash : combined_hash) %
+          bloom_filter_bits;
         auto const [word_index, mask] = gpu_bit_to_word_mask(bit_pos);
         if (!(bloom_filter[word_index] & mask)) { return false; }
       }
@@ -349,17 +349,19 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
         buffer.data(), bloom_filter_bits, *d_input, header.num_hashes, seed);
   };
 
-  if (header.version == bloom_filter_version_2) {
-    if (input.has_nulls()) {
-      launch(std::integral_constant<int, 2>{}, std::true_type{});
-    } else {
-      launch(std::integral_constant<int, 2>{}, std::false_type{});
-    }
-  } else {
+  if (header.version == bloom_filter_version_1) {
+    CUDF_EXPECTS(bloom_filter_bits <= std::numeric_limits<int32_t>::max(),
+                 "V1 bloom filter bit count exceeds int32 range");
     if (input.has_nulls()) {
       launch(std::integral_constant<int, 1>{}, std::true_type{});
     } else {
       launch(std::integral_constant<int, 1>{}, std::false_type{});
+    }
+  } else {
+    if (input.has_nulls()) {
+      launch(std::integral_constant<int, 2>{}, std::true_type{});
+    } else {
+      launch(std::integral_constant<int, 2>{}, std::false_type{});
     }
   }
 }
@@ -457,20 +459,22 @@ std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
                                            stream,
                                            mr);
 
-  if (header.version == bloom_filter_version_2) {
-    thrust::transform(
-      rmm::exec_policy(stream),
-      input.begin<int64_t>(),
-      input.end<int64_t>(),
-      out->mutable_view().begin<bool>(),
-      bloom_probe_functor<2>{buffer.data(), bloom_filter_bits, header.num_hashes, seed});
-  } else {
+  if (header.version == bloom_filter_version_1) {
+    CUDF_EXPECTS(bloom_filter_bits <= std::numeric_limits<int32_t>::max(),
+                 "V1 bloom filter bit count exceeds int32 range");
     thrust::transform(
       rmm::exec_policy(stream),
       input.begin<int64_t>(),
       input.end<int64_t>(),
       out->mutable_view().begin<bool>(),
       bloom_probe_functor<1>{buffer.data(), bloom_filter_bits, header.num_hashes, seed});
+  } else {
+    thrust::transform(
+      rmm::exec_policy(stream),
+      input.begin<int64_t>(),
+      input.end<int64_t>(),
+      out->mutable_view().begin<bool>(),
+      bloom_probe_functor<2>{buffer.data(), bloom_filter_bits, header.num_hashes, seed});
   }
 
   return out;
