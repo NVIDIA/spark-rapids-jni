@@ -61,6 +61,27 @@ public class ProtobufSchemaDescriptorTest {
   }
 
   @Test
+  void testFieldCannotBeBothRepeatedAndRequired() {
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1},
+            new int[]{-1},
+            new int[]{0},
+            new int[]{Protobuf.WT_VARINT},
+            new int[]{ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT},
+            new boolean[]{true},
+            new boolean[]{true},
+            new boolean[]{false},
+            new long[]{0},
+            new double[]{0.0},
+            new boolean[]{false},
+            new byte[][]{null},
+            new int[][]{null},
+            new byte[][][]{null}));
+  }
+
+  @Test
   void testEnumStringRequiresEnumMetadata() {
     assertThrows(IllegalArgumentException.class, () ->
         makeDescriptor(false, false, Protobuf.ENC_ENUM_STRING, null, null));

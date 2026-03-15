@@ -235,6 +235,10 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
             "Incompatible wire type / output type / encoding at index " + i +
             ": wireType=" + wt + ", outputTypeId=" + outputTypeIds[i] + ", encoding=" + enc);
       }
+      if (isRepeated[i] && isRequired[i]) {
+        throw new IllegalArgumentException(
+            "Field at index " + i + " cannot be both repeated and required");
+      }
       if (isRepeated[i] && hasDefaultValue[i]) {
         throw new IllegalArgumentException(
             "Repeated field at index " + i + " cannot carry a default value");
