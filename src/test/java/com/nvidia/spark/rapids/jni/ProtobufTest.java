@@ -64,27 +64,6 @@ public class ProtobufTest {
     return out;
   }
 
-  /** 
-   * Encode a varint with extra padding bytes (over-encoded but valid).
-   * This is useful for testing that parsers accept non-canonical varints.
-   */
-  private static byte[] encodeLongVarint(long value, int extraBytes) {
-    byte[] tmp = new byte[10];
-    int idx = 0;
-    long v = value;
-    while ((v & ~0x7FL) != 0 || extraBytes > 0) {
-      tmp[idx++] = (byte) ((v & 0x7F) | 0x80);
-      v >>>= 7;
-      if (v == 0 && extraBytes > 0) {
-        extraBytes--;
-      }
-    }
-    tmp[idx++] = (byte) (v & 0x7F);
-    byte[] out = new byte[idx];
-    System.arraycopy(tmp, 0, out, 0, idx);
-    return out;
-  }
-
   /** ZigZag encode a signed 32-bit integer, returning as unsigned long for varint encoding. */
   private static long zigzagEncode32(int n) {
     return Integer.toUnsignedLong((n << 1) ^ (n >> 31));
