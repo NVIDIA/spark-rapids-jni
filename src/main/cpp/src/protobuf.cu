@@ -42,12 +42,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   if (num_fields == 0) {
     return cudf::make_structs_column(
-      num_rows,
-      std::vector<std::unique_ptr<cudf::column>>{},
-      0,
-      rmm::device_buffer{},
-      stream,
-      mr);
+      num_rows, std::vector<std::unique_ptr<cudf::column>>{}, 0, rmm::device_buffer{}, stream, mr);
   }
 
   if (num_rows == 0) {
