@@ -73,23 +73,16 @@ void propagate_list_nulls_to_descendants(cudf::column& list_col,
   CUDF_EXPECTS(list_view.offset() == 0,
                "decoder list null propagation expects unsliced list columns");
   auto const* offsets_begin = list_view.offsets_begin();
+  auto const* offsets_end   = list_view.offsets_end();
   // LIST children are not row-aligned with their parent. Expand the list-row null mask across
   // every covered child element so direct access to the backing child column also observes nulls.
   auto [element_mask, element_null_count] = cudf::detail::valid_if(
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(child_size),
-    [list_mask_ptr, offsets_begin, num_rows] __device__(cudf::size_type idx) {
-      cudf::size_type lo = 0;
-      cudf::size_type hi = num_rows;
-      while (lo < hi) {
-        auto const mid = lo + (hi - lo) / 2;
-        if (offsets_begin[mid + 1] <= idx) {
-          lo = mid + 1;
-        } else {
-          hi = mid;
-        }
-      }
-      return list_mask_ptr == nullptr || cudf::bit_is_set(list_mask_ptr, lo);
+    [list_mask_ptr, offsets_begin, offsets_end] __device__(cudf::size_type idx) {
+      auto const it  = thrust::upper_bound(thrust::seq, offsets_begin, offsets_end, idx);
+      auto const row = static_cast<cudf::size_type>(it - offsets_begin) - 1;
+      return list_mask_ptr == nullptr || cudf::bit_is_set(list_mask_ptr, row);
     },
     stream,
     mr);
@@ -1158,6 +1151,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   CUDF_CUDA_TRY(
     cudaMemcpyAsync(&h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
+  if (h_error == ERR_SCHEMA_TOO_LARGE || h_error == ERR_REPEATED_COUNT_MISMATCH) {
+    throw cudf::logic_error(error_message(h_error));
+  }
   if (fail_on_errors && h_error != 0) { throw cudf::logic_error(error_message(h_error)); }
 
   // Build final struct with PERMISSIVE mode null mask for invalid enums
