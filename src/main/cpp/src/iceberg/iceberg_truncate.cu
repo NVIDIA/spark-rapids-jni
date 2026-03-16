@@ -19,7 +19,6 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
@@ -208,8 +207,7 @@ std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& inpu
 
   auto const num_rows = input.size();
   if (num_rows == 0) {
-    return cudf::lists::detail::make_empty_lists_column(
-      cudf::data_type{cudf::type_id::UINT8}, stream, mr);
+    return cudf::make_empty_lists_column(cudf::data_type{cudf::type_id::UINT8});
   }
   CUDF_EXPECTS(!binary_col_child.nullable(), "Child column of binary column must be non-nullable");
 
