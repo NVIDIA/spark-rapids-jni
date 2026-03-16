@@ -1138,6 +1138,8 @@ __global__ void check_required_fields_kernel(
   cudf::bitmask_type const* input_null_mask,  // optional top-level input null mask
   cudf::size_type input_offset,               // bit offset for sliced top-level input
   field_location const* parent_locs,          // [num_rows] optional parent presence for nested rows
+  bool* row_force_null,            // [top_level_num_rows] optional permissive row nulling
+  int32_t const* top_row_indices,  // [num_rows] optional nested-row -> top-row mapping
   int* error_flag)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1152,6 +1154,11 @@ __global__ void check_required_fields_kernel(
                                                     static_cast<size_t>(num_fields),
                                                     static_cast<size_t>(f))]
                                    .offset < 0) {
+      if (row_force_null != nullptr) {
+        auto const top_row =
+          top_row_indices != nullptr ? top_row_indices[row] : static_cast<int32_t>(row);
+        row_force_null[top_row] = true;
+      }
       // Required field is missing - set error flag
       set_error_once(error_flag, ERR_REQUIRED);
       return;  // No need to check other fields for this row

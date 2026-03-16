@@ -249,10 +249,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
             "STRUCT/LIST field at index " + i + " cannot carry a default value");
       }
       if (enc == Protobuf.ENC_ENUM_STRING &&
-          (enumValidValues[i] == null || enumNames[i] == null)) {
+          (enumValidValues[i] == null || enumValidValues[i].length == 0 ||
+           enumNames[i] == null || enumNames[i].length == 0)) {
         throw new IllegalArgumentException(
             "Enum-as-string field at index " + i +
-            " must provide both enumValidValues and enumNames");
+            " must provide non-empty enumValidValues and enumNames");
       }
       if (enumValidValues[i] != null) {
         int[] ev = enumValidValues[i];

@@ -389,6 +389,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                 binary_input.null_count() > 0 ? binary_input.null_mask() : nullptr,
                                 binary_input.offset(),
                                 nullptr,
+                                track_permissive_null_rows ? d_row_force_null.data() : nullptr,
+                                nullptr,
                                 d_error.data(),
                                 stream,
                                 mr);
@@ -710,6 +712,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                               num_rows,
                               binary_input.null_count() > 0 ? binary_input.null_mask() : nullptr,
                               binary_input.offset(),
+                              nullptr,
+                              track_permissive_null_rows ? d_row_force_null.data() : nullptr,
                               nullptr,
                               d_error.data(),
                               stream,

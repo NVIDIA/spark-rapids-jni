@@ -135,6 +135,12 @@ public class ProtobufSchemaDescriptorTest {
   }
 
   @Test
+  void testEnumStringRejectsEmptyEnumArrays() {
+    assertThrows(IllegalArgumentException.class, () ->
+        makeDescriptor(false, false, Protobuf.ENC_ENUM_STRING, new int[]{}, new byte[][]{}));
+  }
+
+  @Test
   void testDuplicateFieldNumbersUnderSameParentRejected() {
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptor(

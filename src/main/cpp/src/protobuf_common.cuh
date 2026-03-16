@@ -1190,6 +1190,8 @@ __global__ void check_required_fields_kernel(field_location const* locations,
                                              cudf::bitmask_type const* input_null_mask,
                                              cudf::size_type input_offset,
                                              field_location const* parent_locs,
+                                             bool* row_force_null,
+                                             int32_t const* top_row_indices,
                                              int* error_flag);
 
 inline void maybe_check_required_fields(field_location const* locations,
@@ -1199,6 +1201,8 @@ inline void maybe_check_required_fields(field_location const* locations,
                                         cudf::bitmask_type const* input_null_mask,
                                         cudf::size_type input_offset,
                                         field_location const* parent_locs,
+                                        bool* row_force_null,
+                                        int32_t const* top_row_indices,
                                         int* error_flag,
                                         rmm::cuda_stream_view stream,
                                         rmm::device_async_resource_ref mr)
@@ -1229,6 +1233,8 @@ inline void maybe_check_required_fields(field_location const* locations,
     input_null_mask,
     input_offset,
     parent_locs,
+    row_force_null,
+    top_row_indices,
     error_flag);
 }
 

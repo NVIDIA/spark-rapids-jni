@@ -853,6 +853,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                               nullptr,
                               0,
                               nullptr,
+                              d_row_force_null.size() > 0 ? d_row_force_null.data() : nullptr,
+                              d_top_row_indices.data(),
                               d_error.data(),
                               stream,
                               mr);
@@ -1168,6 +1170,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                               nullptr,
                               0,
                               d_parent_locs.data(),
+                              d_row_force_null.size() > 0 ? d_row_force_null.data() : nullptr,
+                              top_row_indices,
                               d_error.data(),
                               stream,
                               mr);

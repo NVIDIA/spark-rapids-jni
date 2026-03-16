@@ -215,10 +215,17 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
         "protobuf decode context: incompatible wire type/encoding/output type at field " +
         std::to_string(i));
     }
-    if (field.encoding == ENC_ENUM_STRING &&
-        context.enum_valid_values[i].size() != context.enum_names[i].size()) {
-      throw std::invalid_argument(
-        "protobuf decode context: enum-as-string metadata mismatch at field " + std::to_string(i));
+    if (field.encoding == ENC_ENUM_STRING) {
+      if (context.enum_valid_values[i].empty() || context.enum_names[i].empty()) {
+        throw std::invalid_argument(
+          "protobuf decode context: enum-as-string field requires non-empty metadata at field " +
+          std::to_string(i));
+      }
+      if (context.enum_valid_values[i].size() != context.enum_names[i].size()) {
+        throw std::invalid_argument(
+          "protobuf decode context: enum-as-string metadata mismatch at field " +
+          std::to_string(i));
+      }
     }
   }
 }

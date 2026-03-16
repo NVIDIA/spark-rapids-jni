@@ -1143,16 +1143,13 @@ public class ProtobufTest {
 
   @Test
   void testRequiredFieldMissing_Permissive() {
-    // Required field missing in permissive mode - should return null without exception
+    // Required field missing in permissive mode - should null the whole row without exception
     // message Msg { required int64 id = 1; optional string name = 2; }
     // Only name field present, required id is missing
     Byte[] row = concat(
         box(tag(2, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector expectedId = ColumnVector.fromBoxedLongs((Long) null);
-         ColumnVector expectedName = ColumnVector.fromStrings("hello");
-         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedId, expectedName);
          ColumnVector actualStruct = decodeAllFieldsWithRequired(
              input.getColumn(0),
              new int[]{1, 2},
@@ -1160,7 +1157,8 @@ public class ProtobufTest {
              new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
              new boolean[]{true, false},  // id is required, name is optional
              false)) {  // permissive mode - don't fail on errors
-      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+      assertSingleNullStructRow(actualStruct,
+          "Missing top-level required field should null the row in PERMISSIVE mode");
     }
   }
 
@@ -1366,6 +1364,44 @@ public class ProtobufTest {
             true)) {
         }
       });
+    }
+  }
+
+  @Test
+  void testRequiredFieldInsideNestedMessageMissing_Permissive() {
+    // message Outer { optional Inner detail = 1; optional string name = 2; }
+    // message Inner { required int32 id = 1; optional string note = 2; }
+    // If detail is present but nested required id is missing, PERMISSIVE should null the row.
+    Byte[] inner = concat(
+        box(tag(2, WT_LEN)), box(encodeVarint(4)), box("oops".getBytes()));
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(inner.length)), inner,
+        box(tag(2, WT_LEN)), box(encodeVarint(7)), box("outside".getBytes()));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector actual = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1, 2, 2},
+             new int[]{-1, 0, 0, -1},
+             new int[]{0, 1, 1, 0},
+             new int[]{WT_LEN, WT_VARINT, WT_LEN, WT_LEN},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId(),
+                       DType.STRING.getTypeId().getNativeId(),
+                       DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
+                       Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false, false, false},
+             new boolean[]{false, true, false, false},
+             new boolean[]{false, false, false, false},
+             new long[]{0, 0, 0, 0},
+             new double[]{0.0, 0.0, 0.0, 0.0},
+             new boolean[]{false, false, false, false},
+             new byte[][]{null, null, null, null},
+             new int[][]{null, null, null, null},
+             false)) {
+      assertSingleNullStructRow(actual,
+          "Missing nested required field should null the outer row in PERMISSIVE mode");
     }
   }
 
