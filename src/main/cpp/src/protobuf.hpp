@@ -204,6 +204,12 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
         "protobuf decode context: repeated field cannot carry default value at field " +
         std::to_string(i));
     }
+    if (field.has_default_value &&
+        (type.id() == cudf::type_id::STRUCT || type.id() == cudf::type_id::LIST)) {
+      throw std::invalid_argument(
+        "protobuf decode context: STRUCT/LIST field cannot carry default value at field " +
+        std::to_string(i));
+    }
     if (!is_encoding_compatible(field, type)) {
       throw std::invalid_argument(
         "protobuf decode context: incompatible wire type/encoding/output type at field " +

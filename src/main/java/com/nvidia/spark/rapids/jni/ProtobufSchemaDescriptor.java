@@ -243,6 +243,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
         throw new IllegalArgumentException(
             "Repeated field at index " + i + " cannot carry a default value");
       }
+      if (hasDefaultValue[i] &&
+          (outputTypeIds[i] == STRUCT_TYPE_ID || outputTypeIds[i] == LIST_TYPE_ID)) {
+        throw new IllegalArgumentException(
+            "STRUCT/LIST field at index " + i + " cannot carry a default value");
+      }
       if (enc == Protobuf.ENC_ENUM_STRING &&
           (enumValidValues[i] == null || enumNames[i] == null)) {
         throw new IllegalArgumentException(

@@ -267,11 +267,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   bool has_enum_fields = std::any_of(
     enum_valid_values.begin(), enum_valid_values.end(), [](auto const& v) { return !v.empty(); });
   bool track_permissive_null_rows = !fail_on_errors;
-  rmm::device_uvector<bool> d_row_has_invalid_enum(
-    track_permissive_null_rows ? num_rows : 0, stream, mr);
+  rmm::device_uvector<bool> d_row_force_null(track_permissive_null_rows ? num_rows : 0, stream, mr);
   if (track_permissive_null_rows) {
     CUDF_CUDA_TRY(
-      cudaMemsetAsync(d_row_has_invalid_enum.data(), 0, num_rows * sizeof(bool), stream.value()));
+      cudaMemsetAsync(d_row_force_null.data(), 0, num_rows * sizeof(bool), stream.value()));
   }
 
   auto const threads = THREADS_PER_BLOCK;
@@ -387,7 +386,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       static_cast<int>(h_field_lookup.size()),
       d_locations.data(),
       d_error.data(),
-      track_permissive_null_rows ? d_row_has_invalid_enum.data() : nullptr);
+      track_permissive_null_rows ? d_row_force_null.data() : nullptr);
 
     // Required-field validation applies to all scalar leaves, not just top-level numerics.
     maybe_check_required_fields(d_locations.data(),
@@ -589,7 +588,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                       schema_idx,
                                                       enum_valid_values,
                                                       enum_names,
-                                                      d_row_has_invalid_enum,
+                                                      d_row_force_null,
                                                       d_error,
                                                       stream,
                                                       mr);
@@ -632,14 +631,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
               auto const& valid_enums     = enum_valid_values[schema_idx];
               auto const& enum_name_bytes = enum_names[schema_idx];
               if (!valid_enums.empty() && valid_enums.size() == enum_name_bytes.size()) {
-                column_map[schema_idx] = build_enum_string_column(out,
-                                                                  valid,
-                                                                  valid_enums,
-                                                                  enum_name_bytes,
-                                                                  d_row_has_invalid_enum,
-                                                                  num_rows,
-                                                                  stream,
-                                                                  mr);
+                column_map[schema_idx] = build_enum_string_column(
+                  out, valid, valid_enums, enum_name_bytes, d_row_force_null, num_rows, stream, mr);
               } else {
                 // Missing enum metadata for enum-as-string field; mark as decode error.
                 set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
@@ -968,7 +961,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                     num_rows,
                                                     field_meta.enum_valid_values,
                                                     field_meta.enum_names,
-                                                    d_row_has_invalid_enum,
+                                                    d_row_force_null,
                                                     d_error,
                                                     stream,
                                                     mr);
@@ -1038,7 +1031,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                     schema,
                                                                     enum_valid_values,
                                                                     enum_names,
-                                                                    d_row_has_invalid_enum,
+                                                                    d_row_force_null,
                                                                     d_error,
                                                                     stream,
                                                                     mr);
@@ -1123,7 +1116,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                  default_strings,
                                                                  enum_valid_values,
                                                                  enum_names,
-                                                                 d_row_has_invalid_enum,
+                                                                 d_row_force_null,
                                                                  d_error,
                                                                  num_rows,
                                                                  stream,
@@ -1175,7 +1168,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     auto [mask, null_count] = cudf::detail::valid_if(
       thrust::make_counting_iterator<cudf::size_type>(0),
       thrust::make_counting_iterator<cudf::size_type>(num_rows),
-      [row_invalid = d_row_has_invalid_enum.data()] __device__(cudf::size_type row) {
+      [row_invalid = d_row_force_null.data()] __device__(cudf::size_type row) {
         return !row_invalid[row];
       },
       stream,
