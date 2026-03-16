@@ -247,6 +247,13 @@ public class ProtobufTest {
         new int[numFields][], failOnErrors);
   }
 
+  private static void assertSingleNullStructRow(ColumnVector actual, String message) {
+    try (HostColumnVector hostStruct = actual.copyToHost()) {
+      assertEquals(1, actual.getNullCount(), message);
+      assertTrue(hostStruct.isNull(0), "Row 0 should be null");
+    }
+  }
+
   /**
    * Helper method for tests with required field support.
    */
@@ -629,10 +636,7 @@ public class ProtobufTest {
              new int[]{DType.INT64.getTypeId().getNativeId()},
              new int[]{0},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromBoxedLongs((Long)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result, "Malformed varint should null the struct row");
     }
   }
 
@@ -647,10 +651,7 @@ public class ProtobufTest {
              new int[]{DType.INT64.getTypeId().getNativeId()},
              new int[]{0},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromBoxedLongs((Long)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result, "Truncated varint should null the struct row");
     }
   }
 
@@ -665,10 +666,8 @@ public class ProtobufTest {
              new int[]{DType.STRING.getTypeId().getNativeId()},
              new int[]{0},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromStrings((String)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result,
+          "Truncated length-delimited field should null the struct row");
     }
   }
 
@@ -683,10 +682,7 @@ public class ProtobufTest {
              new int[]{DType.INT32.getTypeId().getNativeId()},
              new int[]{Protobuf.ENC_FIXED},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromBoxedInts((Integer)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result, "Truncated fixed32 should null the struct row");
     }
   }
 
@@ -702,10 +698,7 @@ public class ProtobufTest {
              new int[]{DType.INT64.getTypeId().getNativeId()},
              new int[]{Protobuf.ENC_FIXED},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromBoxedLongs((Long)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result, "Truncated fixed64 should null the struct row");
     }
   }
 
@@ -723,10 +716,8 @@ public class ProtobufTest {
              new int[]{DType.STRING.getTypeId().getNativeId()},
              new int[]{0},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromStrings((String)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result,
+          "Partial length-delimited payload should null the struct row");
     }
   }
 
@@ -747,10 +738,7 @@ public class ProtobufTest {
              new int[]{DType.INT64.getTypeId().getNativeId()},  // expects varint
              new int[]{Protobuf.ENC_DEFAULT},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromBoxedLongs((Long)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result, "Wrong wire type should null the struct row");
     }
   }
 
@@ -767,10 +755,7 @@ public class ProtobufTest {
              new int[]{DType.STRING.getTypeId().getNativeId()},  // expects LEN
              new int[]{Protobuf.ENC_DEFAULT},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromStrings((String)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result, "Wrong wire type for string should null the struct row");
     }
   }
 
@@ -940,10 +925,7 @@ public class ProtobufTest {
              new int[]{DType.INT64.getTypeId().getNativeId()},
              new int[]{0},
              false)) {
-      try (ColumnVector expected = ColumnVector.fromBoxedLongs((Long)null);
-           ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
-        AssertUtils.assertStructColumnsAreEqual(expectedStruct, result);
-      }
+      assertSingleNullStructRow(result, "Field number zero should null the struct row");
     }
   }
 
@@ -2417,20 +2399,18 @@ public class ProtobufTest {
   }
 
   @Test
-  void testUnknownEndGroupWireTypeDoesNotAbortDecode() {
+  void testUnknownEndGroupWireTypeNullsMalformedRow() {
     Byte[] row = concat(
         box(tag(5, 4)),
         box(tag(1, WT_VARINT)), box(encodeVarint(42)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector expected = ColumnVector.fromBoxedLongs(42L);
-         ColumnVector expectedStruct = ColumnVector.makeStruct(expected);
          ColumnVector actual = decodeAllFields(
              input.getColumn(0),
              new int[]{1},
              new int[]{DType.INT64.getTypeId().getNativeId()},
              new int[]{Protobuf.ENC_DEFAULT},
              false)) {
-      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actual);
+      assertSingleNullStructRow(actual, "Unknown end-group wire type should null the struct row");
     }
   }
 
@@ -2717,7 +2697,7 @@ public class ProtobufTest {
   }
 
   @Test
-  void testRepeatedStructEnumInvalidNullsCorrectTopLevelRow() {
+  void testRepeatedStructEnumInvalidKeepsTopLevelRowValid() {
     // enum Color { RED=0; GREEN=1; BLUE=2; }
     // message Item { Color color = 1; }
     // message Msg { repeated Item items = 1; }
@@ -2748,15 +2728,24 @@ public class ProtobufTest {
              new byte[][]{null, null},
              new int[][]{null, new int[]{0, 1, 2}},
              false);
-         HostColumnVector hostStruct = actualStruct.copyToHost()) {
-      assertEquals(1, actualStruct.getNullCount(), "Exactly one top-level row should be null");
-      assertTrue(hostStruct.isNull(0), "Row 0 should be null because one repeated child enum is invalid");
+         ColumnVector items = actualStruct.getChildColumnView(0).copyToColumnVector();
+         ColumnVector itemStructs = items.getChildColumnView(0).copyToColumnVector();
+         ColumnVector colors = itemStructs.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostStruct = actualStruct.copyToHost();
+         HostColumnVector hostColors = colors.copyToHost()) {
+      assertEquals(0, actualStruct.getNullCount(), "Invalid child enum should not null the top-level row");
+      assertFalse(hostStruct.isNull(0), "Row 0 should remain valid");
       assertFalse(hostStruct.isNull(1), "Row 1 should remain valid");
+      assertEquals(3, colors.getRowCount(), "All repeated message elements should remain visible");
+      assertEquals(1, colors.getNullCount(), "Only the invalid enum field should be null");
+      assertEquals(0, hostColors.getInt(0), "The first repeated child should keep its valid enum");
+      assertTrue(hostColors.isNull(1), "The invalid repeated child enum should decode as null");
+      assertEquals(1, hostColors.getInt(2), "The second row should keep its valid enum");
     }
   }
 
   @Test
-  void testRepeatedStructEnumInvalidNullsListBackingStructChildren() {
+  void testRepeatedStructEnumInvalidKeepsSiblingFieldsVisible() {
     // enum Color { RED=0; GREEN=1; BLUE=2; }
     // message Item { Color color = 1; int32 count = 2; }
     // message Msg { repeated Item items = 1; }
@@ -2797,30 +2786,42 @@ public class ProtobufTest {
              false);
          ColumnView itemsView = actual.getChildColumnView(0);
          ColumnView itemStructView = itemsView.getChildColumnView(0);
+         ColumnView colorView = itemStructView.getChildColumnView(0);
          ColumnView countView = itemStructView.getChildColumnView(1);
+         ColumnVector colorVector = colorView.copyToColumnVector();
          ColumnVector countVector = countView.copyToColumnVector();
          HostColumnVector hostStruct = actual.copyToHost();
+         HostColumnVector hostColors = colorVector.copyToHost();
          HostColumnVector hostCounts = countVector.copyToHost()) {
       HostColumnVectorCore hostItems = hostStruct.getChildColumnView(0);
 
-      assertEquals(1, actual.getNullCount(), "Exactly one top-level row should be null");
-      assertTrue(hostStruct.isNull(0), "Row 0 should be null because one repeated child enum is invalid");
+      assertEquals(0, actual.getNullCount(), "Invalid child enum should not null the parent row");
+      assertFalse(hostStruct.isNull(0), "Row 0 should remain valid");
       assertFalse(hostStruct.isNull(1), "Row 1 should remain valid");
 
-      assertEquals(1, hostItems.getNullCount(), "LIST row should inherit the top-level null");
-      assertTrue(hostItems.isNull(0), "items[0] should be null");
+      assertEquals(0, hostItems.getNullCount(), "LIST rows should remain valid");
+      assertFalse(hostItems.isNull(0), "items[0] should remain valid");
       assertFalse(hostItems.isNull(1), "items[1] should remain valid");
 
-      assertEquals(1, itemStructView.getRowCount(),
-          "Direct list child view should not expose stale elements from the null list row");
+      assertEquals(3, itemStructView.getRowCount(),
+          "All repeated message elements should remain visible");
       assertEquals(0, itemStructView.getNullCount(),
-          "Direct list child view should be sanitized rather than carrying non-empty nulls");
-      assertEquals(1, countView.getRowCount(),
-          "Direct grandchild view should only expose elements from valid list rows");
+          "No repeated struct element should be dropped");
+      assertEquals(1, colorView.getNullCount(),
+          "Only the invalid enum child should be null");
+      assertEquals(0, hostColors.getInt(0),
+          "The first repeated child should keep its valid enum");
+      assertTrue(hostColors.isNull(1),
+          "The invalid repeated child enum should decode as null");
+      assertEquals(1, hostColors.getInt(2),
+          "The second row should keep its valid enum");
+      assertEquals(3, countView.getRowCount(),
+          "Sibling fields should remain visible for every repeated element");
       assertEquals(0, countView.getNullCount(),
-          "Direct grandchild view should also be sanitized");
-      assertEquals(30, hostCounts.getInt(0),
-          "The remaining direct child value should come from the valid list row only");
+          "Sibling scalar fields should stay non-null when only the enum is invalid");
+      assertEquals(10, hostCounts.getInt(0));
+      assertEquals(20, hostCounts.getInt(1));
+      assertEquals(30, hostCounts.getInt(2));
     }
   }
 
@@ -2847,7 +2848,7 @@ public class ProtobufTest {
   }
 
   @Test
-  void testNestedEnumInvalidNullsGrandchildFieldInPermissiveMode() {
+  void testNestedEnumInvalidKeepsRowAndSiblingFieldsInPermissiveMode() {
     // message WithNestedEnum {
     //   optional int32 id = 1;
     //   optional Detail detail = 2;
@@ -2907,16 +2908,82 @@ public class ProtobufTest {
              enumNames,
              false);
          ColumnVector detailCol = actual.getChildColumnView(1).copyToColumnVector();
+         ColumnVector statusCol = detailCol.getChildColumnView(0).copyToColumnVector();
          ColumnVector countCol = detailCol.getChildColumnView(1).copyToColumnVector();
          HostColumnVector hostStruct = actual.copyToHost();
          HostColumnVector hostDetail = detailCol.copyToHost();
+         HostColumnVector hostStatus = statusCol.copyToHost();
          HostColumnVector hostCount = countCol.copyToHost()) {
-      assertEquals(1, actual.getNullCount(), "Top-level row should be null");
-      assertTrue(hostStruct.isNull(0), "Top-level struct should be null");
-      assertEquals(1, detailCol.getNullCount(), "Nested struct child should be null after mask pushdown");
-      assertTrue(hostDetail.isNull(0), "Nested struct child row should be null");
-      assertEquals(1, countCol.getNullCount(), "Grandchild field should also be null");
-      assertTrue(hostCount.isNull(0), "detail.count should be null when parent row is null");
+      assertEquals(0, actual.getNullCount(), "Invalid nested enum should not null the top-level row");
+      assertFalse(hostStruct.isNull(0), "Top-level struct should remain valid");
+      assertEquals(0, detailCol.getNullCount(), "Nested struct should remain present");
+      assertFalse(hostDetail.isNull(0), "Nested struct row should remain valid");
+      assertEquals(1, statusCol.getNullCount(), "Only the invalid enum field should be null");
+      assertTrue(hostStatus.isNull(0), "detail.status should decode as null");
+      assertEquals(0, countCol.getNullCount(), "Sibling nested fields should remain visible");
+      assertFalse(hostCount.isNull(0), "detail.count should remain valid");
+      assertEquals(20, hostCount.getInt(0), "detail.count should preserve the decoded value");
+    }
+  }
+
+  @Test
+  void testMalformedNestedEnumPermissiveNullsWholeRow() {
+    // message WithNestedEnum {
+    //   optional int32 id = 1;
+    //   optional Detail detail = 2;
+    //   optional string name = 3;
+    // }
+    // message Detail {
+    //   enum Status { UNKNOWN = 0; OK = 1; BAD = 2; }
+    //   optional Status status = 1;
+    //   optional int32 count = 2;
+    // }
+    //
+    // The nested message length is intentionally truncated to 4 bytes. Spark CPU treats this as a
+    // malformed row in PERMISSIVE mode and returns a null struct row rather than partial data.
+    Byte[] rowValid = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)),
+        box(tag(2, WT_LEN)), box(encodeVarint(4)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(10)),
+        box(tag(3, WT_LEN)), box(encodeVarint(2)), box("ok".getBytes()));
+    Byte[] rowInvalid = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(2)),
+        box(tag(2, WT_LEN)), box(encodeVarint(4)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(999)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(20)),
+        box(tag(3, WT_LEN)), box(encodeVarint(3)), box("bad".getBytes()));
+
+    try (Table input = new Table.TestBuilder().column(rowValid, rowInvalid).build();
+         ColumnVector actual = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 2, 3, 1, 2},
+             new int[]{-1, -1, -1, 1, 1},
+             new int[]{0, 0, 0, 1, 1},
+             new int[]{WT_VARINT, WT_LEN, WT_LEN, WT_VARINT, WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId(),
+                       DType.STRUCT.getTypeId().getNativeId(),
+                       DType.STRING.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT,
+                       Protobuf.ENC_DEFAULT,
+                       Protobuf.ENC_DEFAULT,
+                       Protobuf.ENC_DEFAULT,
+                       Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false, false, false, false},
+             new boolean[]{false, false, false, false, false},
+             new boolean[]{false, false, false, false, false},
+             new long[]{0, 0, 0, 0, 0},
+             new double[]{0.0, 0.0, 0.0, 0.0, 0.0},
+             new boolean[]{false, false, false, false, false},
+             new byte[][]{null, null, null, null, null},
+             new int[][]{null, null, null, new int[]{0, 1, 2}, null},
+             false);
+         HostColumnVector hostStruct = actual.copyToHost()) {
+      assertEquals(1, actual.getNullCount(), "Only the malformed row should be null");
+      assertFalse(hostStruct.isNull(0), "The valid row should remain decoded");
+      assertTrue(hostStruct.isNull(1), "The malformed nested row should be null in PERMISSIVE mode");
     }
   }
 
@@ -3046,6 +3113,56 @@ public class ProtobufTest {
       assertEquals(2, priorities.getRowCount());
       assertEquals("FOO", hostPriorities.getJavaString(0));
       assertEquals("BAR", hostPriorities.getJavaString(1));
+    }
+  }
+
+  @Test
+  void testRepeatedMessageChildEnumAsStringInvalidKeepsRowValid() {
+    Byte[] item0 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(1)));    // FOO
+    Byte[] item1 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(999)));  // invalid
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(item0.length)), item0,
+        box(tag(1, WT_LEN)), box(encodeVarint(item1.length)), item1);
+
+    byte[][][] enumNames = new byte[][][] {
+        null,
+        new byte[][] {
+            "UNKNOWN".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "FOO".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            "BAR".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        }
+    };
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector actual = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1},
+             new int[]{-1, 0},
+             new int[]{0, 1},
+             new int[]{WT_LEN, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_ENUM_STRING},
+             new boolean[]{true, false},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new long[]{0, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             new int[][]{null, new int[]{0, 1, 2}},
+             enumNames,
+             false);
+         ColumnVector items = actual.getChildColumnView(0).copyToColumnVector();
+         ColumnVector itemStructs = items.getChildColumnView(0).copyToColumnVector();
+         ColumnVector priorities = itemStructs.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostStruct = actual.copyToHost();
+         HostColumnVector hostPriorities = priorities.copyToHost()) {
+      assertEquals(0, actual.getNullCount(), "Invalid child enum should not null the top-level row");
+      assertFalse(hostStruct.isNull(0), "The top-level row should remain valid");
+      assertEquals(2, priorities.getRowCount(), "Both repeated message elements should remain visible");
+      assertEquals(1, priorities.getNullCount(), "Only the invalid enum field should be null");
+      assertEquals("FOO", hostPriorities.getJavaString(0));
+      assertTrue(hostPriorities.isNull(1), "The invalid repeated child enum should decode as null");
     }
   }
 

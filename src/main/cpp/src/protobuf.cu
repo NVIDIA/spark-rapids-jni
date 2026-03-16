@@ -262,11 +262,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       default: return "Protobuf decode error: unknown error";
     }
   };
-  // Enum validation support (PERMISSIVE mode)
+  // PERMISSIVE-mode row nulling support. Unknown enum values and malformed rows should both
+  // surface as null structs instead of partially decoded data.
   bool has_enum_fields = std::any_of(
     enum_valid_values.begin(), enum_valid_values.end(), [](auto const& v) { return !v.empty(); });
-  rmm::device_uvector<bool> d_row_has_invalid_enum(has_enum_fields ? num_rows : 0, stream, mr);
-  if (has_enum_fields) {
+  bool track_permissive_null_rows = !fail_on_errors;
+  rmm::device_uvector<bool> d_row_has_invalid_enum(
+    track_permissive_null_rows ? num_rows : 0, stream, mr);
+  if (track_permissive_null_rows) {
     CUDF_CUDA_TRY(
       cudaMemsetAsync(d_row_has_invalid_enum.data(), 0, num_rows * sizeof(bool), stream.value()));
   }
@@ -383,7 +386,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       h_field_lookup.empty() ? nullptr : d_field_lookup.data(),
       static_cast<int>(h_field_lookup.size()),
       d_locations.data(),
-      d_error.data());
+      d_error.data(),
+      track_permissive_null_rows ? d_row_has_invalid_enum.data() : nullptr);
 
     // Required-field validation applies to all scalar leaves, not just top-level numerics.
     maybe_check_required_fields(d_locations.data(),
@@ -638,11 +642,11 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                   mr);
               } else {
                 // Missing enum metadata for enum-as-string field; mark as decode error.
-                thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
+                set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
                 column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
               }
             } else {
-              thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
+              set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
               column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
             }
           } else {
@@ -969,7 +973,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                     stream,
                                                     mr);
               } else {
-                thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
+                set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
                 column_map[schema_idx] =
                   make_null_column(schema_output_types[schema_idx], num_rows, stream, mr);
               }
@@ -1126,7 +1130,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                  mr,
                                                                  nullptr,
                                                                  0,
-                                                                 true);
+                                                                 false);
     }
   }
 
@@ -1167,7 +1171,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   cudf::size_type struct_null_count = 0;
   rmm::device_buffer struct_mask{0, stream, mr};
 
-  if (has_enum_fields) {
+  if (track_permissive_null_rows) {
     auto [mask, null_count] = cudf::detail::valid_if(
       thrust::make_counting_iterator<cudf::size_type>(0),
       thrust::make_counting_iterator<cudf::size_type>(num_rows),
@@ -1183,7 +1187,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // cuDF child views do not automatically inherit parent nulls. Push PERMISSIVE invalid-enum
   // nulls down into every top-level child, then recursively through nested STRUCT/LIST children,
   // so callers that access backing grandchildren directly still observe logically-null rows.
-  if (has_enum_fields && struct_null_count > 0) {
+  if (track_permissive_null_rows && struct_null_count > 0) {
     auto const* struct_mask_ptr = static_cast<cudf::bitmask_type const*>(struct_mask.data());
     for (auto& child : top_level_children) {
       apply_parent_mask_to_row_aligned_column(

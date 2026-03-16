@@ -504,7 +504,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   auto child_col =
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
 
-  // 8. Build LIST<STRING> column with list offsets from per-row counts
+  // Build the final LIST<STRING> column from the per-row counts and decoded child strings.
   rmm::device_uvector<int32_t> lo(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
     rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), lo.begin(), 0);
@@ -895,7 +895,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                                  mr,
                                                                  d_top_row_indices.data(),
                                                                  1,
-                                                                 true));
+                                                                 false));
       continue;
     }
 
@@ -934,7 +934,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                stream,
                                mr,
                                d_top_row_indices.data(),
-                               true));
+                               false));
         break;
       }
       case cudf::type_id::STRING: {
@@ -955,12 +955,12 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                           enum_names[child_schema_idx],
                                                           d_row_has_invalid_enum,
                                                           d_top_row_indices.data(),
-                                                          true,
+                                                          false,
                                                           d_error,
                                                           stream,
                                                           mr));
           } else {
-            thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
+            set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
             struct_children.push_back(make_null_column(dt, total_count, stream, mr));
           }
         } else {
@@ -1043,7 +1043,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                                                                mr,
                                                                d_top_row_indices.data(),
                                                                0,
-                                                               true));
+                                                               false));
         }
         break;
       }
@@ -1282,11 +1282,11 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                                                  top_row_indices,
                                                                  propagate_invalid_rows));
             } else {
-              thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
+              set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
               struct_children.push_back(make_null_column(dt, num_rows, stream, mr));
             }
           } else {
-            thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
+            set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
             struct_children.push_back(make_null_column(dt, num_rows, stream, mr));
           }
         } else {
@@ -1631,7 +1631,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
         child_values =
           build_enum_string_values_column(enum_values, valid, lookup, total_rep_count, stream, mr);
       } else {
-        thrust::fill_n(rmm::exec_policy(stream), d_error.data(), 1, ERR_MISSING_ENUM_META);
+        set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
         child_values = make_null_column(cudf::data_type{elem_type_id}, total_rep_count, stream, mr);
       }
     } else {

@@ -252,7 +252,7 @@ inline ProtobufFieldMetaView make_field_meta_view(ProtobufDecodeContext const& c
  * - FLOAT32 : protobuf `float`  (fixed32 wire type)
  * - FLOAT64 : protobuf `double` (fixed64 wire type)
  * - STRING  : protobuf `string` (length-delimited wire type, UTF-8 text)
- * - LIST    : protobuf `bytes`  (length-delimited wire type, raw bytes as LIST<INT8>)
+ * - LIST    : protobuf `bytes`  (length-delimited wire type, raw bytes as LIST<UINT8>)
  * - STRUCT  : protobuf nested `message`
  *
  * @param binary_input LIST<INT8/UINT8> column, each row is one protobuf message

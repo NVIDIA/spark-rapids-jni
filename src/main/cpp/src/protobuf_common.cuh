@@ -197,6 +197,14 @@ __device__ inline void set_error_once(int* error_flag, int error_code)
   atomicCAS(error_flag, 0, error_code);
 }
 
+__global__ void set_error_if_unset_kernel(int* error_flag, int error_code);
+
+inline void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stream_view stream)
+{
+  set_error_if_unset_kernel<<<1, 1, 0, stream.value()>>>(error_flag, error_code);
+  CUDF_CUDA_TRY(cudaPeekAtLastError());
+}
+
 __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t const* end)
 {
   switch (wt) {
@@ -278,11 +286,10 @@ __device__ inline bool skip_field(uint8_t const* cur,
                                   int wt,
                                   uint8_t const*& out_cur)
 {
-  // End-group is handled by the parent group parser.
-  if (wt == WT_EGROUP) {
-    out_cur = cur;
-    return true;
-  }
+  // A bare end-group is only valid while a start-group payload is being parsed recursively inside
+  // get_wire_type_size(WT_SGROUP). The scan/count kernels should never accept it as a standalone
+  // field because Spark CPU treats unmatched end-groups as malformed protobuf.
+  if (wt == WT_EGROUP) { return false; }
 
   int size = get_wire_type_size(wt, cur, end);
   if (size < 0) return false;
@@ -1060,7 +1067,8 @@ __global__ void scan_all_fields_kernel(cudf::column_device_view const d_in,
                                        int const* field_lookup,
                                        int field_lookup_size,
                                        field_location* locations,
-                                       int* error_flag);
+                                       int* error_flag,
+                                       bool* row_has_invalid_data);
 
 __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in,
                                              device_nested_field_descriptor const* schema,

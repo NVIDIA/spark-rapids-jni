@@ -22,6 +22,11 @@ namespace spark_rapids_jni::protobuf_detail {
 // Pass 1: Scan all fields kernel - records (offset, length) for each field
 // ============================================================================
 
+__global__ void set_error_if_unset_kernel(int* error_flag, int error_code)
+{
+  if (blockIdx.x == 0 && threadIdx.x == 0) { set_error_once(error_flag, error_code); }
+}
+
 /**
  * Fused scanning kernel: scans each message once and records the location
  * of all requested fields.
@@ -31,9 +36,9 @@ namespace spark_rapids_jni::protobuf_detail {
  *
  * If a row hits a parse error that leaves the cursor in an unsafe state (for example, malformed
  * varint bytes or a schema-matching field with the wrong wire type), the scan aborts for that row
- * instead of guessing where the next field begins. In permissive mode this means fields after the
- * error position are treated as "not found" and therefore fall back to the usual null/default
- * missing-field semantics.
+ * instead of guessing where the next field begins. In permissive mode the caller may also supply a
+ * row-level invalidity buffer so the full struct row can be nulled to match Spark CPU semantics for
+ * malformed messages.
  */
 __global__ void scan_all_fields_kernel(
   cudf::column_device_view const d_in,
@@ -42,11 +47,16 @@ __global__ void scan_all_fields_kernel(
   int const* field_lookup,              // direct-mapped lookup table (nullable)
   int field_lookup_size,                // size of lookup table (0 if null)
   field_location* locations,            // [num_rows * num_fields] row-major
-  int* error_flag)
+  int* error_flag,
+  bool* row_has_invalid_data)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   cudf::detail::lists_column_device_view in{d_in};
   if (row >= in.size()) return;
+
+  auto mark_row_error = [&]() {
+    if (row_has_invalid_data != nullptr) { row_has_invalid_data[row] = true; }
+  };
 
   for (int f = 0; f < num_fields; f++) {
     locations[flat_index(
@@ -61,14 +71,20 @@ __global__ void scan_all_fields_kernel(
   int32_t start     = in.offset_at(row) - base;
   int32_t end       = in.offset_at(row + 1) - base;
 
-  if (!check_message_bounds(start, end, child.size(), error_flag)) { return; }
+  if (!check_message_bounds(start, end, child.size(), error_flag)) {
+    mark_row_error();
+    return;
+  }
 
   uint8_t const* cur     = bytes + start;
   uint8_t const* msg_end = bytes + end;
 
   while (cur < msg_end) {
     proto_tag tag;
-    if (!decode_tag(cur, msg_end, tag, error_flag)) { return; }
+    if (!decode_tag(cur, msg_end, tag, error_flag)) {
+      mark_row_error();
+      return;
+    }
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
@@ -76,6 +92,7 @@ __global__ void scan_all_fields_kernel(
     if (f >= 0) {
       if (wt != field_descs[f].expected_wire_type) {
         set_error_once(error_flag, ERR_WIRE_TYPE);
+        mark_row_error();
         return;
       }
 
@@ -88,17 +105,20 @@ __global__ void scan_all_fields_kernel(
         int len_bytes;
         if (!read_varint(cur, msg_end, len, len_bytes)) {
           set_error_once(error_flag, ERR_VARINT);
+          mark_row_error();
           return;
         }
         if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
             len > static_cast<uint64_t>(INT_MAX)) {
           set_error_once(error_flag, ERR_OVERFLOW);
+          mark_row_error();
           return;
         }
         // Record offset pointing to the actual data (after length prefix)
         int32_t data_location;
         if (!checked_add_int32(data_offset, len_bytes, data_location)) {
           set_error_once(error_flag, ERR_OVERFLOW);
+          mark_row_error();
           return;
         }
         locations[flat_index(
@@ -109,6 +129,7 @@ __global__ void scan_all_fields_kernel(
         int field_size = get_wire_type_size(wt, cur, msg_end);
         if (field_size < 0) {
           set_error_once(error_flag, ERR_FIELD_SIZE);
+          mark_row_error();
           return;
         }
         locations[flat_index(
@@ -121,6 +142,7 @@ __global__ void scan_all_fields_kernel(
     uint8_t const* next;
     if (!skip_field(cur, msg_end, wt, next)) {
       set_error_once(error_flag, ERR_SKIP);
+      mark_row_error();
       return;
     }
     cur = next;
@@ -614,7 +636,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
         if (field_descs[f].is_repeated) {
           // Repeated children are handled by the dedicated count/scan path, not by
           // the direct-child location scan used for scalar/nested singleton fields.
-          continue;
+          break;
         }
         if (wt != field_descs[f].expected_wire_type) {
           set_error_once(error_flag, ERR_WIRE_TYPE);
@@ -653,6 +675,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
             static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
             data_offset, field_size};
         }
+        break;
       }
     }
 
