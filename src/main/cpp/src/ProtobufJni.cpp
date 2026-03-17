@@ -114,9 +114,18 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                       0);
       }
 
-      if (!(wire_type == 0 || wire_type == 1 || wire_type == 2 || wire_type == 5)) {
-        JNI_THROW_NEW(
-          env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "wire_types must be one of {0,1,2,5}", 0);
+      if (!(wire_type ==
+              spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT) ||
+            wire_type ==
+              spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT) ||
+            wire_type ==
+              spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN) ||
+            wire_type ==
+              spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT))) {
+        JNI_THROW_NEW(env,
+                      cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                      "wire_types must be one of {VARINT,I64BIT,LEN,I32BIT}",
+                      0);
       }
 
       if (parent_idx < -1 || parent_idx >= num_fields || parent_idx >= i) {

@@ -31,17 +31,31 @@
 namespace spark_rapids_jni {
 
 // Encoding constants
-constexpr int ENC_DEFAULT      = 0;
-constexpr int ENC_FIXED        = 1;
-constexpr int ENC_ZIGZAG       = 2;
-constexpr int ENC_ENUM_STRING  = 3;
+enum class proto_encoding : int {
+  DEFAULT     = 0,
+  FIXED       = 1,
+  ZIGZAG      = 2,
+  ENUM_STRING = 3,
+};
+CUDF_HOST_DEVICE constexpr int encoding_value(proto_encoding encoding)
+{
+  return static_cast<int>(encoding);
+}
 constexpr int MAX_FIELD_NUMBER = (1 << 29) - 1;
 
 // Wire type constants
-constexpr int WT_VARINT = 0;
-constexpr int WT_64BIT  = 1;
-constexpr int WT_LEN    = 2;
-constexpr int WT_32BIT  = 5;
+enum class proto_wire_type : int {
+  VARINT = 0,
+  I64BIT = 1,
+  LEN    = 2,
+  SGROUP = 3,
+  EGROUP = 4,
+  I32BIT = 5,
+};
+CUDF_HOST_DEVICE constexpr int wire_type_value(proto_wire_type wire_type)
+{
+  return static_cast<int>(wire_type);
+}
 
 // Maximum nesting depth for nested messages
 constexpr int MAX_NESTING_DEPTH = 10;
@@ -54,9 +68,9 @@ struct nested_field_descriptor {
   int field_number;           // Protobuf field number
   int parent_idx;             // Index of parent field in schema (-1 for top-level)
   int depth;                  // Nesting depth (0 for top-level)
-  int wire_type;              // Expected wire type
+  int wire_type;              // Expected wire type (proto_wire_type)
   cudf::type_id output_type;  // Output cudf type
-  int encoding;               // Encoding type (ENC_DEFAULT, ENC_FIXED, ENC_ZIGZAG)
+  int encoding;               // Encoding type (proto_encoding)
   bool is_repeated;           // Whether this field is repeated (array)
   bool is_required;           // Whether this field is required (proto2)
   bool has_default_value;     // Whether this field has a default value
@@ -92,34 +106,41 @@ inline bool is_encoding_compatible(nested_field_descriptor const& field,
                                    cudf::data_type const& type)
 {
   switch (field.encoding) {
-    case ENC_DEFAULT:
+    case encoding_value(proto_encoding::DEFAULT):
       switch (type.id()) {
         case cudf::type_id::BOOL8:
         case cudf::type_id::INT32:
         case cudf::type_id::UINT32:
         case cudf::type_id::INT64:
-        case cudf::type_id::UINT64: return field.wire_type == WT_VARINT;
-        case cudf::type_id::FLOAT32: return field.wire_type == WT_32BIT;
-        case cudf::type_id::FLOAT64: return field.wire_type == WT_64BIT;
+        case cudf::type_id::UINT64:
+          return field.wire_type == wire_type_value(proto_wire_type::VARINT);
+        case cudf::type_id::FLOAT32:
+          return field.wire_type == wire_type_value(proto_wire_type::I32BIT);
+        case cudf::type_id::FLOAT64:
+          return field.wire_type == wire_type_value(proto_wire_type::I64BIT);
         case cudf::type_id::STRING:
         case cudf::type_id::LIST:
-        case cudf::type_id::STRUCT: return field.wire_type == WT_LEN;
+        case cudf::type_id::STRUCT: return field.wire_type == wire_type_value(proto_wire_type::LEN);
         default: return false;
       }
-    case ENC_FIXED:
+    case encoding_value(proto_encoding::FIXED):
       switch (type.id()) {
         case cudf::type_id::INT32:
         case cudf::type_id::UINT32:
-        case cudf::type_id::FLOAT32: return field.wire_type == WT_32BIT;
+        case cudf::type_id::FLOAT32:
+          return field.wire_type == wire_type_value(proto_wire_type::I32BIT);
         case cudf::type_id::INT64:
         case cudf::type_id::UINT64:
-        case cudf::type_id::FLOAT64: return field.wire_type == WT_64BIT;
+        case cudf::type_id::FLOAT64:
+          return field.wire_type == wire_type_value(proto_wire_type::I64BIT);
         default: return false;
       }
-    case ENC_ZIGZAG:
-      return field.wire_type == WT_VARINT &&
+    case encoding_value(proto_encoding::ZIGZAG):
+      return field.wire_type == wire_type_value(proto_wire_type::VARINT) &&
              (type.id() == cudf::type_id::INT32 || type.id() == cudf::type_id::INT64);
-    case ENC_ENUM_STRING: return field.wire_type == WT_VARINT && type.id() == cudf::type_id::STRING;
+    case encoding_value(proto_encoding::ENUM_STRING):
+      return field.wire_type == wire_type_value(proto_wire_type::VARINT) &&
+             type.id() == cudf::type_id::STRING;
     default: return false;
   }
 }
@@ -190,12 +211,15 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
                                     std::to_string(i));
       }
     }
-    if (!(field.wire_type == WT_VARINT || field.wire_type == WT_64BIT ||
-          field.wire_type == WT_LEN || field.wire_type == WT_32BIT)) {
+    if (!(field.wire_type == wire_type_value(proto_wire_type::VARINT) ||
+          field.wire_type == wire_type_value(proto_wire_type::I64BIT) ||
+          field.wire_type == wire_type_value(proto_wire_type::LEN) ||
+          field.wire_type == wire_type_value(proto_wire_type::I32BIT))) {
       throw std::invalid_argument("protobuf decode context: invalid wire type at field " +
                                   std::to_string(i));
     }
-    if (field.encoding < ENC_DEFAULT || field.encoding > ENC_ENUM_STRING) {
+    if (field.encoding < encoding_value(proto_encoding::DEFAULT) ||
+        field.encoding > encoding_value(proto_encoding::ENUM_STRING)) {
       throw std::invalid_argument("protobuf decode context: invalid encoding at field " +
                                   std::to_string(i));
     }
@@ -220,7 +244,7 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
         "protobuf decode context: incompatible wire type/encoding/output type at field " +
         std::to_string(i));
     }
-    if (field.encoding == ENC_ENUM_STRING) {
+    if (field.encoding == encoding_value(proto_encoding::ENUM_STRING)) {
       if (context.enum_valid_values[i].empty() || context.enum_names[i].empty()) {
         throw std::invalid_argument(
           "protobuf decode context: enum-as-string field requires non-empty metadata at field " +
