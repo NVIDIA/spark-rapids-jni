@@ -161,6 +161,10 @@ public class ProtobufTest {
                  new int[]{DType.INT64.getTypeId().getNativeId()},
                  new int[]{Protobuf.ENC_DEFAULT}), true)) {
       assertEquals(2, result.getRowCount());
+      try (HostColumnVector hcv = result.copyToHost()) {
+        assertFalse(hcv.isNull(0), "Row 0 should not be null");
+        assertTrue(hcv.isNull(1), "Row 1 (null input) should be null in output struct");
+      }
     }
   }
 
@@ -300,6 +304,8 @@ public class ProtobufTest {
       assertEquals(2, result.getNumChildren());
       assertEquals(DType.INT32, result.getChildColumnView(0).getType());
       assertEquals(DType.STRUCT, result.getChildColumnView(1).getType());
+      assertEquals(1, result.getChildColumnView(1).getNumChildren());
+      assertEquals(DType.INT32, result.getChildColumnView(1).getChildColumnView(0).getType());
     }
   }
 

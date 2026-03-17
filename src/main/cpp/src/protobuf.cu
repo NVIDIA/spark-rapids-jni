@@ -152,6 +152,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     }
   }
 
+  auto const input_null_count = binary_input.null_count();
+  if (input_null_count > 0) {
+    auto null_mask = cudf::copy_bitmask(binary_input, stream, mr);
+    return cudf::make_structs_column(
+      num_rows, std::move(top_level_children), input_null_count, std::move(null_mask), stream, mr);
+  }
   return cudf::make_structs_column(
     num_rows, std::move(top_level_children), 0, rmm::device_buffer{}, stream, mr);
 }
