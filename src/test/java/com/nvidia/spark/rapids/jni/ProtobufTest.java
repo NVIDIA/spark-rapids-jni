@@ -331,6 +331,35 @@ public class ProtobufTest {
     }
   }
 
+  @Test
+  void testZeroRowRepeatedScalarShape() {
+    int intType = DType.INT32.getTypeId().getNativeId();
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptor(
+        new int[]{1},
+        new int[]{-1},
+        new int[]{0},
+        new int[]{Protobuf.WT_VARINT},
+        new int[]{intType},
+        new int[]{0},
+        new boolean[]{true},
+        new boolean[]{false},
+        new boolean[]{false},
+        new long[]{0},
+        new double[]{0},
+        new boolean[]{false},
+        new byte[][]{null},
+        new int[][]{null},
+        new byte[][][]{null}
+    );
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{}).build();
+         ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0), schema, true)) {
+      assertEquals(0, result.getRowCount());
+      assertEquals(1, result.getNumChildren());
+      assertEquals(DType.LIST, result.getChildColumnView(0).getType());
+    }
+  }
+
   // ============================================================================
   // Input validation tests
   // ============================================================================

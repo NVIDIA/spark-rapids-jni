@@ -199,6 +199,11 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
       throw std::invalid_argument("protobuf decode context: invalid encoding at field " +
                                   std::to_string(i));
     }
+    if (field.is_repeated && field.is_required) {
+      throw std::invalid_argument(
+        "protobuf decode context: field cannot be both repeated and required at field " +
+        std::to_string(i));
+    }
     if (field.is_repeated && field.has_default_value) {
       throw std::invalid_argument(
         "protobuf decode context: repeated field cannot carry default value at field " +
@@ -225,6 +230,14 @@ inline void validate_decode_context(ProtobufDecodeContext const& context)
         throw std::invalid_argument(
           "protobuf decode context: enum-as-string metadata mismatch at field " +
           std::to_string(i));
+      }
+      auto const& ev = context.enum_valid_values[i];
+      for (size_t j = 1; j < ev.size(); ++j) {
+        if (ev[j] <= ev[j - 1]) {
+          throw std::invalid_argument(
+            "protobuf decode context: enum_valid_values must be strictly sorted at field " +
+            std::to_string(i));
+        }
       }
     }
   }

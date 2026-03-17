@@ -59,7 +59,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             schema, schema_output_types, i, num_fields, stream, mr);
           empty_children.push_back(cudf::make_lists_column(
             0, std::move(offsets_col), std::move(empty_struct), 0, rmm::device_buffer{}));
-        } else if (field_type.id() == cudf::type_id::STRUCT && !schema[i].is_repeated) {
+        } else if (schema[i].is_repeated) {
+          auto empty_child = make_empty_column_safe(field_type, stream, mr);
+          empty_children.push_back(make_empty_list_column(std::move(empty_child), stream, mr));
+        } else if (field_type.id() == cudf::type_id::STRUCT) {
           empty_children.push_back(make_empty_struct_column_with_schema(
             schema, schema_output_types, i, num_fields, stream, mr));
         } else {
