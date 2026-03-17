@@ -879,6 +879,9 @@ std::unique_ptr<cudf::column> extract_and_build_scalar_column(cudf::data_type dt
 {
   rmm::device_uvector<T> out(num_rows, stream, mr);
   rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
+  if (num_rows == 0) {
+    return std::make_unique<cudf::column>(dt, 0, out.release(), rmm::device_buffer{}, 0);
+  }
   launch_extract(out.data(), valid.data());
   auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
   return std::make_unique<cudf::column>(dt, num_rows, out.release(), std::move(mask), null_count);

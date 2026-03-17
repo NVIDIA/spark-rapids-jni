@@ -62,6 +62,7 @@ public class ProtobufTest {
   }
 
   private static int deriveWireType(int typeId, int encoding) {
+    if (encoding == Protobuf.ENC_ENUM_STRING) return Protobuf.WT_VARINT;
     if (typeId == DType.FLOAT32.getTypeId().getNativeId()) return Protobuf.WT_32BIT;
     if (typeId == DType.FLOAT64.getTypeId().getNativeId()) return Protobuf.WT_64BIT;
     if (typeId == DType.STRING.getTypeId().getNativeId()) return Protobuf.WT_LEN;
