@@ -55,13 +55,17 @@ void encode_tag(std::vector<uint8_t>& buf, int field_number, int wire_type)
 
 void encode_varint_field(std::vector<uint8_t>& buf, int field_number, int64_t value)
 {
-  encode_tag(buf, field_number, /*WT_VARINT=*/0);
+  encode_tag(buf,
+             field_number,
+             spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT));
   encode_varint(buf, static_cast<uint64_t>(value));
 }
 
 void encode_fixed32_field(std::vector<uint8_t>& buf, int field_number, float value)
 {
-  encode_tag(buf, field_number, /*WT_32BIT=*/5);
+  encode_tag(buf,
+             field_number,
+             spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT));
   uint32_t bits;
   std::memcpy(&bits, &value, sizeof(bits));
   for (int i = 0; i < 4; i++) {
@@ -72,7 +76,9 @@ void encode_fixed32_field(std::vector<uint8_t>& buf, int field_number, float val
 
 void encode_fixed64_field(std::vector<uint8_t>& buf, int field_number, double value)
 {
-  encode_tag(buf, field_number, /*WT_64BIT=*/1);
+  encode_tag(buf,
+             field_number,
+             spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT));
   uint64_t bits;
   std::memcpy(&bits, &value, sizeof(bits));
   for (int i = 0; i < 8; i++) {
@@ -83,7 +89,8 @@ void encode_fixed64_field(std::vector<uint8_t>& buf, int field_number, double va
 
 void encode_len_field(std::vector<uint8_t>& buf, int field_number, void const* data, size_t len)
 {
-  encode_tag(buf, field_number, /*WT_LEN=*/2);
+  encode_tag(
+    buf, field_number, spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN));
   encode_varint(buf, len);
   auto const* p = static_cast<uint8_t const*>(data);
   buf.insert(buf.end(), p, p + len);
@@ -94,7 +101,7 @@ void encode_string_field(std::vector<uint8_t>& buf, int field_number, std::strin
   encode_len_field(buf, field_number, s.data(), s.size());
 }
 
-// Encode a nested message: write its content into a temporary buffer, then emit as WT_LEN.
+// Encode a nested message: write its content into a temporary buffer, then emit as LEN.
 template <typename Fn>
 void encode_nested_message(std::vector<uint8_t>& buf, int field_number, Fn&& content_fn)
 {
@@ -178,7 +185,9 @@ void encode_string_field_record(std::vector<uint8_t>& buf,
                                 std::vector<pb_repeated_occurrence>& out_occurrences,
                                 int32_t row_idx)
 {
-  encode_tag(buf, field_number, /*WT_LEN=*/2);
+  encode_tag(buf,
+             field_number,
+             /*spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN)=*/2);
   encode_varint(buf, s.size());
   auto const data_offset = checked_size_to_i32(buf.size(), "string field data offset");
   buf.insert(buf.end(), s.begin(), s.end());
@@ -209,21 +218,36 @@ struct FlatScalarCase {
                                  cudf::type_id::FLOAT32,
                                  cudf::type_id::FLOAT64,
                                  cudf::type_id::BOOL8};
-    int wt_for_type[]         = {0 /*WT_VARINT*/, 0, 5 /*WT_32BIT*/, 1 /*WT_64BIT*/, 0};
+    int wt_for_type[]         = {
+      spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT),
+      spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT),
+      spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT),
+      spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT),
+      spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT)};
 
     int fn = 1;
     for (int i = 0; i < num_int_fields; i++, fn++) {
       int ti  = i % 5;
       auto ty = int_types[ti];
       int wt  = wt_for_type[ti];
-      int enc = spark_rapids_jni::ENC_DEFAULT;
-      if (ty == cudf::type_id::FLOAT32) enc = spark_rapids_jni::ENC_FIXED;
-      if (ty == cudf::type_id::FLOAT64) enc = spark_rapids_jni::ENC_FIXED;
+      int enc = spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::DEFAULT);
+      if (ty == cudf::type_id::FLOAT32)
+        enc = spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED);
+      if (ty == cudf::type_id::FLOAT64)
+        enc = spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED);
       ctx.schema.push_back({fn, -1, 0, wt, ty, enc, false, false, false});
     }
     for (int i = 0; i < num_string_fields; i++, fn++) {
       ctx.schema.push_back(
-        {fn, -1, 0, 2 /*WT_LEN*/, cudf::type_id::STRING, 0, false, false, false});
+        {fn,
+         -1,
+         0,
+         spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN),
+         cudf::type_id::STRING,
+         spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::DEFAULT),
+         false,
+         false,
+         false});
     }
 
     size_t n = ctx.schema.size();
@@ -500,13 +524,18 @@ struct WideRepeatedMessageCase {
                                    cudf::type_id::FLOAT64,
                                    cudf::type_id::BOOL8,
                                    cudf::type_id::STRING};
-    int child_wt[]              = {0, 0, 5, 1, 0, 2};
-    int child_enc[]             = {spark_rapids_jni::ENC_DEFAULT,
-                                   spark_rapids_jni::ENC_DEFAULT,
-                                   spark_rapids_jni::ENC_FIXED,
-                                   spark_rapids_jni::ENC_FIXED,
-                                   spark_rapids_jni::ENC_DEFAULT,
-                                   spark_rapids_jni::ENC_DEFAULT};
+    int child_wt[]  = {spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT),
+                       spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT),
+                       spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT),
+                       spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT),
+                       spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT),
+                       spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN)};
+    int child_enc[] = {spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::DEFAULT),
+                       spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::DEFAULT),
+                       spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED),
+                       spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED),
+                       spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::DEFAULT),
+                       spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::DEFAULT)};
 
     // Keep strings sparse so the case remains dominated by wide child scanning
     // rather than varlen copy traffic.
@@ -1046,12 +1075,14 @@ static void BM_protobuf_repeated_child_string_count_scan(nvbench::state& state)
   std::vector<spark_rapids_jni::protobuf_detail::device_nested_field_descriptor> h_schema(
     num_repeated_children);
   for (int i = 0; i < num_repeated_children; i++) {
-    h_schema[i].field_number      = i + 1;
-    h_schema[i].parent_idx        = -1;
-    h_schema[i].depth             = 0;
-    h_schema[i].wire_type         = spark_rapids_jni::protobuf_detail::WT_LEN;
-    h_schema[i].output_type_id    = static_cast<int>(cudf::type_id::STRING);
-    h_schema[i].encoding          = 0;
+    h_schema[i].field_number = i + 1;
+    h_schema[i].parent_idx   = -1;
+    h_schema[i].depth        = 0;
+    h_schema[i].wire_type =
+      spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN);
+    h_schema[i].output_type_id = static_cast<int>(cudf::type_id::STRING);
+    h_schema[i].encoding =
+      spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::DEFAULT);
     h_schema[i].is_repeated       = true;
     h_schema[i].is_required       = false;
     h_schema[i].has_default_value = false;

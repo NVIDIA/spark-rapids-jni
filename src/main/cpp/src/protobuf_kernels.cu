@@ -99,7 +99,7 @@ __global__ void scan_all_fields_kernel(
       // Record the location (relative to message start)
       int data_offset = static_cast<int>(cur - bytes - start);
 
-      if (wt == WT_LEN) {
+      if (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN)) {
         // For length-delimited, record offset after length prefix and the data length
         uint64_t len;
         int len_bytes;
@@ -165,7 +165,9 @@ __device__ bool count_repeated_element(uint8_t const* cur,
                                        repeated_field_info& info,
                                        int* error_flag)
 {
-  bool is_packed = (wt == WT_LEN && expected_wt != WT_LEN);
+  bool is_packed =
+    (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN) &&
+     expected_wt != spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN));
 
   if (!is_packed && wt != expected_wt) {
     set_error_once(error_flag, ERR_WIRE_TYPE);
@@ -187,7 +189,8 @@ __device__ bool count_repeated_element(uint8_t const* cur,
     uint8_t const* packed_end = packed_start + packed_len;
 
     int count = 0;
-    if (expected_wt == WT_VARINT) {
+    if (expected_wt ==
+        spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT)) {
       uint8_t const* p = packed_start;
       while (p < packed_end) {
         uint64_t dummy;
@@ -199,13 +202,15 @@ __device__ bool count_repeated_element(uint8_t const* cur,
         p += vbytes;
         count++;
       }
-    } else if (expected_wt == WT_32BIT) {
+    } else if (expected_wt ==
+               spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT)) {
       if ((packed_len % 4) != 0) {
         set_error_once(error_flag, ERR_FIXED_LEN);
         return false;
       }
       count = static_cast<int>(packed_len / 4);
-    } else if (expected_wt == WT_64BIT) {
+    } else if (expected_wt ==
+               spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT)) {
       if ((packed_len % 8) != 0) {
         set_error_once(error_flag, ERR_FIXED_LEN);
         return false;
@@ -244,7 +249,9 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
                                       int write_end,
                                       int* error_flag)
 {
-  bool is_packed = (wt == WT_LEN && expected_wt != WT_LEN);
+  bool is_packed =
+    (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN) &&
+     expected_wt != spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN));
 
   if (!is_packed && wt != expected_wt) {
     set_error_once(error_flag, ERR_WIRE_TYPE);
@@ -265,7 +272,8 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
     }
     uint8_t const* packed_end = packed_start + packed_len;
 
-    if (expected_wt == WT_VARINT) {
+    if (expected_wt ==
+        spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT)) {
       uint8_t const* p = packed_start;
       while (p < packed_end) {
         int32_t elem_offset = static_cast<int32_t>(p - msg_base);
@@ -283,7 +291,8 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
         write_idx++;
         p += vbytes;
       }
-    } else if (expected_wt == WT_32BIT) {
+    } else if (expected_wt ==
+               spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT)) {
       if ((packed_len % 4) != 0) {
         set_error_once(error_flag, ERR_FIXED_LEN);
         return false;
@@ -296,7 +305,8 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
         occurrences[write_idx] = {row, static_cast<int32_t>(packed_start - msg_base + i), 4};
         write_idx++;
       }
-    } else if (expected_wt == WT_64BIT) {
+    } else if (expected_wt ==
+               spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT)) {
       if ((packed_len % 8) != 0) {
         set_error_once(error_flag, ERR_FIXED_LEN);
         return false;
@@ -428,7 +438,7 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
 
     // Check nested message fields at this depth
     auto handle_nested = [&](int i) {
-      if (wt != WT_LEN) {
+      if (wt != spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN)) {
         set_error_once(error_flag, ERR_WIRE_TYPE);
         return false;
       }
@@ -531,8 +541,10 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
     int wt = tag.wire_type;
 
     auto try_scan = [&](int f) -> bool {
-      int target_wt  = scan_descs[f].wire_type;
-      bool is_packed = (wt == WT_LEN && target_wt != WT_LEN);
+      int target_wt = scan_descs[f].wire_type;
+      bool is_packed =
+        (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN) &&
+         target_wt != spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN));
       if (is_packed || wt == target_wt) {
         return scan_repeated_element(cur,
                                      msg_end,
@@ -645,7 +657,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
 
         int data_offset = static_cast<int>(cur - nested_start);
 
-        if (wt == WT_LEN) {
+        if (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN)) {
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, nested_end, len, len_bytes)) {
@@ -748,7 +760,7 @@ __global__ void scan_repeated_message_children_kernel(
       } else {
         int data_offset = static_cast<int>(cur - msg_start);
 
-        if (wt == WT_LEN) {
+        if (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN)) {
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, msg_end, len, len_bytes)) {
@@ -772,7 +784,7 @@ __global__ void scan_repeated_message_children_kernel(
         } else {
           // For varint/fixed types, store offset and estimated length
           int32_t data_length = 0;
-          if (wt == WT_VARINT) {
+          if (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT)) {
             uint64_t dummy;
             int vbytes;
             if (!read_varint(cur, msg_end, dummy, vbytes)) {
@@ -780,13 +792,15 @@ __global__ void scan_repeated_message_children_kernel(
               return;
             }
             data_length = vbytes;
-          } else if (wt == WT_32BIT) {
+          } else if (wt ==
+                     spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT)) {
             if (msg_end - cur < 4) {
               set_error_once(error_flag, ERR_FIXED_LEN);
               return;
             }
             data_length = 4;
-          } else if (wt == WT_64BIT) {
+          } else if (wt ==
+                     spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT)) {
             if (msg_end - cur < 8) {
               set_error_once(error_flag, ERR_FIXED_LEN);
               return;

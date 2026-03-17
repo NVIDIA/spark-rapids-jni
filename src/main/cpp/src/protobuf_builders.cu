@@ -940,7 +940,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
         break;
       }
       case cudf::type_id::STRING: {
-        if (enc == spark_rapids_jni::ENC_ENUM_STRING) {
+        if (enc ==
+            spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ENUM_STRING)) {
           if (child_schema_idx < static_cast<int>(enum_valid_values.size()) &&
               child_schema_idx < static_cast<int>(enum_names.size()) &&
               !enum_valid_values[child_schema_idx].empty() &&
@@ -1250,7 +1251,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         break;
       }
       case cudf::type_id::STRING: {
-        if (enc == spark_rapids_jni::ENC_ENUM_STRING) {
+        if (enc ==
+            spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ENUM_STRING)) {
           rmm::device_uvector<int32_t> out(num_rows, stream, mr);
           rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
           int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
@@ -1594,7 +1596,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                         propagate_invalid_rows);
   } else if (elem_type_id == cudf::type_id::STRING || elem_type_id == cudf::type_id::LIST) {
     if (elem_type_id == cudf::type_id::STRING &&
-        schema[child_schema_idx].encoding == spark_rapids_jni::ENC_ENUM_STRING) {
+        schema[child_schema_idx].encoding ==
+          spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ENUM_STRING)) {
       if (child_schema_idx < static_cast<int>(enum_valid_values.size()) &&
           child_schema_idx < static_cast<int>(enum_names.size()) &&
           !enum_valid_values[child_schema_idx].empty() &&

@@ -53,14 +53,6 @@
 
 namespace spark_rapids_jni::protobuf_detail {
 
-// Wire type constants (protobuf encoding spec)
-constexpr int WT_VARINT = 0;
-constexpr int WT_64BIT  = 1;
-constexpr int WT_LEN    = 2;
-constexpr int WT_SGROUP = 3;
-constexpr int WT_EGROUP = 4;
-constexpr int WT_32BIT  = 5;
-
 // Protobuf varint encoding uses at most 10 bytes to represent a 64-bit value.
 constexpr int MAX_VARINT_BYTES = 10;
 
@@ -208,7 +200,7 @@ inline void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stre
 __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t const* end)
 {
   switch (wt) {
-    case WT_VARINT: {
+    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT): {
       // Need to scan to find the end of varint
       int count = 0;
       while (cur < end && count < MAX_VARINT_BYTES) {
@@ -217,15 +209,15 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
       }
       return -1;  // Invalid varint
     }
-    case WT_64BIT:
+    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT):
       // Check if there's enough data for 8 bytes
       if (end - cur < 8) return -1;
       return 8;
-    case WT_32BIT:
+    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT):
       // Check if there's enough data for 4 bytes
       if (end - cur < 4) return -1;
       return 4;
-    case WT_LEN: {
+    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN): {
       uint64_t len;
       int n;
       if (!read_varint(cur, end, len, n)) return -1;
@@ -233,7 +225,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
         return -1;
       return n + static_cast<int>(len);
     }
-    case WT_SGROUP: {
+    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::SGROUP): {
       auto const* start = cur;
       int depth         = 1;
       while (cur < end && depth > 0) {
@@ -243,23 +235,27 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
         cur += key_bytes;
 
         int inner_wt = static_cast<int>(key & 0x7);
-        if (inner_wt == WT_EGROUP) {
+        if (inner_wt ==
+            spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::EGROUP)) {
           --depth;
           if (depth == 0) { return static_cast<int>(cur - start); }
-        } else if (inner_wt == WT_SGROUP) {
+        } else if (inner_wt ==
+                   spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::SGROUP)) {
           if (++depth > 32) return -1;
         } else {
           int inner_size = -1;
           switch (inner_wt) {
-            case WT_VARINT: {
+            case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT): {
               uint64_t dummy;
               int vbytes;
               if (!read_varint(cur, end, dummy, vbytes)) return -1;
               inner_size = vbytes;
               break;
             }
-            case WT_64BIT: inner_size = 8; break;
-            case WT_LEN: {
+            case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT):
+              inner_size = 8;
+              break;
+            case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN): {
               uint64_t len;
               int len_bytes;
               if (!read_varint(cur, end, len, len_bytes)) return -1;
@@ -267,7 +263,9 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
               inner_size = len_bytes + static_cast<int>(len);
               break;
             }
-            case WT_32BIT: inner_size = 4; break;
+            case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT):
+              inner_size = 4;
+              break;
             default: return -1;
           }
           if (inner_size < 0 || cur + inner_size > end) return -1;
@@ -276,7 +274,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
       }
       return -1;
     }
-    case WT_EGROUP: return 0;
+    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::EGROUP): return 0;
     default: return -1;
   }
 }
@@ -287,9 +285,12 @@ __device__ inline bool skip_field(uint8_t const* cur,
                                   uint8_t const*& out_cur)
 {
   // A bare end-group is only valid while a start-group payload is being parsed recursively inside
-  // get_wire_type_size(WT_SGROUP). The scan/count kernels should never accept it as a standalone
-  // field because Spark CPU treats unmatched end-groups as malformed protobuf.
-  if (wt == WT_EGROUP) { return false; }
+  // get_wire_type_size(spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::SGROUP)).
+  // The scan/count kernels should never accept it as a standalone field because Spark CPU treats
+  // unmatched end-groups as malformed protobuf.
+  if (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::EGROUP)) {
+    return false;
+  }
 
   int size = get_wire_type_size(wt, cur, end);
   if (size < 0) return false;
@@ -306,7 +307,7 @@ __device__ inline bool skip_field(uint8_t const* cur,
 __device__ inline bool get_field_data_location(
   uint8_t const* cur, uint8_t const* end, int wt, int32_t& data_offset, int32_t& data_length)
 {
-  if (wt == WT_LEN) {
+  if (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN)) {
     // For length-delimited, read the length prefix
     uint64_t len;
     int len_bytes;
@@ -654,7 +655,8 @@ __global__ void extract_fixed_kernel(uint8_t const* message_data,
   uint8_t const* cur = message_data + data_offset;
   OutputType value;
 
-  if constexpr (WT == WT_32BIT) {
+  if constexpr (WT ==
+                spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT)) {
     if (loc.length < 4) {
       set_error_once(error_flag, ERR_FIXED_LEN);
       if (valid) valid[idx] = false;
@@ -779,7 +781,8 @@ __global__ void extract_fixed_batched_kernel(uint8_t const* message_data,
   uint8_t const* cur  = message_data + data_offset;
   OutputType value;
 
-  if constexpr (WT == WT_32BIT) {
+  if constexpr (WT ==
+                spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT)) {
     if (loc.length < 4) {
       set_error_once(error_flag, ERR_FIXED_LEN);
       desc.valid[row] = false;
@@ -897,7 +900,8 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                          int* error_ptr,
                                          rmm::cuda_stream_view stream)
 {
-  if (enable_zigzag && encoding == spark_rapids_jni::ENC_ZIGZAG) {
+  if (enable_zigzag &&
+      encoding == spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ZIGZAG)) {
     extract_varint_kernel<T, true, LocationProvider>
       <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                loc_provider,
@@ -907,9 +911,13 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                                error_ptr,
                                                has_default,
                                                default_value);
-  } else if (encoding == spark_rapids_jni::ENC_FIXED) {
+  } else if (encoding ==
+             spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED)) {
     if constexpr (sizeof(T) == 4) {
-      extract_fixed_kernel<T, WT_32BIT, LocationProvider>
+      extract_fixed_kernel<T,
+                           spark_rapids_jni::wire_type_value(
+                             spark_rapids_jni::proto_wire_type::I32BIT),
+                           LocationProvider>
         <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                  loc_provider,
                                                  num_rows,
@@ -920,7 +928,10 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                                  static_cast<T>(default_value));
     } else {
       static_assert(sizeof(T) == 8, "extract_integer_into_buffers only supports 32/64-bit");
-      extract_fixed_kernel<T, WT_64BIT, LocationProvider>
+      extract_fixed_kernel<T,
+                           spark_rapids_jni::wire_type_value(
+                             spark_rapids_jni::proto_wire_type::I64BIT),
+                           LocationProvider>
         <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                  loc_provider,
                                                  num_rows,
@@ -1669,7 +1680,10 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         dt,
         num_items,
         [&](float* out_ptr, bool* valid_ptr) {
-          extract_fixed_kernel<float, WT_32BIT, LocationProvider>
+          extract_fixed_kernel<float,
+                               spark_rapids_jni::wire_type_value(
+                                 spark_rapids_jni::proto_wire_type::I32BIT),
+                               LocationProvider>
             <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
                                                                loc_provider,
                                                                num_items,
@@ -1688,7 +1702,10 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         dt,
         num_items,
         [&](double* out_ptr, bool* valid_ptr) {
-          extract_fixed_kernel<double, WT_64BIT, LocationProvider>
+          extract_fixed_kernel<double,
+                               spark_rapids_jni::wire_type_value(
+                                 spark_rapids_jni::proto_wire_type::I64BIT),
+                               LocationProvider>
             <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
                                                                loc_provider,
                                                                num_items,
@@ -1764,23 +1781,31 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
 
   int encoding = field_desc.encoding;
-  bool zigzag  = (encoding == spark_rapids_jni::ENC_ZIGZAG);
+  bool zigzag =
+    (encoding == spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ZIGZAG));
 
   // For float/double types, always use fixed kernel (they use wire type 32BIT/64BIT)
-  // For integer types, use fixed kernel only if encoding is ENC_FIXED
+  // For integer types, use fixed kernel only if encoding is
+  // spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED)
   constexpr bool is_floating_point = std::is_same_v<T, float> || std::is_same_v<T, double>;
-  bool use_fixed_kernel            = is_floating_point || (encoding == spark_rapids_jni::ENC_FIXED);
+  bool use_fixed_kernel =
+    is_floating_point ||
+    (encoding == spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED));
 
   RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   if (use_fixed_kernel) {
     if constexpr (sizeof(T) == 4) {
-      extract_fixed_kernel<T, WT_32BIT, RepeatedLocationProvider>
-        <<<blocks, threads, 0, stream.value()>>>(
-          message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
+      extract_fixed_kernel<T,
+                           spark_rapids_jni::wire_type_value(
+                             spark_rapids_jni::proto_wire_type::I32BIT),
+                           RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
+        message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     } else {
-      extract_fixed_kernel<T, WT_64BIT, RepeatedLocationProvider>
-        <<<blocks, threads, 0, stream.value()>>>(
-          message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
+      extract_fixed_kernel<T,
+                           spark_rapids_jni::wire_type_value(
+                             spark_rapids_jni::proto_wire_type::I64BIT),
+                           RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
+        message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     }
   } else if (zigzag) {
     extract_varint_kernel<T, true, RepeatedLocationProvider>

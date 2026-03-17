@@ -35,6 +35,7 @@ void apply_parent_mask_to_row_aligned_column(cudf::column& col,
                                              rmm::cuda_stream_view stream,
                                              rmm::device_async_resource_ref mr)
 {
+  if (parent_null_count == 0) { return; }
   auto child_view = col.mutable_view();
   CUDF_EXPECTS(child_view.size() == num_rows,
                "struct child size must match parent row count for null propagation");
@@ -52,6 +53,8 @@ void apply_parent_mask_to_row_aligned_column(cudf::column& col,
       stream);
     col.set_null_count(child_view.size() - valid_count);
   } else {
+    CUDF_EXPECTS(child_view.offset() == 0,
+                 "non-nullable child with nonzero offset not supported for null propagation");
     auto child_mask = cudf::detail::copy_bitmask(parent_mask_ptr, 0, num_rows, stream, mr);
     col.set_null_mask(std::move(child_mask), parent_null_count);
   }
@@ -418,12 +421,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         int si   = scalar_field_indices[i];
         auto tid = schema_output_types[si].id();
         int enc  = schema[si].encoding;
-        bool zz  = (enc == spark_rapids_jni::ENC_ZIGZAG);
+        bool zz =
+          (enc == spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ZIGZAG));
 
         // STRING, LIST, and enum-as-string go to per-field path
         if (tid == cudf::type_id::STRING || tid == cudf::type_id::LIST) continue;
 
-        bool is_fixed = (enc == spark_rapids_jni::ENC_FIXED);
+        bool is_fixed =
+          (enc == spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED));
 
         // INT32 with enum validation goes to fallback
         if (tid == cudf::type_id::INT32 && !zz && !is_fixed &&
@@ -551,10 +556,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       LAUNCH_VARINT_BATCH(4, uint8_t, false);
       LAUNCH_VARINT_BATCH(5, int32_t, true);
       LAUNCH_VARINT_BATCH(6, int64_t, true);
-      LAUNCH_FIXED_BATCH(7, float, WT_32BIT);
-      LAUNCH_FIXED_BATCH(8, double, WT_64BIT);
-      LAUNCH_FIXED_BATCH(9, int32_t, WT_32BIT);
-      LAUNCH_FIXED_BATCH(10, int64_t, WT_64BIT);
+      LAUNCH_FIXED_BATCH(
+        7, float, spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT));
+      LAUNCH_FIXED_BATCH(
+        8, double, spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT));
+      LAUNCH_FIXED_BATCH(
+        9, int32_t, spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT));
+      LAUNCH_FIXED_BATCH(
+        10, int64_t, spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT));
 
 #undef LAUNCH_VARINT_BATCH
 #undef LAUNCH_FIXED_BATCH
@@ -601,7 +610,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       switch (dt.id()) {
         case cudf::type_id::STRING: {
-          if (enc == spark_rapids_jni::ENC_ENUM_STRING) {
+          if (enc ==
+              spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ENUM_STRING)) {
             // ENUM-as-string path:
             // 1. Decode enum numeric value as INT32 varint.
             // 2. Validate against enum_valid_values.
@@ -944,7 +954,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           case cudf::type_id::STRING: {
             auto const field_meta = make_field_meta_view(context, schema_idx);
             auto enc              = field_meta.schema.encoding;
-            if (enc == spark_rapids_jni::ENC_ENUM_STRING) {
+            if (enc ==
+                spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ENUM_STRING)) {
               if (!field_meta.enum_valid_values.empty() &&
                   field_meta.enum_valid_values.size() == field_meta.enum_names.size()) {
                 column_map[schema_idx] =
