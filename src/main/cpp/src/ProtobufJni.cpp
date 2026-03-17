@@ -107,9 +107,11 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       auto const depth      = n_depth_levels[i];
       auto const wire_type  = n_wire_types[i];
 
-      if (n_field_numbers[i] <= 0) {
-        JNI_THROW_NEW(
-          env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "field_numbers must be positive", 0);
+      if (n_field_numbers[i] <= 0 || n_field_numbers[i] > spark_rapids_jni::MAX_FIELD_NUMBER) {
+        JNI_THROW_NEW(env,
+                      cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                      "field_numbers must be in range [1, 2^29-1]",
+                      0);
       }
 
       if (!(wire_type == 0 || wire_type == 1 || wire_type == 2 || wire_type == 5)) {
