@@ -233,6 +233,8 @@ public class ProtobufTest {
       assertEquals(2, result.getNumChildren());
       assertEquals(DType.INT32, result.getChildColumnView(0).getType());
       assertEquals(DType.STRUCT, result.getChildColumnView(1).getType());
+      assertEquals(1, result.getChildColumnView(1).getNumChildren());
+      assertEquals(DType.INT32, result.getChildColumnView(1).getChildColumnView(0).getType());
     }
   }
 
