@@ -500,19 +500,10 @@ namespace {
  *
  * @return Size of the required allocation in bytes
  */
-constexpr size_t bitmask_allocation_size_bytes(size_type number_of_bits, int pad)
+__host__ __device__ constexpr size_t bitmask_allocation_size_bytes(size_type number_of_bits,
+                                                                   int pad)
 {
   return cudf::util::round_up_safe((number_of_bits + 7) / 8, pad);
-}
-
-/**
- * @brief Device-callable equivalent of cudf::bitmask_allocation_size_bytes with padding_boundary=1.
- * Returns the number of bytes needed to hold number_of_bits bits, no extra padding.
- */
-__host__ __device__ constexpr std::size_t bitmask_size_bytes(cudf::size_type number_of_bits)
-{
-  return static_cast<std::size_t>(
-    cudf::util::div_rounding_up_safe<cudf::size_type>(number_of_bits, CHAR_BIT));
 }
 
 /**
@@ -611,7 +602,9 @@ struct assemble_src_buffer_size_functor {
     // if we have no validity, or no rows, include nothing.
     return col.has_validity ?
                             // handle the validity edge case from the function header
-             (col.num_rows > 0 ? bitmask_size_bytes(col.num_rows + (src_row_index % 8)) : 0)
+             (col.num_rows > 0
+                ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1)
+                : 0)
                             : 0;
   }
 
@@ -1183,7 +1176,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
         auto& cinfo                   = column_info[col_index];
         auto const& cinfo_inst        = column_instance_info[col_instance_index];
         if (is_non_nullable_col_instance(cinfo, cinfo_inst)) {
-          return bitmask_size_bytes(cinfo_inst.num_rows);
+          return bitmask_allocation_size_bytes(cinfo_inst.num_rows, 1);
         }
       }
       return src_sizes_unpadded[src_buf_index];
