@@ -61,15 +61,15 @@ CUDF_HOST_DEVICE constexpr int wire_type_value(proto_wire_type wire_type)
 constexpr int MAX_NESTING_DEPTH = 10;
 
 struct nested_field_descriptor {
-  int field_number;                  // Protobuf field number
-  int parent_idx;                    // Index of parent field in schema (-1 for top-level)
-  int depth;                         // Nesting depth (0 for top-level)
-  proto_wire_type wire_type;         // Expected wire type
-  cudf::type_id output_type;         // Output cudf type
-  proto_encoding encoding;           // Encoding type
-  bool is_repeated;                  // Whether this field is repeated (array)
-  bool is_required;                  // Whether this field is required (proto2)
-  bool has_default_value;            // Whether this field has a default value
+  int field_number;           // Protobuf field number
+  int parent_idx;             // Index of parent field in schema (-1 for top-level)
+  int depth;                  // Nesting depth (0 for top-level)
+  proto_wire_type wire_type;  // Expected wire type
+  cudf::type_id output_type;  // Output cudf type
+  proto_encoding encoding;    // Encoding type
+  bool is_repeated;           // Whether this field is repeated (array)
+  bool is_required;           // Whether this field is required (proto2)
+  bool has_default_value;     // Whether this field has a default value
 };
 
 struct ProtobufDecodeContext {

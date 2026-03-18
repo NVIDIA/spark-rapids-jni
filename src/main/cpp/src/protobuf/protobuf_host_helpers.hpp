@@ -110,8 +110,8 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                          int* error_ptr,
                                          rmm::cuda_stream_view stream)
 {
-  if (enable_zigzag &&
-      encoding == spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::ZIGZAG)) {
+  if (enable_zigzag && encoding == spark_rapids_jni::protobuf::encoding_value(
+                                     spark_rapids_jni::protobuf::proto_encoding::ZIGZAG)) {
     extract_varint_kernel<T, true, LocationProvider>
       <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                loc_provider,
@@ -121,8 +121,8 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                                error_ptr,
                                                has_default,
                                                default_value);
-  } else if (encoding ==
-             spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::FIXED)) {
+  } else if (encoding == spark_rapids_jni::protobuf::encoding_value(
+                           spark_rapids_jni::protobuf::proto_encoding::FIXED)) {
     if constexpr (sizeof(T) == 4) {
       extract_fixed_kernel<T,
                            spark_rapids_jni::protobuf::wire_type_value(
@@ -854,16 +854,16 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
 
   int encoding = field_desc.encoding;
-  bool zigzag =
-    (encoding == spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::ZIGZAG));
+  bool zigzag  = (encoding == spark_rapids_jni::protobuf::encoding_value(
+                               spark_rapids_jni::protobuf::proto_encoding::ZIGZAG));
 
   // For float/double types, always use fixed kernel (they use wire type 32BIT/64BIT)
   // For integer types, use fixed kernel only if encoding is
   // spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::FIXED)
   constexpr bool is_floating_point = std::is_same_v<T, float> || std::is_same_v<T, double>;
   bool use_fixed_kernel =
-    is_floating_point ||
-    (encoding == spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::FIXED));
+    is_floating_point || (encoding == spark_rapids_jni::protobuf::encoding_value(
+                                        spark_rapids_jni::protobuf::proto_encoding::FIXED));
 
   RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   if (use_fixed_kernel) {
@@ -919,4 +919,3 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
 }
 
 }  // namespace spark_rapids_jni::protobuf::detail
-

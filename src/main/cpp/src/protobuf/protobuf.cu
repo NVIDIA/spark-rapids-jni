@@ -111,8 +111,8 @@ void validate_decode_context(ProtobufDecodeContext const& context)
                std::invalid_argument);
   CUDF_EXPECTS(context.default_ints.size() == num_fields,
                "protobuf decode context: default_ints size mismatch with schema (" +
-                 std::to_string(context.default_ints.size()) + " vs " +
-                 std::to_string(num_fields) + ")",
+                 std::to_string(context.default_ints.size()) + " vs " + std::to_string(num_fields) +
+                 ")",
                std::invalid_argument);
   CUDF_EXPECTS(context.default_floats.size() == num_fields,
                "protobuf decode context: default_floats size mismatch with schema (" +
@@ -136,25 +136,25 @@ void validate_decode_context(ProtobufDecodeContext const& context)
                std::invalid_argument);
   CUDF_EXPECTS(context.enum_names.size() == num_fields,
                "protobuf decode context: enum_names size mismatch with schema (" +
-                 std::to_string(context.enum_names.size()) + " vs " +
-                 std::to_string(num_fields) + ")",
+                 std::to_string(context.enum_names.size()) + " vs " + std::to_string(num_fields) +
+                 ")",
                std::invalid_argument);
 
   std::set<std::pair<int, int>> seen_field_numbers;
   for (size_t i = 0; i < num_fields; ++i) {
     auto const& field = context.schema[i];
     auto const& type  = context.schema_output_types[i];
-    CUDF_EXPECTS(type.id() == field.output_type,
-                 "protobuf decode context: schema_output_types id mismatch at field " +
-                   std::to_string(i),
-                 std::invalid_argument);
+    CUDF_EXPECTS(
+      type.id() == field.output_type,
+      "protobuf decode context: schema_output_types id mismatch at field " + std::to_string(i),
+      std::invalid_argument);
     CUDF_EXPECTS(field.field_number > 0 && field.field_number <= MAX_FIELD_NUMBER,
                  "protobuf decode context: invalid field number at field " + std::to_string(i),
                  std::invalid_argument);
-    CUDF_EXPECTS(field.depth >= 0 && field.depth < MAX_NESTING_DEPTH,
-                 "protobuf decode context: field depth exceeds supported limit at field " +
-                   std::to_string(i),
-                 std::invalid_argument);
+    CUDF_EXPECTS(
+      field.depth >= 0 && field.depth < MAX_NESTING_DEPTH,
+      "protobuf decode context: field depth exceeds supported limit at field " + std::to_string(i),
+      std::invalid_argument);
     CUDF_EXPECTS(field.parent_idx >= -1 && field.parent_idx < static_cast<int>(i),
                  "protobuf decode context: invalid parent index at field " + std::to_string(i),
                  std::invalid_argument);
@@ -164,10 +164,10 @@ void validate_decode_context(ProtobufDecodeContext const& context)
                  std::invalid_argument);
 
     if (field.parent_idx == -1) {
-      CUDF_EXPECTS(field.depth == 0,
-                   "protobuf decode context: top-level field must have depth 0 at field " +
-                     std::to_string(i),
-                   std::invalid_argument);
+      CUDF_EXPECTS(
+        field.depth == 0,
+        "protobuf decode context: top-level field must have depth 0 at field " + std::to_string(i),
+        std::invalid_argument);
     } else {
       auto const& parent = context.schema[field.parent_idx];
       CUDF_EXPECTS(field.depth == parent.depth + 1,
@@ -178,16 +178,15 @@ void validate_decode_context(ProtobufDecodeContext const& context)
                    std::invalid_argument);
     }
 
-    CUDF_EXPECTS(field.wire_type == proto_wire_type::VARINT ||
-                   field.wire_type == proto_wire_type::I64BIT ||
-                   field.wire_type == proto_wire_type::LEN ||
-                   field.wire_type == proto_wire_type::I32BIT,
-                 "protobuf decode context: invalid wire type at field " + std::to_string(i),
-                 std::invalid_argument);
-    CUDF_EXPECTS(field.encoding >= proto_encoding::DEFAULT &&
-                   field.encoding <= proto_encoding::ENUM_STRING,
-                 "protobuf decode context: invalid encoding at field " + std::to_string(i),
-                 std::invalid_argument);
+    CUDF_EXPECTS(
+      field.wire_type == proto_wire_type::VARINT || field.wire_type == proto_wire_type::I64BIT ||
+        field.wire_type == proto_wire_type::LEN || field.wire_type == proto_wire_type::I32BIT,
+      "protobuf decode context: invalid wire type at field " + std::to_string(i),
+      std::invalid_argument);
+    CUDF_EXPECTS(
+      field.encoding >= proto_encoding::DEFAULT && field.encoding <= proto_encoding::ENUM_STRING,
+      "protobuf decode context: invalid encoding at field " + std::to_string(i),
+      std::invalid_argument);
     CUDF_EXPECTS(!(field.is_repeated && field.is_required),
                  "protobuf decode context: field cannot be both repeated and required at field " +
                    std::to_string(i),
@@ -207,20 +206,22 @@ void validate_decode_context(ProtobufDecodeContext const& context)
                  std::invalid_argument);
 
     if (field.encoding == proto_encoding::ENUM_STRING) {
-      CUDF_EXPECTS(!(context.enum_valid_values[i].empty() || context.enum_names[i].empty()),
-                   "protobuf decode context: enum-as-string field requires non-empty metadata at field " +
-                     std::to_string(i),
-                   std::invalid_argument);
-      CUDF_EXPECTS(context.enum_valid_values[i].size() == context.enum_names[i].size(),
-                   "protobuf decode context: enum-as-string metadata mismatch at field " +
-                     std::to_string(i),
-                   std::invalid_argument);
+      CUDF_EXPECTS(
+        !(context.enum_valid_values[i].empty() || context.enum_names[i].empty()),
+        "protobuf decode context: enum-as-string field requires non-empty metadata at field " +
+          std::to_string(i),
+        std::invalid_argument);
+      CUDF_EXPECTS(
+        context.enum_valid_values[i].size() == context.enum_names[i].size(),
+        "protobuf decode context: enum-as-string metadata mismatch at field " + std::to_string(i),
+        std::invalid_argument);
       auto const& ev = context.enum_valid_values[i];
       for (size_t j = 1; j < ev.size(); ++j) {
-        CUDF_EXPECTS(ev[j] > ev[j - 1],
-                     "protobuf decode context: enum_valid_values must be strictly sorted at field " +
-                       std::to_string(i),
-                     std::invalid_argument);
+        CUDF_EXPECTS(
+          ev[j] > ev[j - 1],
+          "protobuf decode context: enum_valid_values must be strictly sorted at field " +
+            std::to_string(i),
+          std::invalid_argument);
       }
     }
   }

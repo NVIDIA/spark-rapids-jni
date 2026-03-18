@@ -125,13 +125,13 @@ struct RepeatedMsgChildLocationProvider {
 
 template <typename OutputType, bool ZigZag = false, typename LocationProvider>
 CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
-                                      LocationProvider loc_provider,
-                                      int total_items,
-                                      OutputType* out,
-                                      bool* valid,
-                                      int* error_flag,
-                                      bool has_default      = false,
-                                      int64_t default_value = 0)
+                                       LocationProvider loc_provider,
+                                       int total_items,
+                                       OutputType* out,
+                                       bool* valid,
+                                       int* error_flag,
+                                       bool has_default      = false,
+                                       int64_t default_value = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (idx >= total_items) return;
@@ -177,13 +177,13 @@ CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
 
 template <typename OutputType, int WT, typename LocationProvider>
 CUDF_KERNEL void extract_fixed_kernel(uint8_t const* message_data,
-                                     LocationProvider loc_provider,
-                                     int total_items,
-                                     OutputType* out,
-                                     bool* valid,
-                                     int* error_flag,
-                                     bool has_default         = false,
-                                     OutputType default_value = OutputType{})
+                                      LocationProvider loc_provider,
+                                      int total_items,
+                                      OutputType* out,
+                                      bool* valid,
+                                      int* error_flag,
+                                      bool has_default         = false,
+                                      OutputType default_value = OutputType{})
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (idx >= total_items) return;
@@ -204,8 +204,8 @@ CUDF_KERNEL void extract_fixed_kernel(uint8_t const* message_data,
   uint8_t const* cur = message_data + data_offset;
   OutputType value;
 
-  if constexpr (WT ==
-                spark_rapids_jni::protobuf::wire_type_value(spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
+  if constexpr (WT == spark_rapids_jni::protobuf::wire_type_value(
+                        spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
     if (loc.length < 4) {
       set_error_once(error_flag, ERR_FIXED_LEN);
       if (valid) valid[idx] = false;
@@ -242,14 +242,14 @@ struct batched_scalar_desc {
 
 template <typename OutputType, bool ZigZag = false>
 CUDF_KERNEL void extract_varint_batched_kernel(uint8_t const* message_data,
-                                              cudf::size_type const* row_offsets,
-                                              cudf::size_type base_offset,
-                                              field_location const* locations,
-                                              int num_loc_fields,
-                                              batched_scalar_desc const* descs,
-                                              int num_descs,
-                                              int num_rows,
-                                              int* error_flag)
+                                               cudf::size_type const* row_offsets,
+                                               cudf::size_type base_offset,
+                                               field_location const* locations,
+                                               int num_loc_fields,
+                                               batched_scalar_desc const* descs,
+                                               int num_descs,
+                                               int num_rows,
+                                               int* error_flag)
 {
   int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   int fi  = static_cast<int>(blockIdx.y);
@@ -295,14 +295,14 @@ CUDF_KERNEL void extract_varint_batched_kernel(uint8_t const* message_data,
 
 template <typename OutputType, int WT>
 CUDF_KERNEL void extract_fixed_batched_kernel(uint8_t const* message_data,
-                                             cudf::size_type const* row_offsets,
-                                             cudf::size_type base_offset,
-                                             field_location const* locations,
-                                             int num_loc_fields,
-                                             batched_scalar_desc const* descs,
-                                             int num_descs,
-                                             int num_rows,
-                                             int* error_flag)
+                                              cudf::size_type const* row_offsets,
+                                              cudf::size_type base_offset,
+                                              field_location const* locations,
+                                              int num_loc_fields,
+                                              batched_scalar_desc const* descs,
+                                              int num_descs,
+                                              int num_rows,
+                                              int* error_flag)
 {
   int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   int fi  = static_cast<int>(blockIdx.y);
@@ -330,8 +330,8 @@ CUDF_KERNEL void extract_fixed_batched_kernel(uint8_t const* message_data,
   uint8_t const* cur  = message_data + data_offset;
   OutputType value;
 
-  if constexpr (WT ==
-                spark_rapids_jni::protobuf::wire_type_value(spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
+  if constexpr (WT == spark_rapids_jni::protobuf::wire_type_value(
+                        spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
     if (loc.length < 4) {
       set_error_once(error_flag, ERR_FIXED_LEN);
       desc.valid[row] = false;
@@ -356,10 +356,10 @@ CUDF_KERNEL void extract_fixed_batched_kernel(uint8_t const* message_data,
 
 template <typename LocationProvider>
 CUDF_KERNEL void extract_lengths_kernel(LocationProvider loc_provider,
-                                       int total_items,
-                                       int32_t* out_lengths,
-                                       bool has_default       = false,
-                                       int32_t default_length = 0)
+                                        int total_items,
+                                        int32_t* out_lengths,
+                                        bool has_default       = false,
+                                        int32_t default_length = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (idx >= total_items) return;
@@ -377,14 +377,14 @@ CUDF_KERNEL void extract_lengths_kernel(LocationProvider loc_provider,
 }
 template <typename LocationProvider>
 CUDF_KERNEL void copy_varlen_data_kernel(uint8_t const* message_data,
-                                        LocationProvider loc_provider,
-                                        int total_items,
-                                        cudf::size_type const* output_offsets,
-                                        char* output_chars,
-                                        int* error_flag,
-                                        bool has_default             = false,
-                                        uint8_t const* default_chars = nullptr,
-                                        int default_len              = 0)
+                                         LocationProvider loc_provider,
+                                         int total_items,
+                                         cudf::size_type const* output_offsets,
+                                         char* output_chars,
+                                         int* error_flag,
+                                         bool has_default             = false,
+                                         uint8_t const* default_chars = nullptr,
+                                         int default_len              = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (idx >= total_items) return;
@@ -568,4 +568,3 @@ __global__ void copy_enum_string_chars_kernel(int32_t const* values,
                                               int num_rows);
 
 }  // namespace spark_rapids_jni::protobuf::detail
-
