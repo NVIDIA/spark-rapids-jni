@@ -16,7 +16,7 @@
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
-#include "protobuf.hpp"
+#include "protobuf/protobuf.hpp"
 
 #include <cudf/column/column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
@@ -98,69 +98,16 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                     0);
     }
 
-    // Validate schema topology and wire types:
-    // - parent index must be -1 or a prior field index
-    // - depth must be 0 for top-level and parent_depth + 1 for children
-    // - wire type must be one of {0, 1, 2, 5}
-    for (int i = 0; i < num_fields; ++i) {
-      auto const parent_idx = n_parent_indices[i];
-      auto const depth      = n_depth_levels[i];
-      auto const wire_type  = n_wire_types[i];
-
-      if (n_field_numbers[i] <= 0 || n_field_numbers[i] > spark_rapids_jni::MAX_FIELD_NUMBER) {
-        JNI_THROW_NEW(env,
-                      cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
-                      "field_numbers must be in range [1, 2^29-1]",
-                      0);
-      }
-
-      if (!(wire_type ==
-              spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT) ||
-            wire_type ==
-              spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT) ||
-            wire_type ==
-              spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN) ||
-            wire_type ==
-              spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT))) {
-        JNI_THROW_NEW(env,
-                      cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
-                      "wire_types must be one of {VARINT,I64BIT,LEN,I32BIT}",
-                      0);
-      }
-
-      if (parent_idx < -1 || parent_idx >= num_fields || parent_idx >= i) {
-        JNI_THROW_NEW(env,
-                      cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
-                      "parent_indices must be -1 or a valid prior field index",
-                      0);
-      }
-
-      if (parent_idx == -1) {
-        if (depth != 0) {
-          JNI_THROW_NEW(
-            env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "top-level fields must have depth 0", 0);
-        }
-      } else {
-        auto const parent_depth = n_depth_levels[parent_idx];
-        if (depth != parent_depth + 1) {
-          JNI_THROW_NEW(env,
-                        cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
-                        "child depth must equal parent depth + 1",
-                        0);
-        }
-      }
-    }
-
     // Build schema descriptors
-    std::vector<spark_rapids_jni::nested_field_descriptor> schema;
+    std::vector<spark_rapids_jni::protobuf::nested_field_descriptor> schema;
     schema.reserve(num_fields);
     for (int i = 0; i < num_fields; ++i) {
       schema.push_back({n_field_numbers[i],
                         n_parent_indices[i],
                         n_depth_levels[i],
-                        n_wire_types[i],
+                        static_cast<spark_rapids_jni::protobuf::proto_wire_type>(n_wire_types[i]),
                         static_cast<cudf::type_id>(n_output_type_ids[i]),
-                        n_encodings[i],
+                        static_cast<spark_rapids_jni::protobuf::proto_encoding>(n_encodings[i]),
                         n_is_repeated[i] != 0,
                         n_is_required[i] != 0,
                         n_has_default[i] != 0});
@@ -268,7 +215,7 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       }
     }
 
-    spark_rapids_jni::ProtobufDecodeContext context{std::move(schema),
+    spark_rapids_jni::protobuf::ProtobufDecodeContext context{std::move(schema),
                                                     std::move(schema_output_types),
                                                     std::move(default_int_values),
                                                     std::move(default_float_values),
@@ -278,8 +225,8 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                                                     std::move(enum_name_values),
                                                     static_cast<bool>(fail_on_errors)};
 
-    auto result =
-      spark_rapids_jni::decode_protobuf_to_struct(*input, context, cudf::get_default_stream());
+    auto result = spark_rapids_jni::protobuf::decode_protobuf_to_struct(
+      *input, context, cudf::get_default_stream(), cudf::get_current_device_resource_ref());
 
     return cudf::jni::release_as_jlong(result);
   }

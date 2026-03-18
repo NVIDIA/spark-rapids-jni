@@ -255,9 +255,9 @@ add_library(
   src/multiply.cu
   src/number_converter.cu
   src/parse_uri.cu
-  src/protobuf.cu
-  src/protobuf_kernels.cu
-  src/protobuf_builders.cu
+  src/protobuf/protobuf.cu
+  src/protobuf/protobuf_kernels.cu
+  src/protobuf/protobuf_builders.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/round_float.cu

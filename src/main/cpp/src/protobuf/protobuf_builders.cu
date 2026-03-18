@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-#include "protobuf_common.cuh"
+#include "protobuf/protobuf_host_helpers.hpp"
 
 #include <cudf/lists/detail/lists_column_factories.hpp>
 
-namespace spark_rapids_jni::protobuf_detail {
+namespace spark_rapids_jni::protobuf::detail {
 
 std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
                                                cudf::size_type num_rows,
@@ -122,4 +122,4 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
     0, std::move(offsets_col), std::move(element_col), 0, rmm::device_buffer{});
 }
 
-}  // namespace spark_rapids_jni::protobuf_detail
+}  // namespace spark_rapids_jni::protobuf::detail

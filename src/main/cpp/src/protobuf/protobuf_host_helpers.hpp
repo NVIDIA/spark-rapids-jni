@@ -16,397 +16,9 @@
 
 #pragma once
 
-#include "protobuf.hpp"
+#include "protobuf/protobuf_kernels.cuh"
 
-#include <cudf/column/column_device_view.cuh>
-#include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/valid_if.cuh>
-#include <cudf/lists/lists_column_device_view.cuh>
-#include <cudf/lists/lists_column_view.hpp>
-#include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/detail/strings_column_factories.cuh>
-#include <cudf/utilities/error.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
-
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/device_uvector.hpp>
-#include <rmm/exec_policy.hpp>
-
-#include <cuda/std/cstdint>
-#include <cuda/std/utility>
-#include <thrust/fill.h>
-#include <thrust/for_each.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/reduce.h>
-#include <thrust/remove.h>
-#include <thrust/scan.h>
-#include <thrust/sort.h>
-#include <thrust/transform.h>
-#include <thrust/unique.h>
-
-#include <algorithm>
-#include <array>
-#include <limits>
-#include <map>
-#include <type_traits>
-
-namespace spark_rapids_jni::protobuf_detail {
-
-// Protobuf varint encoding uses at most 10 bytes to represent a 64-bit value.
-constexpr int MAX_VARINT_BYTES = 10;
-
-// CUDA kernel launch configuration.
-constexpr int THREADS_PER_BLOCK = 256;
-
-// Error codes for kernel error reporting.
-constexpr int ERR_BOUNDS                  = 1;
-constexpr int ERR_VARINT                  = 2;
-constexpr int ERR_FIELD_NUMBER            = 3;
-constexpr int ERR_WIRE_TYPE               = 4;
-constexpr int ERR_OVERFLOW                = 5;
-constexpr int ERR_FIELD_SIZE              = 6;
-constexpr int ERR_SKIP                    = 7;
-constexpr int ERR_FIXED_LEN               = 8;
-constexpr int ERR_REQUIRED                = 9;
-constexpr int ERR_SCHEMA_TOO_LARGE        = 10;
-constexpr int ERR_MISSING_ENUM_META       = 11;
-constexpr int ERR_REPEATED_COUNT_MISMATCH = 12;
-
-// Maximum supported nesting depth for recursive struct decoding.
-constexpr int MAX_NESTED_STRUCT_DECODE_DEPTH = 10;
-
-// Threshold for using a direct-mapped lookup table for field_number -> field_index.
-// Field numbers above this threshold fall back to linear search.
-constexpr int FIELD_LOOKUP_TABLE_MAX = 4096;
-
-/**
- * Structure to record field location within a message.
- * offset < 0 means field was not found.
- */
-struct field_location {
-  int32_t offset;  // Offset of field data within the message (-1 if not found)
-  int32_t length;  // Length of field data in bytes
-};
-
-/**
- * Field descriptor passed to the scanning kernel.
- */
-struct field_descriptor {
-  int field_number;        // Protobuf field number
-  int expected_wire_type;  // Expected wire type for this field
-  bool is_repeated;        // Repeated children are scanned via count/scan kernels
-};
-
-/**
- * Information about repeated field occurrences in a row.
- */
-struct repeated_field_info {
-  int32_t count;         // Number of occurrences in this row
-  int32_t total_length;  // Total bytes for all occurrences (for varlen fields)
-};
-
-/**
- * Location of a single occurrence of a repeated field.
- */
-struct repeated_occurrence {
-  int32_t row_idx;  // Which row this occurrence belongs to
-  int32_t offset;   // Offset within the message
-  int32_t length;   // Length of the field data
-};
-
-/**
- * Per-field descriptor passed to the combined occurrence scan kernel.
- * Contains device pointers so the kernel can write to each field's output.
- */
-struct repeated_field_scan_desc {
-  int field_number;
-  int wire_type;
-  int32_t const* row_offsets;        // Pre-computed prefix-sum offsets [num_rows + 1]
-  repeated_occurrence* occurrences;  // Output buffer [total_count]
-};
-
-/**
- * Device-side descriptor for nested schema fields.
- */
-struct device_nested_field_descriptor {
-  int field_number;
-  int parent_idx;
-  int depth;
-  int wire_type;
-  int output_type_id;
-  int encoding;
-  bool is_repeated;
-  bool is_required;
-  bool has_default_value;
-
-  device_nested_field_descriptor() = default;
-
-  explicit device_nested_field_descriptor(spark_rapids_jni::nested_field_descriptor const& src)
-    : field_number(src.field_number),
-      parent_idx(src.parent_idx),
-      depth(src.depth),
-      wire_type(src.wire_type),
-      output_type_id(static_cast<int>(src.output_type)),
-      encoding(src.encoding),
-      is_repeated(src.is_repeated),
-      is_required(src.is_required),
-      has_default_value(src.has_default_value)
-  {
-  }
-};
-
-// ============================================================================
-// Device helper functions
-// ============================================================================
-
-__device__ inline bool read_varint(uint8_t const* cur,
-                                   uint8_t const* end,
-                                   uint64_t& out,
-                                   int& bytes)
-{
-  out       = 0;
-  bytes     = 0;
-  int shift = 0;
-  // Protobuf varint uses 7 bits per byte with MSB as continuation flag.
-  // A 64-bit value requires at most ceil(64/7) = 10 bytes.
-  while (cur < end && bytes < MAX_VARINT_BYTES) {
-    uint8_t b = *cur++;
-    // For the 10th byte (bytes == 9, shift == 63), only the lowest bit is valid
-    if (bytes == 9 && (b & 0xFE) != 0) {
-      return false;  // Invalid: 10th byte has more than 1 significant bit
-    }
-    out |= (static_cast<uint64_t>(b & 0x7Fu) << shift);
-    bytes++;
-    if ((b & 0x80u) == 0) { return true; }
-    shift += 7;
-  }
-  return false;
-}
-
-__device__ inline void set_error_once(int* error_flag, int error_code)
-{
-  atomicCAS(error_flag, 0, error_code);
-}
-
-__global__ void set_error_if_unset_kernel(int* error_flag, int error_code);
-
-inline void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stream_view stream)
-{
-  set_error_if_unset_kernel<<<1, 1, 0, stream.value()>>>(error_flag, error_code);
-  CUDF_CUDA_TRY(cudaPeekAtLastError());
-}
-
-__device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t const* end)
-{
-  switch (wt) {
-    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT): {
-      // Need to scan to find the end of varint
-      int count = 0;
-      while (cur < end && count < MAX_VARINT_BYTES) {
-        if ((*cur++ & 0x80u) == 0) { return count + 1; }
-        count++;
-      }
-      return -1;  // Invalid varint
-    }
-    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT):
-      // Check if there's enough data for 8 bytes
-      if (end - cur < 8) return -1;
-      return 8;
-    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT):
-      // Check if there's enough data for 4 bytes
-      if (end - cur < 4) return -1;
-      return 4;
-    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN): {
-      uint64_t len;
-      int n;
-      if (!read_varint(cur, end, len, n)) return -1;
-      if (len > static_cast<uint64_t>(end - cur - n) || len > static_cast<uint64_t>(INT_MAX - n))
-        return -1;
-      return n + static_cast<int>(len);
-    }
-    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::SGROUP): {
-      auto const* start = cur;
-      int depth         = 1;
-      while (cur < end && depth > 0) {
-        uint64_t key;
-        int key_bytes;
-        if (!read_varint(cur, end, key, key_bytes)) return -1;
-        cur += key_bytes;
-
-        int inner_wt = static_cast<int>(key & 0x7);
-        if (inner_wt ==
-            spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::EGROUP)) {
-          --depth;
-          if (depth == 0) { return static_cast<int>(cur - start); }
-        } else if (inner_wt ==
-                   spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::SGROUP)) {
-          if (++depth > 32) return -1;
-        } else {
-          int inner_size = -1;
-          switch (inner_wt) {
-            case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::VARINT): {
-              uint64_t dummy;
-              int vbytes;
-              if (!read_varint(cur, end, dummy, vbytes)) return -1;
-              inner_size = vbytes;
-              break;
-            }
-            case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I64BIT):
-              inner_size = 8;
-              break;
-            case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN): {
-              uint64_t len;
-              int len_bytes;
-              if (!read_varint(cur, end, len, len_bytes)) return -1;
-              if (len > static_cast<uint64_t>(INT_MAX - len_bytes)) return -1;
-              inner_size = len_bytes + static_cast<int>(len);
-              break;
-            }
-            case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT):
-              inner_size = 4;
-              break;
-            default: return -1;
-          }
-          if (inner_size < 0 || cur + inner_size > end) return -1;
-          cur += inner_size;
-        }
-      }
-      return -1;
-    }
-    case spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::EGROUP): return 0;
-    default: return -1;
-  }
-}
-
-__device__ inline bool skip_field(uint8_t const* cur,
-                                  uint8_t const* end,
-                                  int wt,
-                                  uint8_t const*& out_cur)
-{
-  // A bare end-group is only valid while a start-group payload is being parsed recursively inside
-  // get_wire_type_size(spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::SGROUP)).
-  // The scan/count kernels should never accept it as a standalone field because Spark CPU treats
-  // unmatched end-groups as malformed protobuf.
-  if (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::EGROUP)) {
-    return false;
-  }
-
-  int size = get_wire_type_size(wt, cur, end);
-  if (size < 0) return false;
-  // Ensure we don't skip past the end of the buffer
-  if (cur + size > end) return false;
-  out_cur = cur + size;
-  return true;
-}
-
-/**
- * Get the data offset and length for a field at current position.
- * Returns true on success, false on error.
- */
-__device__ inline bool get_field_data_location(
-  uint8_t const* cur, uint8_t const* end, int wt, int32_t& data_offset, int32_t& data_length)
-{
-  if (wt == spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::LEN)) {
-    // For length-delimited, read the length prefix
-    uint64_t len;
-    int len_bytes;
-    if (!read_varint(cur, end, len, len_bytes)) return false;
-    if (len > static_cast<uint64_t>(end - cur - len_bytes) ||
-        len > static_cast<uint64_t>(INT_MAX)) {
-      return false;
-    }
-    data_offset = len_bytes;  // offset past the length prefix
-    data_length = static_cast<int32_t>(len);
-  } else {
-    // For fixed-size and varint fields
-    int field_size = get_wire_type_size(wt, cur, end);
-    if (field_size < 0) return false;
-    data_offset = 0;
-    data_length = field_size;
-  }
-  return true;
-}
-
-__device__ __host__ inline size_t flat_index(size_t row, size_t width, size_t col)
-{
-  return row * width + col;
-}
-
-__device__ inline bool checked_add_int32(int32_t lhs, int32_t rhs, int32_t& out)
-{
-  auto const sum = static_cast<int64_t>(lhs) + rhs;
-  if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
-    return false;
-  }
-  out = static_cast<int32_t>(sum);
-  return true;
-}
-
-__device__ inline bool check_message_bounds(int32_t start,
-                                            int32_t end_pos,
-                                            cudf::size_type total_size,
-                                            int* error_flag)
-{
-  if (start < 0 || end_pos < start || end_pos > total_size) {
-    set_error_once(error_flag, ERR_BOUNDS);
-    return false;
-  }
-  return true;
-}
-
-struct proto_tag {
-  int field_number;
-  int wire_type;
-};
-
-__device__ inline bool decode_tag(uint8_t const*& cur,
-                                  uint8_t const* end,
-                                  proto_tag& tag,
-                                  int* error_flag)
-{
-  uint64_t key;
-  int key_bytes;
-  if (!read_varint(cur, end, key, key_bytes)) {
-    set_error_once(error_flag, ERR_VARINT);
-    return false;
-  }
-
-  cur += key_bytes;
-  uint64_t fn = key >> 3;
-  if (fn == 0 || fn > static_cast<uint64_t>(spark_rapids_jni::MAX_FIELD_NUMBER)) {
-    set_error_once(error_flag, ERR_FIELD_NUMBER);
-    return false;
-  }
-  tag.field_number = static_cast<int>(fn);
-  tag.wire_type    = static_cast<int>(key & 0x7);
-  return true;
-}
-
-/**
- * Load a little-endian value from unaligned memory.
- * Reads bytes individually to avoid unaligned-access issues on GPU.
- */
-template <typename T>
-__device__ inline T load_le(uint8_t const* p);
-
-template <>
-__device__ inline uint32_t load_le<uint32_t>(uint8_t const* p)
-{
-  return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
-         (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
-}
-
-template <>
-__device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
-{
-  uint64_t v = 0;
-#pragma unroll
-  for (int i = 0; i < 8; ++i) {
-    v |= (static_cast<uint64_t>(p[i]) << (8 * i));
-  }
-  return v;
-}
+namespace spark_rapids_jni::protobuf::detail {
 
 // ============================================================================
 // Field number lookup table helpers
@@ -449,411 +61,6 @@ inline std::vector<int> build_field_lookup_table(field_descriptor const* descs, 
     table[descs[i].field_number] = i;
   }
   return table;
-}
-
-/**
- * O(1) lookup of field_number -> field_index using a direct-mapped table.
- * Falls back to linear search when the table is empty (field numbers too large).
- */
-// Keep this definition in the header so all CUDA translation units can inline it.
-__device__ __forceinline__ int lookup_field(int field_number,
-                                            int const* lookup_table,
-                                            int lookup_table_size,
-                                            field_descriptor const* field_descs,
-                                            int num_fields)
-{
-  if (lookup_table != nullptr && field_number > 0 && field_number < lookup_table_size) {
-    return lookup_table[field_number];
-  }
-  for (int f = 0; f < num_fields; f++) {
-    if (field_descs[f].field_number == field_number) return f;
-  }
-  return -1;
-}
-
-// ============================================================================
-// Pass 2: Extract data kernels
-// ============================================================================
-
-// ============================================================================
-// Data Extraction Location Providers
-// ============================================================================
-
-struct TopLevelLocationProvider {
-  cudf::size_type const* offsets;
-  cudf::size_type base_offset;
-  field_location const* locations;
-  int field_idx;
-  int num_fields;
-
-  __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
-  {
-    auto loc = locations[flat_index(static_cast<size_t>(thread_idx),
-                                    static_cast<size_t>(num_fields),
-                                    static_cast<size_t>(field_idx))];
-    if (loc.offset >= 0) { data_offset = offsets[thread_idx] - base_offset + loc.offset; }
-    return loc;
-  }
-};
-
-struct RepeatedLocationProvider {
-  cudf::size_type const* row_offsets;
-  cudf::size_type base_offset;
-  repeated_occurrence const* occurrences;
-
-  __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
-  {
-    auto occ    = occurrences[thread_idx];
-    data_offset = row_offsets[occ.row_idx] - base_offset + occ.offset;
-    return {occ.offset, occ.length};
-  }
-};
-
-struct NestedLocationProvider {
-  cudf::size_type const* row_offsets;
-  cudf::size_type base_offset;
-  field_location const* parent_locations;
-  field_location const* child_locations;
-  int field_idx;
-  int num_fields;
-
-  __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
-  {
-    auto ploc = parent_locations[thread_idx];
-    auto cloc = child_locations[flat_index(static_cast<size_t>(thread_idx),
-                                           static_cast<size_t>(num_fields),
-                                           static_cast<size_t>(field_idx))];
-    if (ploc.offset >= 0 && cloc.offset >= 0) {
-      data_offset = row_offsets[thread_idx] - base_offset + ploc.offset + cloc.offset;
-    } else {
-      cloc.offset = -1;
-    }
-    return cloc;
-  }
-};
-
-struct NestedRepeatedLocationProvider {
-  cudf::size_type const* row_offsets;
-  cudf::size_type base_offset;
-  field_location const* parent_locations;
-  repeated_occurrence const* occurrences;
-
-  __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
-  {
-    auto occ  = occurrences[thread_idx];
-    auto ploc = parent_locations[occ.row_idx];
-    if (ploc.offset >= 0) {
-      data_offset = row_offsets[occ.row_idx] - base_offset + ploc.offset + occ.offset;
-      return {occ.offset, occ.length};
-    }
-    data_offset = 0;
-    return {-1, 0};
-  }
-};
-
-struct RepeatedMsgChildLocationProvider {
-  cudf::size_type const* row_offsets;
-  cudf::size_type base_offset;
-  field_location const* msg_locations;
-  field_location const* child_locations;
-  int field_idx;
-  int num_fields;
-
-  __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
-  {
-    auto mloc = msg_locations[thread_idx];
-    auto cloc = child_locations[flat_index(static_cast<size_t>(thread_idx),
-                                           static_cast<size_t>(num_fields),
-                                           static_cast<size_t>(field_idx))];
-    if (mloc.offset >= 0 && cloc.offset >= 0) {
-      data_offset = row_offsets[thread_idx] - base_offset + mloc.offset + cloc.offset;
-    } else {
-      cloc.offset = -1;
-    }
-    return cloc;
-  }
-};
-
-template <typename OutputType, bool ZigZag = false, typename LocationProvider>
-__global__ void extract_varint_kernel(uint8_t const* message_data,
-                                      LocationProvider loc_provider,
-                                      int total_items,
-                                      OutputType* out,
-                                      bool* valid,
-                                      int* error_flag,
-                                      bool has_default      = false,
-                                      int64_t default_value = 0)
-{
-  auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
-
-  int32_t data_offset = 0;
-  auto loc            = loc_provider.get(idx, data_offset);
-
-  // For BOOL8 (uint8_t), protobuf spec says any non-zero varint is true.
-  // A raw static_cast<uint8_t> would silently truncate values >= 256 to 0.
-  auto const write_value = [](OutputType* dst, uint64_t val) {
-    if constexpr (std::is_same_v<OutputType, uint8_t>) {
-      *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
-    } else {
-      *dst = static_cast<OutputType>(val);
-    }
-  };
-
-  if (loc.offset < 0) {
-    if (has_default) {
-      write_value(&out[idx], static_cast<uint64_t>(default_value));
-      if (valid) valid[idx] = true;
-    } else {
-      if (valid) valid[idx] = false;
-    }
-    return;
-  }
-
-  uint8_t const* cur     = message_data + data_offset;
-  uint8_t const* cur_end = cur + loc.length;
-
-  uint64_t v;
-  int n;
-  if (!read_varint(cur, cur_end, v, n)) {
-    set_error_once(error_flag, ERR_VARINT);
-    if (valid) valid[idx] = false;
-    return;
-  }
-
-  if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  write_value(&out[idx], v);
-  if (valid) valid[idx] = true;
-}
-
-template <typename OutputType, int WT, typename LocationProvider>
-__global__ void extract_fixed_kernel(uint8_t const* message_data,
-                                     LocationProvider loc_provider,
-                                     int total_items,
-                                     OutputType* out,
-                                     bool* valid,
-                                     int* error_flag,
-                                     bool has_default         = false,
-                                     OutputType default_value = OutputType{})
-{
-  auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
-
-  int32_t data_offset = 0;
-  auto loc            = loc_provider.get(idx, data_offset);
-
-  if (loc.offset < 0) {
-    if (has_default) {
-      out[idx] = default_value;
-      if (valid) valid[idx] = true;
-    } else {
-      if (valid) valid[idx] = false;
-    }
-    return;
-  }
-
-  uint8_t const* cur = message_data + data_offset;
-  OutputType value;
-
-  if constexpr (WT ==
-                spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT)) {
-    if (loc.length < 4) {
-      set_error_once(error_flag, ERR_FIXED_LEN);
-      if (valid) valid[idx] = false;
-      return;
-    }
-    uint32_t raw = load_le<uint32_t>(cur);
-    memcpy(&value, &raw, sizeof(value));
-  } else {
-    if (loc.length < 8) {
-      set_error_once(error_flag, ERR_FIXED_LEN);
-      if (valid) valid[idx] = false;
-      return;
-    }
-    uint64_t raw = load_le<uint64_t>(cur);
-    memcpy(&value, &raw, sizeof(value));
-  }
-
-  out[idx] = value;
-  if (valid) valid[idx] = true;
-}
-
-// ============================================================================
-// Batched scalar extraction — one 2D kernel for N fields of the same type
-// ============================================================================
-
-struct batched_scalar_desc {
-  int loc_field_idx;  // index into the locations array (column within d_locations)
-  void* output;       // pre-allocated output buffer (T*)
-  bool* valid;        // pre-allocated validity buffer
-  bool has_default;
-  int64_t default_int;
-  double default_float;
-};
-
-template <typename OutputType, bool ZigZag = false>
-__global__ void extract_varint_batched_kernel(uint8_t const* message_data,
-                                              cudf::size_type const* row_offsets,
-                                              cudf::size_type base_offset,
-                                              field_location const* locations,
-                                              int num_loc_fields,
-                                              batched_scalar_desc const* descs,
-                                              int num_descs,
-                                              int num_rows,
-                                              int* error_flag)
-{
-  int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  int fi  = static_cast<int>(blockIdx.y);
-  if (row >= num_rows || fi >= num_descs) return;
-
-  auto const& desc = descs[fi];
-  auto loc         = locations[row * num_loc_fields + desc.loc_field_idx];
-  auto* out        = static_cast<OutputType*>(desc.output);
-
-  auto const write_value = [](OutputType* dst, uint64_t val) {
-    if constexpr (std::is_same_v<OutputType, uint8_t>) {
-      *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
-    } else {
-      *dst = static_cast<OutputType>(val);
-    }
-  };
-
-  if (loc.offset < 0) {
-    if (desc.has_default) {
-      write_value(&out[row], static_cast<uint64_t>(desc.default_int));
-      desc.valid[row] = true;
-    } else {
-      desc.valid[row] = false;
-    }
-    return;
-  }
-
-  int32_t data_offset = row_offsets[row] - base_offset + loc.offset;
-  uint8_t const* cur  = message_data + data_offset;
-  uint8_t const* end  = cur + loc.length;
-
-  uint64_t v;
-  int n;
-  if (!read_varint(cur, end, v, n)) {
-    set_error_once(error_flag, ERR_VARINT);
-    desc.valid[row] = false;
-    return;
-  }
-  if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  write_value(&out[row], v);
-  desc.valid[row] = true;
-}
-
-template <typename OutputType, int WT>
-__global__ void extract_fixed_batched_kernel(uint8_t const* message_data,
-                                             cudf::size_type const* row_offsets,
-                                             cudf::size_type base_offset,
-                                             field_location const* locations,
-                                             int num_loc_fields,
-                                             batched_scalar_desc const* descs,
-                                             int num_descs,
-                                             int num_rows,
-                                             int* error_flag)
-{
-  int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  int fi  = static_cast<int>(blockIdx.y);
-  if (row >= num_rows || fi >= num_descs) return;
-
-  auto const& desc = descs[fi];
-  auto loc         = locations[row * num_loc_fields + desc.loc_field_idx];
-  auto* out        = static_cast<OutputType*>(desc.output);
-
-  if (loc.offset < 0) {
-    if (desc.has_default) {
-      if constexpr (std::is_integral_v<OutputType>) {
-        out[row] = static_cast<OutputType>(desc.default_int);
-      } else {
-        out[row] = static_cast<OutputType>(desc.default_float);
-      }
-      desc.valid[row] = true;
-    } else {
-      desc.valid[row] = false;
-    }
-    return;
-  }
-
-  int32_t data_offset = row_offsets[row] - base_offset + loc.offset;
-  uint8_t const* cur  = message_data + data_offset;
-  OutputType value;
-
-  if constexpr (WT ==
-                spark_rapids_jni::wire_type_value(spark_rapids_jni::proto_wire_type::I32BIT)) {
-    if (loc.length < 4) {
-      set_error_once(error_flag, ERR_FIXED_LEN);
-      desc.valid[row] = false;
-      return;
-    }
-    uint32_t raw = load_le<uint32_t>(cur);
-    memcpy(&value, &raw, sizeof(value));
-  } else {
-    if (loc.length < 8) {
-      set_error_once(error_flag, ERR_FIXED_LEN);
-      desc.valid[row] = false;
-      return;
-    }
-    uint64_t raw = load_le<uint64_t>(cur);
-    memcpy(&value, &raw, sizeof(value));
-  }
-  out[row]        = value;
-  desc.valid[row] = true;
-}
-
-// ============================================================================
-
-template <typename LocationProvider>
-__global__ void extract_lengths_kernel(LocationProvider loc_provider,
-                                       int total_items,
-                                       int32_t* out_lengths,
-                                       bool has_default       = false,
-                                       int32_t default_length = 0)
-{
-  auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
-
-  int32_t data_offset = 0;
-  auto loc            = loc_provider.get(idx, data_offset);
-
-  if (loc.offset >= 0) {
-    out_lengths[idx] = loc.length;
-  } else if (has_default) {
-    out_lengths[idx] = default_length;
-  } else {
-    out_lengths[idx] = 0;
-  }
-}
-template <typename LocationProvider>
-__global__ void copy_varlen_data_kernel(uint8_t const* message_data,
-                                        LocationProvider loc_provider,
-                                        int total_items,
-                                        cudf::size_type const* output_offsets,
-                                        char* output_chars,
-                                        int* error_flag,
-                                        bool has_default             = false,
-                                        uint8_t const* default_chars = nullptr,
-                                        int default_len              = 0)
-{
-  auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
-
-  int32_t data_offset = 0;
-  auto loc            = loc_provider.get(idx, data_offset);
-
-  auto out_start = output_offsets[idx];
-
-  if (loc.offset < 0) {
-    if (has_default && default_len > 0) {
-      memcpy(output_chars + out_start, default_chars, default_len);
-    }
-    return;
-  }
-
-  uint8_t const* src = message_data + data_offset;
-  memcpy(output_chars + out_start, src, loc.length);
 }
 
 template <typename T>
@@ -904,7 +111,7 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                          rmm::cuda_stream_view stream)
 {
   if (enable_zigzag &&
-      encoding == spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ZIGZAG)) {
+      encoding == spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::ZIGZAG)) {
     extract_varint_kernel<T, true, LocationProvider>
       <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                loc_provider,
@@ -915,11 +122,11 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                                has_default,
                                                default_value);
   } else if (encoding ==
-             spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED)) {
+             spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::FIXED)) {
     if constexpr (sizeof(T) == 4) {
       extract_fixed_kernel<T,
-                           spark_rapids_jni::wire_type_value(
-                             spark_rapids_jni::proto_wire_type::I32BIT),
+                           spark_rapids_jni::protobuf::wire_type_value(
+                             spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
                            LocationProvider>
         <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                  loc_provider,
@@ -932,8 +139,8 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
     } else {
       static_assert(sizeof(T) == 8, "extract_integer_into_buffers only supports 32/64-bit");
       extract_fixed_kernel<T,
-                           spark_rapids_jni::wire_type_value(
-                             spark_rapids_jni::proto_wire_type::I64BIT),
+                           spark_rapids_jni::protobuf::wire_type_value(
+                             spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
                            LocationProvider>
         <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                  loc_provider,
@@ -1070,143 +277,6 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
 
   return cudf::make_structs_column(0, std::move(children), 0, rmm::device_buffer{}, stream, mr);
 }
-
-// ============================================================================
-// Forward declarations of non-template __global__ kernels
-// ============================================================================
-
-__global__ void scan_all_fields_kernel(cudf::column_device_view const d_in,
-                                       field_descriptor const* field_descs,
-                                       int num_fields,
-                                       int const* field_lookup,
-                                       int field_lookup_size,
-                                       field_location* locations,
-                                       int* error_flag,
-                                       bool* row_has_invalid_data);
-
-__global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in,
-                                             device_nested_field_descriptor const* schema,
-                                             int num_fields,
-                                             int depth_level,
-                                             repeated_field_info* repeated_info,
-                                             int num_repeated_fields,
-                                             int const* repeated_field_indices,
-                                             field_location* nested_locations,
-                                             int num_nested_fields,
-                                             int const* nested_field_indices,
-                                             int* error_flag,
-                                             int const* fn_to_rep_idx    = nullptr,
-                                             int fn_to_rep_size          = 0,
-                                             int const* fn_to_nested_idx = nullptr,
-                                             int fn_to_nested_size       = 0);
-
-__global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view const d_in,
-                                                     repeated_field_scan_desc const* scan_descs,
-                                                     int num_scan_fields,
-                                                     int* error_flag,
-                                                     int const* fn_to_desc_idx = nullptr,
-                                                     int fn_to_desc_size       = 0);
-
-__global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
-                                                  cudf::size_type message_data_size,
-                                                  cudf::size_type const* parent_row_offsets,
-                                                  cudf::size_type parent_base_offset,
-                                                  field_location const* parent_locations,
-                                                  int num_parent_rows,
-                                                  field_descriptor const* field_descs,
-                                                  int num_fields,
-                                                  field_location* output_locations,
-                                                  int* error_flag);
-
-__global__ void scan_repeated_message_children_kernel(uint8_t const* message_data,
-                                                      cudf::size_type message_data_size,
-                                                      cudf::size_type const* msg_row_offsets,
-                                                      field_location const* msg_locs,
-                                                      int num_occurrences,
-                                                      field_descriptor const* child_descs,
-                                                      int num_child_fields,
-                                                      field_location* child_locs,
-                                                      int* error_flag,
-                                                      int const* child_lookup = nullptr,
-                                                      int child_lookup_size   = 0);
-
-__global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
-                                                cudf::size_type message_data_size,
-                                                cudf::size_type const* row_offsets,
-                                                cudf::size_type base_offset,
-                                                field_location const* parent_locs,
-                                                int num_rows,
-                                                device_nested_field_descriptor const* schema,
-                                                int num_fields,
-                                                repeated_field_info* repeated_info,
-                                                int num_repeated,
-                                                int const* repeated_indices,
-                                                int* error_flag);
-
-__global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
-                                               cudf::size_type message_data_size,
-                                               cudf::size_type const* row_offsets,
-                                               cudf::size_type base_offset,
-                                               field_location const* parent_locs,
-                                               int num_rows,
-                                               device_nested_field_descriptor const* schema,
-                                               int32_t const* occ_prefix_sums,
-                                               int const* repeated_indices,
-                                               repeated_occurrence* occurrences,
-                                               int* error_flag);
-
-__global__ void compute_nested_struct_locations_kernel(field_location const* child_locs,
-                                                       field_location const* msg_locs,
-                                                       cudf::size_type const* msg_row_offsets,
-                                                       int child_idx,
-                                                       int num_child_fields,
-                                                       field_location* nested_locs,
-                                                       cudf::size_type* nested_row_offsets,
-                                                       int total_count,
-                                                       int* error_flag);
-
-__global__ void compute_grandchild_parent_locations_kernel(field_location const* parent_locs,
-                                                           field_location const* child_locs,
-                                                           int child_idx,
-                                                           int num_child_fields,
-                                                           field_location* gc_parent_abs,
-                                                           int num_rows,
-                                                           int* error_flag);
-
-__global__ void compute_virtual_parents_for_nested_repeated_kernel(
-  repeated_occurrence const* occurrences,
-  cudf::size_type const* row_list_offsets,
-  field_location const* parent_locations,
-  cudf::size_type* virtual_row_offsets,
-  field_location* virtual_parent_locs,
-  int total_count,
-  int* error_flag);
-
-__global__ void compute_msg_locations_from_occurrences_kernel(
-  repeated_occurrence const* occurrences,
-  cudf::size_type const* list_offsets,
-  cudf::size_type base_offset,
-  field_location* msg_locs,
-  cudf::size_type* msg_row_offsets,
-  int total_count,
-  int* error_flag);
-
-__global__ void extract_strided_locations_kernel(field_location const* nested_locations,
-                                                 int field_idx,
-                                                 int num_fields,
-                                                 field_location* parent_locs,
-                                                 int num_rows);
-
-__global__ void check_required_fields_kernel(field_location const* locations,
-                                             uint8_t const* is_required,
-                                             int num_fields,
-                                             int num_rows,
-                                             cudf::bitmask_type const* input_null_mask,
-                                             cudf::size_type input_offset,
-                                             field_location const* parent_locs,
-                                             bool* row_force_null,
-                                             int32_t const* top_row_indices,
-                                             int* error_flag);
 
 inline void maybe_check_required_fields(field_location const* locations,
                                         std::vector<int> const& field_indices,
@@ -1684,8 +754,8 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         num_items,
         [&](float* out_ptr, bool* valid_ptr) {
           extract_fixed_kernel<float,
-                               spark_rapids_jni::wire_type_value(
-                                 spark_rapids_jni::proto_wire_type::I32BIT),
+                               spark_rapids_jni::protobuf::wire_type_value(
+                                 spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
                                LocationProvider>
             <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
                                                                loc_provider,
@@ -1706,8 +776,8 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         num_items,
         [&](double* out_ptr, bool* valid_ptr) {
           extract_fixed_kernel<double,
-                               spark_rapids_jni::wire_type_value(
-                                 spark_rapids_jni::proto_wire_type::I64BIT),
+                               spark_rapids_jni::protobuf::wire_type_value(
+                                 spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
                                LocationProvider>
             <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
                                                                loc_provider,
@@ -1785,28 +855,28 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
 
   int encoding = field_desc.encoding;
   bool zigzag =
-    (encoding == spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ZIGZAG));
+    (encoding == spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::ZIGZAG));
 
   // For float/double types, always use fixed kernel (they use wire type 32BIT/64BIT)
   // For integer types, use fixed kernel only if encoding is
-  // spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED)
+  // spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::FIXED)
   constexpr bool is_floating_point = std::is_same_v<T, float> || std::is_same_v<T, double>;
   bool use_fixed_kernel =
     is_floating_point ||
-    (encoding == spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::FIXED));
+    (encoding == spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::FIXED));
 
   RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   if (use_fixed_kernel) {
     if constexpr (sizeof(T) == 4) {
       extract_fixed_kernel<T,
-                           spark_rapids_jni::wire_type_value(
-                             spark_rapids_jni::proto_wire_type::I32BIT),
+                           spark_rapids_jni::protobuf::wire_type_value(
+                             spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
                            RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
         message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     } else {
       extract_fixed_kernel<T,
-                           spark_rapids_jni::wire_type_value(
-                             spark_rapids_jni::proto_wire_type::I64BIT),
+                           spark_rapids_jni::protobuf::wire_type_value(
+                             spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
                            RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
         message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     }
@@ -1848,4 +918,5 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
     num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
 }
 
-}  // namespace spark_rapids_jni::protobuf_detail
+}  // namespace spark_rapids_jni::protobuf::detail
+

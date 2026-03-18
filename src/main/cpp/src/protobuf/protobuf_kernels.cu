@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-#include "protobuf_common.cuh"
+#include "protobuf/protobuf_device_helpers.cuh"
 
-namespace spark_rapids_jni::protobuf_detail {
+namespace spark_rapids_jni::protobuf::detail {
 
 __global__ void set_error_if_unset_kernel(int* error_flag, int error_code)
 {
   if (blockIdx.x == 0 && threadIdx.x == 0) { set_error_once(error_flag, error_code); }
 }
 
-}  // namespace spark_rapids_jni::protobuf_detail
+}  // namespace spark_rapids_jni::protobuf::detail
