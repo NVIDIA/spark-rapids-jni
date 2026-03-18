@@ -605,7 +605,18 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
                                                def_len);
   }
 
-  rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
+  if (num_rows == 0) {
+    if (as_bytes) {
+      auto bytes_child = std::make_unique<cudf::column>(
+        cudf::data_type{cudf::type_id::UINT8}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
+      return cudf::make_lists_column(
+        0, std::move(offsets_col), std::move(bytes_child), 0, rmm::device_buffer{});
+    }
+    return cudf::make_strings_column(
+      0, std::move(offsets_col), chars.release(), 0, rmm::device_buffer{});
+  }
+
+  rmm::device_uvector<bool> valid(num_rows, stream, mr);
   thrust::transform(rmm::exec_policy(stream),
                     thrust::make_counting_iterator<cudf::size_type>(0),
                     thrust::make_counting_iterator<cudf::size_type>(num_rows),
