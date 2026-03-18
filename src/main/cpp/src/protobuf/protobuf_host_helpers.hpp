@@ -683,8 +683,11 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         mr);
     }
     case cudf::type_id::INT32: {
+      if (num_items == 0) {
+        return std::make_unique<cudf::column>(dt, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
+      }
       rmm::device_uvector<int32_t> out(num_items, stream, mr);
-      rmm::device_uvector<bool> valid((num_items > 0 ? num_items : 1), stream, mr);
+      rmm::device_uvector<bool> valid(num_items, stream, mr);
       extract_integer_into_buffers<int32_t, LocationProvider>(message_data,
                                                               loc_provider,
                                                               num_items,
