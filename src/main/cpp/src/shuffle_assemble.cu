@@ -611,9 +611,7 @@ struct assemble_src_buffer_size_functor {
     // if we have no validity, or no rows, include nothing.
     return col.has_validity ?
                             // handle the validity edge case from the function header
-             (col.num_rows > 0
-                ? bitmask_size_bytes(col.num_rows + (src_row_index % 8))
-                : 0)
+             (col.num_rows > 0 ? bitmask_size_bytes(col.num_rows + (src_row_index % 8)) : 0)
                             : 0;
   }
 

@@ -140,9 +140,8 @@ struct decimal_to_non_ansi_string_fn {
       if (abs_value_digits > 1) {
         auto const digits_after_decimal = abs_value_digits - 1;
         auto const exp_ten              = numeric::detail::exp10<DecimalType>(digits_after_decimal);
-        auto const num_zeros =
-          cuda::std::max(
-            0, (digits_after_decimal - strings::detail::count_digits(abs_value % exp_ten)));
+        auto const num_zeros            = cuda::std::max(
+          0, (digits_after_decimal - strings::detail::count_digits(abs_value % exp_ten)));
         d_buffer +=
           strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add integer part
         *d_buffer++ = '.';                                                    // add decimal point

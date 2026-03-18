@@ -68,10 +68,10 @@ __device__ __inline__ cuda::std::pair<__int128_t, cudf::size_type> to_java_bigde
   // https://github.com/apache/spark/blob/master/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/hash.scala#L381
   __int128_t const val               = key.value();
   constexpr cudf::size_type key_size = sizeof(__int128_t);
-  cuda::std::byte const* data              = reinterpret_cast<cuda::std::byte const*>(&val);
+  cuda::std::byte const* data        = reinterpret_cast<cuda::std::byte const*>(&val);
 
   // Small negative values start with 0xff..., small positive values start with 0x00...
-  bool const is_negative     = val < 0;
+  bool const is_negative           = val < 0;
   cuda::std::byte const zero_value = is_negative ? cuda::std::byte{0xff} : cuda::std::byte{0x00};
 
   // If the value can be represented with a shorter than 16-byte integer, the

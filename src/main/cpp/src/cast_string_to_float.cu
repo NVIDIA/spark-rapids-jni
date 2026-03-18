@@ -114,9 +114,8 @@ class string_to_float {
     // check for inf / infinity
     if (check_for_inf()) {
       if (_warp_lane == 0) {
-        _out[_row] =
-          sign >= 0 ? cuda::std::numeric_limits<T>::infinity()
-                    : -cuda::std::numeric_limits<T>::infinity();
+        _out[_row] = sign >= 0 ? cuda::std::numeric_limits<T>::infinity()
+                               : -cuda::std::numeric_limits<T>::infinity();
       }
       compute_validity(_valid, _except);
       return;

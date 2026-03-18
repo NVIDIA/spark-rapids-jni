@@ -350,10 +350,9 @@ CUDF_KERNEL void copy_from_rows_fixed_width_optimized(const size_type num_rows,
 
     auto const shared_output_index  = threadIdx.x + (threadIdx.y * blockDim.x);
     auto const shared_output_stride = blockDim.x * blockDim.y;
-    auto const row_index_end =
-      cuda::std::min(num_rows, ((row_group_index + 1) * rows_per_group));
-    auto const num_rows_in_group    = row_index_end - (row_group_index * rows_per_group);
-    auto const shared_length        = row_size * num_rows_in_group;
+    auto const row_index_end = cuda::std::min(num_rows, ((row_group_index + 1) * rows_per_group));
+    auto const num_rows_in_group = row_index_end - (row_group_index * rows_per_group);
+    auto const shared_length     = row_size * num_rows_in_group;
 
     size_type const shared_output_end = shared_length / sizeof(int64_t);
 
@@ -1667,9 +1666,8 @@ size_type build_tiles(
                          batch_index + 1 > num_batches
                            ? cuda::std::numeric_limits<size_type>::max()
                            : static_cast<int>(batch_row_boundaries[batch_index + 1]) - 1);
-        int const tile_row_end =
-          cuda::std::min(batch_row_start + ((local_tile_index + 1) * desired_tile_height) - 1,
-                         max_row);
+        int const tile_row_end = cuda::std::min(
+          batch_row_start + ((local_tile_index + 1) * desired_tile_height) - 1, max_row);
 
         // stuff the tile
         return tile_info{

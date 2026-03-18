@@ -28,9 +28,8 @@
 
 #include <rmm/exec_policy.hpp>
 
-#include <thrust/tabulate.h>
-
 #include <cuda/std/algorithm>
+#include <thrust/tabulate.h>
 
 #include <cstdint>
 

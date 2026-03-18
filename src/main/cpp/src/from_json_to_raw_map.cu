@@ -35,6 +35,7 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_select.cuh>
 #include <cuda/functional>
+#include <cuda/std/limits>
 #include <cuda/std/utility>
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
@@ -46,8 +47,6 @@
 #include <thrust/scan.h>
 #include <thrust/sequence.h>
 #include <thrust/transform.h>
-
-#include <cuda/std/limits>
 
 namespace spark_rapids_jni {
 
