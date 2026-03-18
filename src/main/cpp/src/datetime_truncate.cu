@@ -96,7 +96,7 @@ __host__ __device__ truncation_format parse_format(char const* fmt_data, cudf::s
                               "MICROSECOND"};
   // Manually calculate sizes of the strings since `strlen` is not available in device code.
   cudf::size_type constexpr comp_sizes[] = {4, 4, 2, 7, 5, 2, 3, 4, 3, 2, 4, 6, 6, 11, 11};
-  auto constexpr num_components          = std::size(components);
+  auto constexpr num_components          = sizeof(components) / sizeof(components[0]);
 
   for (std::size_t comp_idx = 0; comp_idx < num_components; ++comp_idx) {
     if (fmt_size != comp_sizes[comp_idx]) { continue; }

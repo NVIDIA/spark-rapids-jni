@@ -1293,7 +1293,7 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
         break;
       }
     }
-    int actual_olength = fmin(int(olength), actual_round);
+    int actual_olength = int(olength) < actual_round ? int(olength) : actual_round;
     U rounded_output   = round_half_even(output, olength, actual_round);
     // check if carry
     if (rounded_output >= POW10_TABLE[actual_olength]) {

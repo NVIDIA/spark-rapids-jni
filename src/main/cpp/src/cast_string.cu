@@ -27,6 +27,7 @@
 
 #include <cooperative_groups.h>
 #include <cub/warp/warp_reduce.cuh>
+#include <cuda/std/algorithm>
 #include <cuda/std/optional>
 #include <cuda/std/tuple>
 #include <cuda/std/utility>
@@ -47,7 +48,7 @@ constexpr auto NUM_THREADS{256};
  * @param chr character to test
  * @return true if character is a whitespace character
  */
-constexpr bool is_whitespace(char const chr)
+__host__ __device__ constexpr bool is_whitespace(char const chr)
 {
   // Whitespace characters include:
   // - Space (0x20, ' ')
@@ -534,7 +535,7 @@ CUDF_KERNEL void string_to_decimal_kernel(T* out,
     }
 
     auto const significant_preceding_zeros = decimal_location < 0 ? -decimal_location : 0;
-    auto const zeros_to_decimal            = std::max(
+    auto const zeros_to_decimal            = cuda::std::max(
       0, scale > 0 ? decimal_location - total_digits - scale : decimal_location - total_digits);
     auto const significant_digits_before_decimal =
       significant_digits_before_decimal_in_string + zeros_to_decimal + rounding_digits;

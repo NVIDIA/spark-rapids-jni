@@ -30,6 +30,8 @@
 
 #include <thrust/tabulate.h>
 
+#include <cuda/std/algorithm>
+
 #include <cstdint>
 
 namespace spark_rapids_jni {
@@ -115,7 +117,7 @@ struct truncate_binary_fn {
     if (!d_chars) {
       // first phase
       int binary_len = input_offsets[idx + 1] - input_offsets[idx];
-      d_sizes[idx]   = std::min(binary_len, truncate_length);
+      d_sizes[idx]   = cuda::std::min(binary_len, truncate_length);
     } else {
       // second phase
       auto binary_ptr = input_chars + input_offsets[idx];

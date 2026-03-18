@@ -57,7 +57,7 @@ hive_hash_value_t __device__ inline compute_bytes(int8_t const* data, cudf::size
 template <typename Key>
 struct hive_hash_function {
   // 'seed' is not used in 'hive_hash_function', but required by 'element_hasher'.
-  constexpr hive_hash_function(uint32_t) {}
+  __host__ __device__ constexpr hive_hash_function(uint32_t) {}
 
   [[nodiscard]] hive_hash_value_t __device__ inline operator()(Key const& key) const
   {

@@ -1263,7 +1263,7 @@ __device__ inline IntType scaled_round(FloatType input, int32_t pow10)
     } else {
       // Spark rounds up the power-of-10 to floor for DOUBLES >= 2^63 (and yes, this is the exact
       // cutoff).
-      bool const round_up = unsigned_floating > std::numeric_limits<std::int64_t>::max();
+      bool const round_up = unsigned_floating > cuda::std::numeric_limits<std::int64_t>::max();
       return (3 * pow2_bit - 10 * pow10 + 9 * round_up) / 10;
     }
   }(pow2);

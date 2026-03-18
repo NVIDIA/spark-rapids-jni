@@ -33,6 +33,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <cuda/std/utility>
 #include <thrust/logical.h>
 
 #include <byteswap.h>
@@ -43,7 +44,7 @@ namespace {
 
 using bloom_hash_type = spark_rapids_jni::murmur_hash_value_type;
 
-__device__ inline std::pair<cudf::size_type, cudf::bitmask_type> gpu_get_hash_mask(
+__device__ inline cuda::std::pair<cudf::size_type, cudf::bitmask_type> gpu_get_hash_mask(
   bloom_hash_type h, cudf::size_type bloom_filter_bits)
 {
   // https://github.com/apache/spark/blob/7bfbeb62cb1dc58d81243d22888faa688bad8064/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImpl.java#L94

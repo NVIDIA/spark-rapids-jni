@@ -40,6 +40,7 @@
 
 #include <cub/device/device_memcpy.cuh>
 #include <cuda/functional>
+#include <cuda/std/utility>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
@@ -237,8 +238,8 @@ __global__ void compute_offset_child_row_counts(
       // if I'm a root column, use the base partition row info
       // otherwise use the row info computed for me by my parent
       return offset_info.parent < 0 || base_num_rows == 0
-               ? std::pair<size_type, size_type>{base_num_rows, base_src_row_index}
-               : std::pair<size_type, size_type>{
+               ? cuda::std::pair<size_type, size_type>{base_num_rows, base_src_row_index}
+               : cuda::std::pair<size_type, size_type>{
                    column_instances[offset_info.parent + base_col_index].child_num_rows,
                    column_instances[offset_info.parent + base_col_index].child_src_row_index};
     }();
@@ -505,6 +506,16 @@ constexpr size_t bitmask_allocation_size_bytes(size_type number_of_bits, int pad
 }
 
 /**
+ * @brief Device-callable equivalent of cudf::bitmask_allocation_size_bytes with padding_boundary=1.
+ * Returns the number of bytes needed to hold number_of_bits bits, no extra padding.
+ */
+__host__ __device__ constexpr std::size_t bitmask_size_bytes(cudf::size_type number_of_bits)
+{
+  return static_cast<std::size_t>(
+    cudf::util::div_rounding_up_safe<cudf::size_type>(number_of_bits, CHAR_BIT));
+}
+
+/**
  * @brief Functor that fills in source buffer sizes (validity, offsets, data) per column.
  *
  * This returns the size of the buffer -without- padding. Just the size of
@@ -601,7 +612,7 @@ struct assemble_src_buffer_size_functor {
     return col.has_validity ?
                             // handle the validity edge case from the function header
              (col.num_rows > 0
-                ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1)
+                ? bitmask_size_bytes(col.num_rows + (src_row_index % 8))
                 : 0)
                             : 0;
   }
@@ -787,7 +798,7 @@ constexpr std::size_t desired_assemble_batch_size = 1 * 1024 * 1024;
 /**
  * @brief Return the number of batches the specified number of bytes should be split into.
  */
-constexpr size_t size_to_batch_count(size_t bytes)
+__host__ __device__ constexpr size_t size_to_batch_count(size_t bytes)
 {
   return util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size;
 }
@@ -1174,7 +1185,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
         auto& cinfo                   = column_info[col_index];
         auto const& cinfo_inst        = column_instance_info[col_instance_index];
         if (is_non_nullable_col_instance(cinfo, cinfo_inst)) {
-          return bitmask_allocation_size_bytes(cinfo_inst.num_rows, 1);
+          return bitmask_size_bytes(cinfo_inst.num_rows);
         }
       }
       return src_sizes_unpadded[src_buf_index];
@@ -1232,7 +1243,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
           switch (btype) {
             // validity gets batched
             case buffer_type::VALIDITY:
-              return std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
+              return cuda::std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
 
             // for offsets, all source buffers have an extra offset per partition (the terminating
             // offset for that partition) that we need to ignore, except in the case of the final
@@ -1260,7 +1271,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
                   cinfo_inst.row_index + cinfo_inst.num_rows == last_row_index;
 
                 auto const size =
-                  std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
+                  cuda::std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
                 return is_terminating_partition ? size : size - 4;
               }
             }

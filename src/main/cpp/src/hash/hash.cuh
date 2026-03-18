@@ -19,7 +19,11 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
+#include <cuda/std/algorithm>
+#include <cuda/std/cmath>
+#include <cuda/std/cstddef>
 #include <cuda/std/iterator>
+#include <cuda/std/limits>
 #include <thrust/find.h>
 #include <thrust/reverse.h>
 
@@ -31,7 +35,7 @@ template <typename T>
 T __device__ inline normalize_nans(T const& key)
 {
   if constexpr (cudf::is_floating_point<T>()) {
-    if (std::isnan(key)) { return std::numeric_limits<T>::quiet_NaN(); }
+    if (cuda::std::isnan(key)) { return cuda::std::numeric_limits<T>::quiet_NaN(); }
   }
   return key;
 }
@@ -57,30 +61,32 @@ T __device__ inline normalize_nans_and_zeros(T const& key)
  *          representing the relevant number of bytes in the value.
  *
  */
-__device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
+__device__ __inline__ cuda::std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
   numeric::decimal128 key)
 {
   // java.math.BigDecimal.valueOf(unscaled_value, _scale).unscaledValue().toByteArray()
   // https://github.com/apache/spark/blob/master/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/hash.scala#L381
   __int128_t const val               = key.value();
   constexpr cudf::size_type key_size = sizeof(__int128_t);
-  std::byte const* data              = reinterpret_cast<std::byte const*>(&val);
+  cuda::std::byte const* data              = reinterpret_cast<cuda::std::byte const*>(&val);
 
   // Small negative values start with 0xff..., small positive values start with 0x00...
   bool const is_negative     = val < 0;
-  std::byte const zero_value = is_negative ? std::byte{0xff} : std::byte{0x00};
+  cuda::std::byte const zero_value = is_negative ? cuda::std::byte{0xff} : cuda::std::byte{0x00};
 
   // If the value can be represented with a shorter than 16-byte integer, the
   // leading bytes of the little-endian value are truncated and are not hashed.
   auto const reverse_begin = cuda::std::reverse_iterator(data + key_size);
   auto const reverse_end   = cuda::std::reverse_iterator(data);
   auto const first_nonzero_byte =
-    thrust::find_if_not(thrust::seq, reverse_begin, reverse_end, [zero_value](std::byte const& v) {
-      return v == zero_value;
-    }).base();
+    thrust::find_if_not(thrust::seq,
+                        reverse_begin,
+                        reverse_end,
+                        [zero_value](cuda::std::byte const& v) { return v == zero_value; })
+      .base();
   // Max handles special case of 0 and -1 which would shorten to 0 length otherwise
   cudf::size_type length =
-    std::max(1, static_cast<cudf::size_type>(cuda::std::distance(data, first_nonzero_byte)));
+    cuda::std::max(1, static_cast<cudf::size_type>(cuda::std::distance(data, first_nonzero_byte)));
 
   // Preserve the 2's complement sign bit by adding a byte back on if necessary.
   // e.g. 0x0000ff would shorten to 0x00ff. The 0x00 byte is retained to
@@ -88,11 +94,13 @@ __device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
   // change the sign bit. However, 0x00007f would shorten to 0x7f. No extra byte
   // is needed because the leftmost bit matches the sign bit. Similarly for
   // negative values: 0xffff00 --> 0xff00 and 0xffff80 --> 0x80.
-  if ((length < key_size) && (is_negative ^ bool(data[length - 1] & std::byte{0x80}))) { ++length; }
+  if ((length < key_size) && (is_negative ^ bool(data[length - 1] & cuda::std::byte{0x80}))) {
+    ++length;
+  }
 
   // Convert to big endian by reversing the range of nonzero bytes. Only those bytes are hashed.
   __int128_t big_endian_value = 0;
-  auto big_endian_data        = reinterpret_cast<std::byte*>(&big_endian_value);
+  auto big_endian_data        = reinterpret_cast<cuda::std::byte*>(&big_endian_value);
   thrust::reverse_copy(thrust::seq, data, data + length, big_endian_data);
 
   return {big_endian_value, length};
