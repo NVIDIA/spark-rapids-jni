@@ -27,6 +27,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/std/limits>
+#include <cuda/std/type_traits>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 
@@ -52,7 +53,8 @@ void check_multiply_inputs(cudf::data_type left_type,
  * @brief Multiply two int8_t or int16_t values with overflow check.
  * Set `valid` to false if overflow occurs.
  */
-template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t>)>
+template <typename T,
+          CUDF_ENABLE_IF(cuda::std::is_same_v<T, int8_t> || cuda::std::is_same_v<T, int16_t>)>
 __device__ void multiply(T x, T y, bool check_overflow, bool* valid, T* result)
 {
   // when int8_t * int8_t or int16_t * int16_t, the result is promoted to int type.
@@ -70,7 +72,7 @@ __device__ void multiply(T x, T y, bool check_overflow, bool* valid, T* result)
  * @brief Multiply two int32_t values with overflow check.
  * Set `valid` to false if overflow occurs.
  */
-template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, int32_t>)>
+template <typename T, CUDF_ENABLE_IF(cuda::std::is_same_v<T, int32_t>)>
 __device__ void multiply(T x, T y, bool check_overflow, bool* valid, T* result)
 {
   if (check_overflow) {
@@ -104,7 +106,7 @@ __device__ bool is_multiply_overflow(int64_t a, int64_t b)
  * @brief Multiply two int64_t values with overflow check.
  * Set `valid` to false if overflow occurs.
  */
-template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, int64_t>)>
+template <typename T, CUDF_ENABLE_IF(cuda::std::is_same_v<T, int64_t>)>
 __device__ void multiply(T x, T y, bool check_overflow, bool* valid, T* result)
 {
   if (check_overflow && is_multiply_overflow(x, y)) {
@@ -120,7 +122,8 @@ __device__ void multiply(T x, T y, bool check_overflow, bool* valid, T* result)
  * @brief Multiply two float values.
  * `check_overflow` is ignored for float multiplication.
  */
-template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, float> || std::is_same_v<T, double>)>
+template <typename T,
+          CUDF_ENABLE_IF(cuda::std::is_same_v<T, float> || cuda::std::is_same_v<T, double>)>
 __device__ void multiply(T x, T y, bool check_overflow, bool* valid, T* result)
 {
   *valid  = true;

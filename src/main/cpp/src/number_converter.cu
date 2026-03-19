@@ -22,12 +22,11 @@
 #include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 
+#include <cuda/std/cmath>
 #include <cuda/std/functional>
 #include <cuda/std/utility>
 #include <thrust/count.h>
 #include <thrust/for_each.h>
-
-#include <cstdlib>  // For abs() function
 
 /**
  * This file is ported from Spark 3.5.0 org.apache.spark.sql.catalyst.util.NumberConverter
@@ -54,8 +53,8 @@ enum class ansi_mode {
 
 CUDF_HOST_DEVICE bool is_invalid_base_range(int from_base, int to_base)
 {
-  return from_base < MIN_BASE || from_base > MAX_BASE || std::abs(to_base) < MIN_BASE ||
-         std::abs(to_base) > MAX_BASE;
+  return from_base < MIN_BASE || from_base > MAX_BASE || cuda::std::abs(to_base) < MIN_BASE ||
+         cuda::std::abs(to_base) > MAX_BASE;
 }
 
 /**
@@ -218,7 +217,7 @@ __device__ cuda::std::pair<result_type, int> convert(
   }
 
   // write out string representation
-  auto to_base_abs = std::abs(to_base);
+  auto to_base_abs = cuda::std::abs(to_base);
   int out_idx      = out_len - 1;
   uint64_t uv      = static_cast<uint64_t>(v);
 

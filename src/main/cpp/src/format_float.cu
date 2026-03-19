@@ -26,6 +26,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/type_traits>
+
 namespace spark_rapids_jni {
 
 namespace detail {
@@ -41,7 +43,7 @@ struct format_float_fn {
 
   __device__ cudf::size_type compute_output_size(FloatType const value) const
   {
-    bool constexpr is_float = std::is_same_v<FloatType, float>;
+    bool constexpr is_float = cuda::std::is_same_v<FloatType, float>;
     return static_cast<cudf::size_type>(
       ftos_converter::compute_format_float_size(static_cast<double>(value), digits, is_float));
   }
@@ -49,7 +51,7 @@ struct format_float_fn {
   __device__ void format_float(cudf::size_type const idx) const
   {
     auto const value        = d_floats.element<FloatType>(idx);
-    bool constexpr is_float = std::is_same_v<FloatType, float>;
+    bool constexpr is_float = cuda::std::is_same_v<FloatType, float>;
     auto const output       = d_chars + d_offsets[idx];
     ftos_converter::format_float(static_cast<double>(value), digits, is_float, output);
   }
@@ -74,7 +76,7 @@ struct format_float_fn {
  * The template function declaration ensures only float types are allowed.
  */
 struct dispatch_format_float_fn {
-  template <typename FloatType, CUDF_ENABLE_IF(std::is_floating_point_v<FloatType>)>
+  template <typename FloatType, CUDF_ENABLE_IF(cuda::std::is_floating_point_v<FloatType>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const& floats,
                                            int const digits,
                                            rmm::cuda_stream_view stream,
@@ -96,7 +98,7 @@ struct dispatch_format_float_fn {
   }
 
   // non-float types throw an exception
-  template <typename T, CUDF_ENABLE_IF(not std::is_floating_point_v<T>)>
+  template <typename T, CUDF_ENABLE_IF(not cuda::std::is_floating_point_v<T>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const&,
                                            int const,
                                            rmm::cuda_stream_view,
