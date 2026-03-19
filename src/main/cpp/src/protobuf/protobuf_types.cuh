@@ -18,8 +18,6 @@
 
 #include "protobuf/protobuf.hpp"
 
-#include "protobuf/protobuf.hpp"
-
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
@@ -144,7 +142,8 @@ struct device_nested_field_descriptor {
 
   device_nested_field_descriptor() = default;
 
-  explicit device_nested_field_descriptor(spark_rapids_jni::protobuf::nested_field_descriptor const& src)
+  explicit device_nested_field_descriptor(
+    spark_rapids_jni::protobuf::nested_field_descriptor const& src)
     : field_number(src.field_number),
       parent_idx(src.parent_idx),
       depth(src.depth),
@@ -159,4 +158,3 @@ struct device_nested_field_descriptor {
 };
 
 }  // namespace spark_rapids_jni::protobuf::detail
-
