@@ -18,7 +18,12 @@
 
 #include "protobuf/protobuf_types.cuh"
 
+#include <cudf/utilities/error.hpp>
+
+#include <rmm/cuda_stream_view.hpp>
+
 #include <cuda/atomic>
+#include <cuda/std/limits>
 
 namespace spark_rapids_jni::protobuf::detail {
 
@@ -68,8 +73,7 @@ inline void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stre
 __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t const* end)
 {
   switch (wt) {
-    case spark_rapids_jni::protobuf::wire_type_value(
-      spark_rapids_jni::protobuf::proto_wire_type::VARINT): {
+    case wire_type_value(proto_wire_type::VARINT): {
       // Need to scan to find the end of varint
       int count = 0;
       while (cur < end && count < MAX_VARINT_BYTES) {
@@ -78,18 +82,15 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
       }
       return -1;  // Invalid varint
     }
-    case spark_rapids_jni::protobuf::wire_type_value(
-      spark_rapids_jni::protobuf::proto_wire_type::I64BIT):
+    case wire_type_value(proto_wire_type::I64BIT):
       // Check if there's enough data for 8 bytes
       if (end - cur < 8) return -1;
       return 8;
-    case spark_rapids_jni::protobuf::wire_type_value(
-      spark_rapids_jni::protobuf::proto_wire_type::I32BIT):
+    case wire_type_value(proto_wire_type::I32BIT):
       // Check if there's enough data for 4 bytes
       if (end - cur < 4) return -1;
       return 4;
-    case spark_rapids_jni::protobuf::wire_type_value(
-      spark_rapids_jni::protobuf::proto_wire_type::LEN): {
+    case wire_type_value(proto_wire_type::LEN): {
       uint64_t len;
       int n;
       if (!read_varint(cur, end, len, n)) return -1;
@@ -97,8 +98,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
         return -1;
       return n + static_cast<int>(len);
     }
-    case spark_rapids_jni::protobuf::wire_type_value(
-      spark_rapids_jni::protobuf::proto_wire_type::SGROUP): {
+    case wire_type_value(proto_wire_type::SGROUP): {
       auto const* start = cur;
       int depth         = 1;
       while (cur < end && depth > 0) {
@@ -108,30 +108,23 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
         cur += key_bytes;
 
         int inner_wt = static_cast<int>(key & 0x7);
-        if (inner_wt == spark_rapids_jni::protobuf::wire_type_value(
-                          spark_rapids_jni::protobuf::proto_wire_type::EGROUP)) {
+        if (inner_wt == wire_type_value(proto_wire_type::EGROUP)) {
           --depth;
           if (depth == 0) { return static_cast<int>(cur - start); }
-        } else if (inner_wt == spark_rapids_jni::protobuf::wire_type_value(
-                                 spark_rapids_jni::protobuf::proto_wire_type::SGROUP)) {
+        } else if (inner_wt == wire_type_value(proto_wire_type::SGROUP)) {
           if (++depth > 32) return -1;
         } else {
           int inner_size = -1;
           switch (inner_wt) {
-            case spark_rapids_jni::protobuf::wire_type_value(
-              spark_rapids_jni::protobuf::proto_wire_type::VARINT): {
+            case wire_type_value(proto_wire_type::VARINT): {
               uint64_t dummy;
               int vbytes;
               if (!read_varint(cur, end, dummy, vbytes)) return -1;
               inner_size = vbytes;
               break;
             }
-            case spark_rapids_jni::protobuf::wire_type_value(
-              spark_rapids_jni::protobuf::proto_wire_type::I64BIT):
-              inner_size = 8;
-              break;
-            case spark_rapids_jni::protobuf::wire_type_value(
-              spark_rapids_jni::protobuf::proto_wire_type::LEN): {
+            case wire_type_value(proto_wire_type::I64BIT): inner_size = 8; break;
+            case wire_type_value(proto_wire_type::LEN): {
               uint64_t len;
               int len_bytes;
               if (!read_varint(cur, end, len, len_bytes)) return -1;
@@ -139,10 +132,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
               inner_size = len_bytes + static_cast<int>(len);
               break;
             }
-            case spark_rapids_jni::protobuf::wire_type_value(
-              spark_rapids_jni::protobuf::proto_wire_type::I32BIT):
-              inner_size = 4;
-              break;
+            case wire_type_value(proto_wire_type::I32BIT): inner_size = 4; break;
             default: return -1;
           }
           if (inner_size < 0 || cur + inner_size > end) return -1;
@@ -151,9 +141,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
       }
       return -1;
     }
-    case spark_rapids_jni::protobuf::wire_type_value(
-      spark_rapids_jni::protobuf::proto_wire_type::EGROUP):
-      return 0;
+    case wire_type_value(proto_wire_type::EGROUP): return 0;
     default: return -1;
   }
 }
@@ -164,13 +152,10 @@ __device__ inline bool skip_field(uint8_t const* cur,
                                   uint8_t const*& out_cur)
 {
   // A bare end-group is only valid while a start-group payload is being parsed recursively inside
-  // get_wire_type_size(spark_rapids_jni::protobuf::wire_type_value(spark_rapids_jni::protobuf::proto_wire_type::SGROUP)).
+  // get_wire_type_size(wire_type_value(proto_wire_type::SGROUP)).
   // The scan/count kernels should never accept it as a standalone field because Spark CPU treats
   // unmatched end-groups as malformed protobuf.
-  if (wt == spark_rapids_jni::protobuf::wire_type_value(
-              spark_rapids_jni::protobuf::proto_wire_type::EGROUP)) {
-    return false;
-  }
+  if (wt == wire_type_value(proto_wire_type::EGROUP)) { return false; }
 
   int size = get_wire_type_size(wt, cur, end);
   if (size < 0) return false;
@@ -187,8 +172,7 @@ __device__ inline bool skip_field(uint8_t const* cur,
 __device__ inline bool get_field_data_location(
   uint8_t const* cur, uint8_t const* end, int wt, int32_t& data_offset, int32_t& data_length)
 {
-  if (wt == spark_rapids_jni::protobuf::wire_type_value(
-              spark_rapids_jni::protobuf::proto_wire_type::LEN)) {
+  if (wt == wire_type_value(proto_wire_type::LEN)) {
     // For length-delimited, read the length prefix
     uint64_t len;
     int len_bytes;
@@ -217,7 +201,8 @@ __device__ __host__ inline size_t flat_index(size_t row, size_t width, size_t co
 __device__ inline bool checked_add_int32(int32_t lhs, int32_t rhs, int32_t& out)
 {
   auto const sum = static_cast<int64_t>(lhs) + rhs;
-  if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+  if (sum < cuda::std::numeric_limits<int32_t>::min() ||
+      sum > cuda::std::numeric_limits<int32_t>::max()) {
     return false;
   }
   out = static_cast<int32_t>(sum);
@@ -255,7 +240,7 @@ __device__ inline bool decode_tag(uint8_t const*& cur,
 
   cur += key_bytes;
   uint64_t fn = key >> 3;
-  if (fn == 0 || fn > static_cast<uint64_t>(spark_rapids_jni::protobuf::MAX_FIELD_NUMBER)) {
+  if (fn == 0 || fn > static_cast<uint64_t>(MAX_FIELD_NUMBER)) {
     set_error_once(error_flag, ERR_FIELD_NUMBER);
     return false;
   }

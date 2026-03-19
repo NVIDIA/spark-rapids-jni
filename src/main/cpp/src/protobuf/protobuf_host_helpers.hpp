@@ -18,6 +18,37 @@
 
 #include "protobuf/protobuf_kernels.cuh"
 
+#include <cudf/column/column_factories.hpp>
+#include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/valid_if.cuh>
+#include <cudf/lists/lists_column_view.hpp>
+#include <cudf/null_mask.hpp>
+#include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/strings/detail/strings_column_factories.cuh>
+#include <cudf/utilities/error.hpp>
+
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_uvector.hpp>
+#include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
+
+#include <thrust/fill.h>
+#include <thrust/for_each.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/reduce.h>
+#include <thrust/remove.h>
+#include <thrust/scan.h>
+#include <thrust/sort.h>
+#include <thrust/transform.h>
+#include <thrust/unique.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
 namespace spark_rapids_jni::protobuf::detail {
 
 // ============================================================================
@@ -110,8 +141,7 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                          int* error_ptr,
                                          rmm::cuda_stream_view stream)
 {
-  if (enable_zigzag && encoding == spark_rapids_jni::protobuf::encoding_value(
-                                     spark_rapids_jni::protobuf::proto_encoding::ZIGZAG)) {
+  if (enable_zigzag && encoding == encoding_value(proto_encoding::ZIGZAG)) {
     extract_varint_kernel<T, true, LocationProvider>
       <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                loc_provider,
@@ -121,13 +151,9 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                                error_ptr,
                                                has_default,
                                                default_value);
-  } else if (encoding == spark_rapids_jni::protobuf::encoding_value(
-                           spark_rapids_jni::protobuf::proto_encoding::FIXED)) {
+  } else if (encoding == encoding_value(proto_encoding::FIXED)) {
     if constexpr (sizeof(T) == 4) {
-      extract_fixed_kernel<T,
-                           spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
-                           LocationProvider>
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I32BIT), LocationProvider>
         <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                  loc_provider,
                                                  num_rows,
@@ -138,10 +164,7 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                                  static_cast<T>(default_value));
     } else {
       static_assert(sizeof(T) == 8, "extract_integer_into_buffers only supports 32/64-bit");
-      extract_fixed_kernel<T,
-                           spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
-                           LocationProvider>
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I64BIT), LocationProvider>
         <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                  loc_provider,
                                                  num_rows,
@@ -322,31 +345,6 @@ inline void maybe_check_required_fields(field_location const* locations,
     error_flag);
 }
 
-__global__ void validate_enum_values_kernel(int32_t const* values,
-                                            bool* valid,
-                                            bool* row_has_invalid_enum,
-                                            int32_t const* valid_enum_values,
-                                            int num_valid_values,
-                                            int num_rows);
-
-__global__ void compute_enum_string_lengths_kernel(int32_t const* values,
-                                                   bool const* valid,
-                                                   int32_t const* valid_enum_values,
-                                                   int32_t const* enum_name_offsets,
-                                                   int num_valid_values,
-                                                   int32_t* lengths,
-                                                   int num_rows);
-
-__global__ void copy_enum_string_chars_kernel(int32_t const* values,
-                                              bool const* valid,
-                                              int32_t const* valid_enum_values,
-                                              int32_t const* enum_name_offsets,
-                                              uint8_t const* enum_name_chars,
-                                              int num_valid_values,
-                                              int32_t const* output_offsets,
-                                              char* out_chars,
-                                              int num_rows);
-
 inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
                                                  rmm::device_uvector<bool>& row_invalid,
                                                  int num_items,
@@ -360,7 +358,7 @@ inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const
   if (top_row_indices == nullptr) {
     CUDF_EXPECTS(static_cast<size_t>(num_items) <= row_invalid.size(),
                  "enum invalid-row propagation exceeded row buffer");
-    thrust::transform(rmm::exec_policy(stream),
+    thrust::transform(rmm::exec_policy_nosync(stream),
                       row_invalid.begin(),
                       row_invalid.begin() + num_items,
                       item_invalid.begin(),
@@ -372,7 +370,7 @@ inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const
   }
 
   rmm::device_uvector<int32_t> invalid_rows(num_items, stream, mr);
-  thrust::transform(rmm::exec_policy(stream),
+  thrust::transform(rmm::exec_policy_nosync(stream),
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(num_items),
                     invalid_rows.begin(),
@@ -381,10 +379,11 @@ inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const
                     });
 
   auto valid_end =
-    thrust::remove(rmm::exec_policy(stream), invalid_rows.begin(), invalid_rows.end(), -1);
-  thrust::sort(rmm::exec_policy(stream), invalid_rows.begin(), valid_end);
-  auto unique_end = thrust::unique(rmm::exec_policy(stream), invalid_rows.begin(), valid_end);
-  thrust::for_each(rmm::exec_policy(stream),
+    thrust::remove(rmm::exec_policy_nosync(stream), invalid_rows.begin(), invalid_rows.end(), -1);
+  thrust::sort(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
+  auto unique_end =
+    thrust::unique(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
+  thrust::for_each(rmm::exec_policy_nosync(stream),
                    invalid_rows.begin(),
                    unique_end,
                    [row_invalid = row_invalid.data()] __device__(int32_t row_idx) {
@@ -413,7 +412,7 @@ inline void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const&
                                 stream.value()));
 
   rmm::device_uvector<bool> item_invalid(num_items, stream, mr);
-  thrust::fill(rmm::exec_policy(stream), item_invalid.begin(), item_invalid.end(), false);
+  thrust::fill(rmm::exec_policy_nosync(stream), item_invalid.begin(), item_invalid.end(), false);
   validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
     values.data(),
     valid.data(),
@@ -617,7 +616,7 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
   }
 
   rmm::device_uvector<bool> valid(num_rows, stream, mr);
-  thrust::transform(rmm::exec_policy(stream),
+  thrust::transform(rmm::exec_policy_nosync(stream),
                     thrust::make_counting_iterator<cudf::size_type>(0),
                     thrust::make_counting_iterator<cudf::size_type>(num_rows),
                     valid.data(),
@@ -767,10 +766,7 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         dt,
         num_items,
         [&](float* out_ptr, bool* valid_ptr) {
-          extract_fixed_kernel<float,
-                               spark_rapids_jni::protobuf::wire_type_value(
-                                 spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
-                               LocationProvider>
+          extract_fixed_kernel<float, wire_type_value(proto_wire_type::I32BIT), LocationProvider>
             <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
                                                                loc_provider,
                                                                num_items,
@@ -789,10 +785,7 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         dt,
         num_items,
         [&](double* out_ptr, bool* valid_ptr) {
-          extract_fixed_kernel<double,
-                               spark_rapids_jni::protobuf::wire_type_value(
-                                 spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
-                               LocationProvider>
+          extract_fixed_kernel<double, wire_type_value(proto_wire_type::I64BIT), LocationProvider>
             <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
                                                                loc_provider,
                                                                num_items,
@@ -829,7 +822,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   if (total_count == 0) {
     // All rows have count=0, but we still need to check input nulls
     rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-    thrust::fill(rmm::exec_policy(stream), offsets.begin(), offsets.end(), 0);
+    thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
     auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                       num_rows + 1,
                                                       offsets.release(),
@@ -856,11 +849,14 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   }
 
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
-  thrust::exclusive_scan(
-    rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
+  thrust::exclusive_scan(rmm::exec_policy_nosync(stream),
+                         d_field_counts.begin(),
+                         d_field_counts.end(),
+                         list_offs.begin(),
+                         0);
 
   int32_t total_count_i32 = static_cast<int32_t>(total_count);
-  thrust::fill_n(rmm::exec_policy(stream), list_offs.data() + num_rows, 1, total_count_i32);
+  thrust::fill_n(rmm::exec_policy_nosync(stream), list_offs.data() + num_rows, 1, total_count_i32);
 
   rmm::device_uvector<T> values(total_count, stream, mr);
 
@@ -868,31 +864,24 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
 
   int encoding = field_desc.encoding;
-  bool zigzag  = (encoding == spark_rapids_jni::protobuf::encoding_value(
-                               spark_rapids_jni::protobuf::proto_encoding::ZIGZAG));
+  bool zigzag  = (encoding == encoding_value(proto_encoding::ZIGZAG));
 
   // For float/double types, always use fixed kernel (they use wire type 32BIT/64BIT)
   // For integer types, use fixed kernel only if encoding is
-  // spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::FIXED)
+  // encoding_value(proto_encoding::FIXED)
   constexpr bool is_floating_point = std::is_same_v<T, float> || std::is_same_v<T, double>;
-  bool use_fixed_kernel =
-    is_floating_point || (encoding == spark_rapids_jni::protobuf::encoding_value(
-                                        spark_rapids_jni::protobuf::proto_encoding::FIXED));
+  bool use_fixed_kernel = is_floating_point || (encoding == encoding_value(proto_encoding::FIXED));
 
   RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   if (use_fixed_kernel) {
     if constexpr (sizeof(T) == 4) {
-      extract_fixed_kernel<T,
-                           spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
-                           RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
-        message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I32BIT), RepeatedLocationProvider>
+        <<<blocks, threads, 0, stream.value()>>>(
+          message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     } else {
-      extract_fixed_kernel<T,
-                           spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
-                           RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
-        message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I64BIT), RepeatedLocationProvider>
+        <<<blocks, threads, 0, stream.value()>>>(
+          message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     }
   } else if (zigzag) {
     extract_varint_kernel<T, true, RepeatedLocationProvider>

@@ -19,9 +19,9 @@
 #include <set>
 #include <string>
 
-using namespace spark_rapids_jni::protobuf::detail;
-
 namespace spark_rapids_jni::protobuf {
+
+using namespace detail;
 
 namespace {
 

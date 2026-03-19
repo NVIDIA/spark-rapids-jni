@@ -42,7 +42,7 @@ std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
       return cudf::make_fixed_width_column(dtype, num_rows, cudf::mask_state::ALL_NULL, stream, mr);
     case cudf::type_id::STRING: {
       rmm::device_uvector<cudf::strings::detail::string_index_pair> pairs(num_rows, stream, mr);
-      thrust::fill(rmm::exec_policy(stream),
+      thrust::fill(rmm::exec_policy_nosync(stream),
                    pairs.data(),
                    pairs.end(),
                    cudf::strings::detail::string_index_pair{nullptr, 0});
@@ -96,7 +96,7 @@ std::unique_ptr<cudf::column> make_null_list_column_with_child(
   rmm::device_async_resource_ref mr)
 {
   rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-  thrust::fill(rmm::exec_policy(stream), offsets.begin(), offsets.end(), 0);
+  thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
   auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                     num_rows + 1,
                                                     offsets.release(),
