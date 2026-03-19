@@ -405,7 +405,7 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
   auto dv = cudf::column_device_view::create(bloom_filters);
   CUDF_EXPECTS(
     thrust::all_of(
-      rmm::exec_policy(cudf::get_default_stream()),
+      rmm::exec_policy_nosync(stream),
       thrust::make_counting_iterator(1),
       thrust::make_counting_iterator(bloom_filters.size()),
       bloom_filter_same{
@@ -422,7 +422,7 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
 
   cudf::size_type num_words = header.num_longs * 2;
   thrust::transform(
-    rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(0) + num_words,
     dst,
@@ -466,14 +466,14 @@ std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
     CUDF_EXPECTS(bloom_filter_bits <= std::numeric_limits<int32_t>::max(),
                  "V1 bloom filter bit count exceeds int32 range");
     thrust::transform(
-      rmm::exec_policy(stream),
+      rmm::exec_policy_nosync(stream),
       input.begin<int64_t>(),
       input.end<int64_t>(),
       out->mutable_view().begin<bool>(),
       bloom_probe_functor<1>{buffer.data(), bloom_filter_bits, header.num_hashes, seed});
   } else {
     thrust::transform(
-      rmm::exec_policy(stream),
+      rmm::exec_policy_nosync(stream),
       input.begin<int64_t>(),
       input.end<int64_t>(),
       out->mutable_view().begin<bool>(),
