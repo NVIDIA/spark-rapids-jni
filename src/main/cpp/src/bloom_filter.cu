@@ -33,6 +33,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <cuda/std/utility>
 #include <thrust/logical.h>
 
 #include <byteswap.h>
@@ -53,7 +54,7 @@ inline int32_t byte_swap_int32(int32_t val)
 // Given a non-negative bit position within the bloom filter, compute
 // the 32-bit word index and bitmask. Handles big-endian swizzle so
 // the GPU buffer is directly compatible with Spark's serialized format.
-__device__ inline std::pair<int64_t, cudf::bitmask_type> gpu_bit_to_word_mask(int64_t bit_pos)
+__device__ inline cuda::std::pair<int64_t, cudf::bitmask_type> gpu_bit_to_word_mask(int64_t bit_pos)
 {
   auto const word_index = (bit_pos / 32) ^ 0x1;
   auto const bit_index  = static_cast<int32_t>(bit_pos % 32) ^ 0x18;
@@ -97,7 +98,7 @@ CUDF_KERNEL void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
   } else {
     // https://github.com/apache/spark/blob/5075ea6a85f3f1689766cf08a7d5b2ce500be1fb/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImplV2.java#L63
     int64_t combined_hash =
-      static_cast<int64_t>(h1) * static_cast<int64_t>(std::numeric_limits<int32_t>::max());
+      static_cast<int64_t>(h1) * static_cast<int64_t>(cuda::std::numeric_limits<int32_t>::max());
     for (int idx = 0; idx < num_hashes; idx++) {
       combined_hash += h2;
       int64_t combined_index        = combined_hash < 0 ? ~combined_hash : combined_hash;
@@ -132,7 +133,7 @@ struct bloom_probe_functor {
       }
     } else {
       int64_t combined_hash =
-        static_cast<int64_t>(h1) * static_cast<int64_t>(std::numeric_limits<int32_t>::max());
+        static_cast<int64_t>(h1) * static_cast<int64_t>(cuda::std::numeric_limits<int32_t>::max());
       for (int idx = 0; idx < num_hashes; idx++) {
         combined_hash += h2;
         int64_t combined_index        = combined_hash < 0 ? ~combined_hash : combined_hash;
