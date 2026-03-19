@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-#include "protobuf_common.cuh"
+#include "protobuf/protobuf_host_helpers.hpp"
 
 #include <cudf/lists/detail/lists_column_factories.hpp>
 
-namespace spark_rapids_jni::protobuf_detail {
+namespace spark_rapids_jni::protobuf::detail {
 
 /**
  * Helper to build string or bytes column for repeated message child fields.
@@ -940,8 +940,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
         break;
       }
       case cudf::type_id::STRING: {
-        if (enc ==
-            spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ENUM_STRING)) {
+        if (enc == spark_rapids_jni::protobuf::encoding_value(
+                     spark_rapids_jni::protobuf::proto_encoding::ENUM_STRING)) {
           if (child_schema_idx < static_cast<int>(enum_valid_values.size()) &&
               child_schema_idx < static_cast<int>(enum_names.size()) &&
               !enum_valid_values[child_schema_idx].empty() &&
@@ -1138,7 +1138,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   for (int i = 0; i < num_child_fields; i++) {
     int child_idx                             = child_field_indices[i];
     h_child_field_descs[i].field_number       = schema[child_idx].field_number;
-    h_child_field_descs[i].expected_wire_type = schema[child_idx].wire_type;
+    h_child_field_descs[i].expected_wire_type = static_cast<int>(schema[child_idx].wire_type);
     h_child_field_descs[i].is_repeated        = schema[child_idx].is_repeated;
   }
 
@@ -1181,7 +1181,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   for (int ci = 0; ci < num_child_fields; ci++) {
     int child_schema_idx = child_field_indices[ci];
     auto const dt        = schema_output_types[child_schema_idx];
-    auto const enc       = schema[child_schema_idx].encoding;
+    auto const enc       = static_cast<int>(schema[child_schema_idx].encoding);
     bool has_def         = schema[child_schema_idx].has_default_value;
     bool is_repeated     = schema[child_schema_idx].is_repeated;
 
@@ -1251,8 +1251,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         break;
       }
       case cudf::type_id::STRING: {
-        if (enc ==
-            spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ENUM_STRING)) {
+        if (enc == spark_rapids_jni::protobuf::encoding_value(
+                     spark_rapids_jni::protobuf::proto_encoding::ENUM_STRING)) {
           rmm::device_uvector<int32_t> out(num_rows, stream, mr);
           rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
           int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
@@ -1474,7 +1474,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
 
   device_nested_field_descriptor rep_desc;
   rep_desc.field_number      = schema[child_schema_idx].field_number;
-  rep_desc.wire_type         = schema[child_schema_idx].wire_type;
+  rep_desc.wire_type         = static_cast<int>(schema[child_schema_idx].wire_type);
   rep_desc.output_type_id    = static_cast<int>(schema[child_schema_idx].output_type);
   rep_desc.is_repeated       = true;
   rep_desc.parent_idx        = -1;
@@ -1574,7 +1574,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
       elem_type_id == cudf::type_id::UINT64 || elem_type_id == cudf::type_id::FLOAT32 ||
       elem_type_id == cudf::type_id::FLOAT64) {
     child_values = extract_typed_column(cudf::data_type{elem_type_id},
-                                        schema[child_schema_idx].encoding,
+                                        static_cast<int>(schema[child_schema_idx].encoding),
                                         message_data,
                                         nr_loc,
                                         total_rep_count,
@@ -1597,7 +1597,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   } else if (elem_type_id == cudf::type_id::STRING || elem_type_id == cudf::type_id::LIST) {
     if (elem_type_id == cudf::type_id::STRING &&
         schema[child_schema_idx].encoding ==
-          spark_rapids_jni::encoding_value(spark_rapids_jni::proto_encoding::ENUM_STRING)) {
+          spark_rapids_jni::protobuf::proto_encoding::ENUM_STRING) {
       if (child_schema_idx < static_cast<int>(enum_valid_values.size()) &&
           child_schema_idx < static_cast<int>(enum_names.size()) &&
           !enum_valid_values[child_schema_idx].empty() &&
@@ -1719,4 +1719,4 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
     num_parent_rows, std::move(list_offs_col), std::move(child_values), 0, rmm::device_buffer{});
 }
 
-}  // namespace spark_rapids_jni::protobuf_detail
+}  // namespace spark_rapids_jni::protobuf::detail
