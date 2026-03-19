@@ -224,8 +224,6 @@ unpack_bloom_filter(cudf::device_span<uint8_t> bloom_filter, rmm::cuda_stream_vi
   auto const num_bitmask_words = static_cast<size_t>(header.num_longs) * 2;
 
   CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter size");
-  CUDF_EXPECTS(num_bitmask_words == cudf::num_bitmask_words(bloom_filter_bits),
-               "Bloom filter bit/length mismatch");
 
   return {
     header,
