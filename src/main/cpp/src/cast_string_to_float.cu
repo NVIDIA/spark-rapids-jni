@@ -28,6 +28,7 @@
 #include <rmm/resource_ref.hpp>
 
 #include <cub/warp/warp_reduce.cuh>
+#include <cuda/std/cmath>
 #include <cuda/std/limits>
 #include <cuda/std/utility>
 
@@ -193,7 +194,7 @@ class string_to_float {
           auto const exponent = exp10(static_cast<double>(exp_ten + subnormal_shift));
           _out[_row]          = static_cast<T>(digitsf * exponent);
         } else {
-          double const exponent = exp10(static_cast<double>(std::abs(exp_ten)));
+          double const exponent = exp10(static_cast<double>(cuda::std::abs(exp_ten)));
           double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
 
           _out[_row] = static_cast<T>(result);

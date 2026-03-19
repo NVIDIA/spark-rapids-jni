@@ -19,6 +19,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/type_traits>
+
 #include <vector>
 
 namespace spark_rapids_jni {
@@ -29,11 +31,12 @@ namespace spark_rapids_jni {
 template <typename T>
 __host__ __device__ constexpr inline bool is_fixed_point()
 {
-  return std::is_same_v<numeric::decimal32, T> || std::is_same_v<numeric::decimal64, T> ||
-         std::is_same_v<numeric::decimal128, T> ||
-         std::is_same_v<numeric::fixed_point<int32_t, numeric::Radix::BASE_2>, T> ||
-         std::is_same_v<numeric::fixed_point<int64_t, numeric::Radix::BASE_2>, T> ||
-         std::is_same_v<numeric::fixed_point<__int128_t, numeric::Radix::BASE_2>, T>;
+  return cuda::std::is_same_v<numeric::decimal32, T> ||
+         cuda::std::is_same_v<numeric::decimal64, T> ||
+         cuda::std::is_same_v<numeric::decimal128, T> ||
+         cuda::std::is_same_v<numeric::fixed_point<int32_t, numeric::Radix::BASE_2>, T> ||
+         cuda::std::is_same_v<numeric::fixed_point<int64_t, numeric::Radix::BASE_2>, T> ||
+         cuda::std::is_same_v<numeric::fixed_point<__int128_t, numeric::Radix::BASE_2>, T>;
 }
 struct is_fixed_point_impl {
   template <typename T>

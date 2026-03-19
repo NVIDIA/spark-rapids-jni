@@ -30,6 +30,7 @@
 #include <rmm/device_scalar.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/cmath>
 #include <cuda/std/functional>
 #include <thrust/tabulate.h>
 
@@ -1319,7 +1320,7 @@ struct floating_point_to_decimal_fn {
   {
     auto const x = input.element<FloatType>(idx);
 
-    if (input.is_null(idx) || !std::isfinite(x)) {
+    if (input.is_null(idx) || !cuda::std::isfinite(x)) {
       validity[idx] = false;
       return DecimalRepType{0};
     }
