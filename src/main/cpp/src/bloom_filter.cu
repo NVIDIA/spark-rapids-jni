@@ -27,6 +27,7 @@
 #include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/utilities/bit.hpp>
+#include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -155,15 +156,15 @@ void pack_bloom_filter_header(cudf::device_span<uint8_t> buf,
     bloom_filter_header_v1 raw = {byte_swap_int32(header.version),
                                   byte_swap_int32(header.num_hashes),
                                   byte_swap_int32(header.num_longs)};
-    cudaMemcpyAsync(
-      buf.data(), &raw, bloom_filter_header_v1_size_bytes, cudaMemcpyHostToDevice, stream);
+    CUDF_CUDA_TRY(cudaMemcpyAsync(
+      buf.data(), &raw, bloom_filter_header_v1_size_bytes, cudaMemcpyHostToDevice, stream));
   } else {
     bloom_filter_header_v2 raw = {byte_swap_int32(header.version),
                                   byte_swap_int32(header.num_hashes),
                                   byte_swap_int32(seed),
                                   byte_swap_int32(header.num_longs)};
-    cudaMemcpyAsync(
-      buf.data(), &raw, bloom_filter_header_v2_size_bytes, cudaMemcpyHostToDevice, stream);
+    CUDF_CUDA_TRY(cudaMemcpyAsync(
+      buf.data(), &raw, bloom_filter_header_v2_size_bytes, cudaMemcpyHostToDevice, stream));
   }
 }
 
@@ -190,7 +191,9 @@ unpack_bloom_filter(cudf::device_span<uint8_t> bloom_filter, rmm::cuda_stream_vi
   int32_t raw_ints[4] = {};
   auto const read_size =
     std::min(bloom_filter.size(), static_cast<size_t>(bloom_filter_header_v2_size_bytes));
-  cudaMemcpyAsync(raw_ints, bloom_filter.data(), read_size, cudaMemcpyDeviceToHost, stream);
+
+  CUDF_CUDA_TRY(
+    cudaMemcpyAsync(raw_ints, bloom_filter.data(), read_size, cudaMemcpyDeviceToHost, stream));
   stream.synchronize();
 
   int const version = byte_swap_int32(raw_ints[0]);
