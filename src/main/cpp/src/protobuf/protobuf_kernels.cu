@@ -99,8 +99,7 @@ __global__ void scan_all_fields_kernel(
       // Record the location (relative to message start)
       int data_offset = static_cast<int>(cur - bytes - start);
 
-      if (wt == spark_rapids_jni::protobuf::wire_type_value(
-                  spark_rapids_jni::protobuf::proto_wire_type::LEN)) {
+      if (wt == wire_type_value(proto_wire_type::LEN)) {
         // For length-delimited, record offset after length prefix and the data length
         uint64_t len;
         int len_bytes;
@@ -166,10 +165,8 @@ __device__ bool count_repeated_element(uint8_t const* cur,
                                        repeated_field_info& info,
                                        int* error_flag)
 {
-  bool is_packed = (wt == spark_rapids_jni::protobuf::wire_type_value(
-                            spark_rapids_jni::protobuf::proto_wire_type::LEN) &&
-                    expected_wt != spark_rapids_jni::protobuf::wire_type_value(
-                                     spark_rapids_jni::protobuf::proto_wire_type::LEN));
+  bool is_packed = (wt == wire_type_value(proto_wire_type::LEN) &&
+                    expected_wt != wire_type_value(proto_wire_type::LEN));
 
   if (!is_packed && wt != expected_wt) {
     set_error_once(error_flag, ERR_WIRE_TYPE);
@@ -191,8 +188,7 @@ __device__ bool count_repeated_element(uint8_t const* cur,
     uint8_t const* packed_end = packed_start + packed_len;
 
     int count = 0;
-    if (expected_wt == spark_rapids_jni::protobuf::wire_type_value(
-                         spark_rapids_jni::protobuf::proto_wire_type::VARINT)) {
+    if (expected_wt == wire_type_value(proto_wire_type::VARINT)) {
       uint8_t const* p = packed_start;
       while (p < packed_end) {
         uint64_t dummy;
@@ -204,15 +200,13 @@ __device__ bool count_repeated_element(uint8_t const* cur,
         p += vbytes;
         count++;
       }
-    } else if (expected_wt == spark_rapids_jni::protobuf::wire_type_value(
-                                spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
+    } else if (expected_wt == wire_type_value(proto_wire_type::I32BIT)) {
       if ((packed_len % 4) != 0) {
         set_error_once(error_flag, ERR_FIXED_LEN);
         return false;
       }
       count = static_cast<int>(packed_len / 4);
-    } else if (expected_wt == spark_rapids_jni::protobuf::wire_type_value(
-                                spark_rapids_jni::protobuf::proto_wire_type::I64BIT)) {
+    } else if (expected_wt == wire_type_value(proto_wire_type::I64BIT)) {
       if ((packed_len % 8) != 0) {
         set_error_once(error_flag, ERR_FIXED_LEN);
         return false;
@@ -251,10 +245,8 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
                                       int write_end,
                                       int* error_flag)
 {
-  bool is_packed = (wt == spark_rapids_jni::protobuf::wire_type_value(
-                            spark_rapids_jni::protobuf::proto_wire_type::LEN) &&
-                    expected_wt != spark_rapids_jni::protobuf::wire_type_value(
-                                     spark_rapids_jni::protobuf::proto_wire_type::LEN));
+  bool is_packed = (wt == wire_type_value(proto_wire_type::LEN) &&
+                    expected_wt != wire_type_value(proto_wire_type::LEN));
 
   if (!is_packed && wt != expected_wt) {
     set_error_once(error_flag, ERR_WIRE_TYPE);
@@ -275,8 +267,7 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
     }
     uint8_t const* packed_end = packed_start + packed_len;
 
-    if (expected_wt == spark_rapids_jni::protobuf::wire_type_value(
-                         spark_rapids_jni::protobuf::proto_wire_type::VARINT)) {
+    if (expected_wt == wire_type_value(proto_wire_type::VARINT)) {
       uint8_t const* p = packed_start;
       while (p < packed_end) {
         int32_t elem_offset = static_cast<int32_t>(p - msg_base);
@@ -294,8 +285,7 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
         write_idx++;
         p += vbytes;
       }
-    } else if (expected_wt == spark_rapids_jni::protobuf::wire_type_value(
-                                spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
+    } else if (expected_wt == wire_type_value(proto_wire_type::I32BIT)) {
       if ((packed_len % 4) != 0) {
         set_error_once(error_flag, ERR_FIXED_LEN);
         return false;
@@ -308,8 +298,7 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
         occurrences[write_idx] = {row, static_cast<int32_t>(packed_start - msg_base + i), 4};
         write_idx++;
       }
-    } else if (expected_wt == spark_rapids_jni::protobuf::wire_type_value(
-                                spark_rapids_jni::protobuf::proto_wire_type::I64BIT)) {
+    } else if (expected_wt == wire_type_value(proto_wire_type::I64BIT)) {
       if ((packed_len % 8) != 0) {
         set_error_once(error_flag, ERR_FIXED_LEN);
         return false;
@@ -441,8 +430,7 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
 
     // Check nested message fields at this depth
     auto handle_nested = [&](int i) {
-      if (wt != spark_rapids_jni::protobuf::wire_type_value(
-                  spark_rapids_jni::protobuf::proto_wire_type::LEN)) {
+      if (wt != wire_type_value(proto_wire_type::LEN)) {
         set_error_once(error_flag, ERR_WIRE_TYPE);
         return false;
       }
@@ -458,8 +446,8 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
         return false;
       }
       auto const rel_offset64 = static_cast<int64_t>(cur - bytes - start);
-      if (rel_offset64 < std::numeric_limits<int32_t>::min() ||
-          rel_offset64 > std::numeric_limits<int32_t>::max()) {
+      if (rel_offset64 < cuda::std::numeric_limits<int32_t>::min() ||
+          rel_offset64 > cuda::std::numeric_limits<int32_t>::max()) {
         set_error_once(error_flag, ERR_OVERFLOW);
         return false;
       }
@@ -546,10 +534,8 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
 
     auto try_scan = [&](int f) -> bool {
       int target_wt  = scan_descs[f].wire_type;
-      bool is_packed = (wt == spark_rapids_jni::protobuf::wire_type_value(
-                                spark_rapids_jni::protobuf::proto_wire_type::LEN) &&
-                        target_wt != spark_rapids_jni::protobuf::wire_type_value(
-                                       spark_rapids_jni::protobuf::proto_wire_type::LEN));
+      bool is_packed = (wt == wire_type_value(proto_wire_type::LEN) &&
+                        target_wt != wire_type_value(proto_wire_type::LEN));
       if (is_packed || wt == target_wt) {
         return scan_repeated_element(cur,
                                      msg_end,
@@ -662,8 +648,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
 
         int data_offset = static_cast<int>(cur - nested_start);
 
-        if (wt == spark_rapids_jni::protobuf::wire_type_value(
-                    spark_rapids_jni::protobuf::proto_wire_type::LEN)) {
+        if (wt == wire_type_value(proto_wire_type::LEN)) {
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, nested_end, len, len_bytes)) {
@@ -766,8 +751,7 @@ __global__ void scan_repeated_message_children_kernel(
       } else {
         int data_offset = static_cast<int>(cur - msg_start);
 
-        if (wt == spark_rapids_jni::protobuf::wire_type_value(
-                    spark_rapids_jni::protobuf::proto_wire_type::LEN)) {
+        if (wt == wire_type_value(proto_wire_type::LEN)) {
           uint64_t len;
           int len_bytes;
           if (!read_varint(cur, msg_end, len, len_bytes)) {
@@ -791,8 +775,7 @@ __global__ void scan_repeated_message_children_kernel(
         } else {
           // For varint/fixed types, store offset and estimated length
           int32_t data_length = 0;
-          if (wt == spark_rapids_jni::protobuf::wire_type_value(
-                      spark_rapids_jni::protobuf::proto_wire_type::VARINT)) {
+          if (wt == wire_type_value(proto_wire_type::VARINT)) {
             uint64_t dummy;
             int vbytes;
             if (!read_varint(cur, msg_end, dummy, vbytes)) {
@@ -800,15 +783,13 @@ __global__ void scan_repeated_message_children_kernel(
               return;
             }
             data_length = vbytes;
-          } else if (wt == spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
+          } else if (wt == wire_type_value(proto_wire_type::I32BIT)) {
             if (msg_end - cur < 4) {
               set_error_once(error_flag, ERR_FIXED_LEN);
               return;
             }
             data_length = 4;
-          } else if (wt == spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I64BIT)) {
+          } else if (wt == wire_type_value(proto_wire_type::I64BIT)) {
             if (msg_end - cur < 8) {
               set_error_once(error_flag, ERR_FIXED_LEN);
               return;
@@ -1014,8 +995,8 @@ __global__ void compute_nested_struct_locations_kernel(
                                            static_cast<size_t>(num_child_fields),
                                            static_cast<size_t>(child_idx))];
   auto sum         = static_cast<int64_t>(msg_row_offsets[idx]) + msg_locs[idx].offset;
-  if (sum < std::numeric_limits<cudf::size_type>::min() ||
-      sum > std::numeric_limits<cudf::size_type>::max()) {
+  if (sum < cuda::std::numeric_limits<cudf::size_type>::min() ||
+      sum > cuda::std::numeric_limits<cudf::size_type>::max()) {
     nested_locs[idx]        = {-1, 0};
     nested_row_offsets[idx] = 0;
     set_error_once(error_flag, ERR_OVERFLOW);
@@ -1049,7 +1030,8 @@ __global__ void compute_grandchild_parent_locations_kernel(
   if (parent_loc.offset >= 0 && child_loc.offset >= 0) {
     // Absolute offset = parent offset + child's relative offset
     auto sum = static_cast<int64_t>(parent_loc.offset) + child_loc.offset;
-    if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+    if (sum < cuda::std::numeric_limits<int32_t>::min() ||
+        sum > cuda::std::numeric_limits<int32_t>::max()) {
       gc_parent_abs[row] = {-1, 0};
       set_error_once(error_flag, ERR_OVERFLOW);
       return;
@@ -1088,7 +1070,8 @@ __global__ void compute_virtual_parents_for_nested_repeated_kernel(
   // struct with all-null children (not a null struct).
   if (ploc.offset >= 0) {
     auto sum = static_cast<int64_t>(ploc.offset) + occ.offset;
-    if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+    if (sum < cuda::std::numeric_limits<int32_t>::min() ||
+        sum > cuda::std::numeric_limits<int32_t>::max()) {
       virtual_parent_locs[idx] = {-1, 0};
       set_error_once(error_flag, ERR_OVERFLOW);
       return;
@@ -1117,8 +1100,8 @@ __global__ void compute_msg_locations_from_occurrences_kernel(
 
   auto const& occ = occurrences[idx];
   auto row_offset = static_cast<int64_t>(list_offsets[occ.row_idx]) - base_offset;
-  if (row_offset < std::numeric_limits<cudf::size_type>::min() ||
-      row_offset > std::numeric_limits<cudf::size_type>::max()) {
+  if (row_offset < cuda::std::numeric_limits<cudf::size_type>::min() ||
+      row_offset > cuda::std::numeric_limits<cudf::size_type>::max()) {
     msg_row_offsets[idx] = 0;
     msg_locs[idx]        = {-1, 0};
     set_error_once(error_flag, ERR_OVERFLOW);

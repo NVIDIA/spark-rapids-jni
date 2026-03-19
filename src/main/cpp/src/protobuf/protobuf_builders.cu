@@ -26,7 +26,7 @@ namespace spark_rapids_jni::protobuf::detail {
  * When as_bytes=false, builds a STRING column. When as_bytes=true, builds LIST<UINT8>.
  * Uses GPU kernels for parallel extraction (critical performance fix!).
  */
-inline std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
+std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   uint8_t const* message_data,
   rmm::device_uvector<cudf::size_type> const& d_msg_row_offsets,
   rmm::device_uvector<field_location> const& d_msg_locs,
@@ -246,7 +246,7 @@ struct enum_string_lookup_tables {
   rmm::device_uvector<uint8_t> d_name_chars;
 };
 
-inline enum_string_lookup_tables make_enum_string_lookup_tables(
+enum_string_lookup_tables make_enum_string_lookup_tables(
   std::vector<int32_t> const& valid_enums,
   std::vector<std::vector<uint8_t>> const& enum_name_bytes,
   rmm::cuda_stream_view stream,
@@ -296,7 +296,7 @@ inline enum_string_lookup_tables make_enum_string_lookup_tables(
   return {std::move(d_valid_enums), std::move(d_name_offsets), std::move(d_name_chars)};
 }
 
-inline std::unique_ptr<cudf::column> build_enum_string_values_column(
+std::unique_ptr<cudf::column> build_enum_string_values_column(
   rmm::device_uvector<int32_t>& enum_values,
   rmm::device_uvector<bool>& valid,
   enum_string_lookup_tables const& lookup,
@@ -377,7 +377,7 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   return build_enum_string_values_column(enum_values, valid, lookup, num_rows, stream, mr);
 }
 
-inline std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column(
+std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column(
   uint8_t const* message_data,
   rmm::device_uvector<cudf::size_type> const& d_msg_row_offsets,
   rmm::device_uvector<field_location> const& d_msg_locs,
@@ -943,8 +943,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
         break;
       }
       case cudf::type_id::STRING: {
-        if (enc == spark_rapids_jni::protobuf::encoding_value(
-                     spark_rapids_jni::protobuf::proto_encoding::ENUM_STRING)) {
+        if (enc == encoding_value(proto_encoding::ENUM_STRING)) {
           if (child_schema_idx < static_cast<int>(enum_valid_values.size()) &&
               child_schema_idx < static_cast<int>(enum_names.size()) &&
               !enum_valid_values[child_schema_idx].empty() &&
@@ -1251,8 +1250,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         break;
       }
       case cudf::type_id::STRING: {
-        if (enc == spark_rapids_jni::protobuf::encoding_value(
-                     spark_rapids_jni::protobuf::proto_encoding::ENUM_STRING)) {
+        if (enc == encoding_value(proto_encoding::ENUM_STRING)) {
           rmm::device_uvector<int32_t> out(num_rows, stream, mr);
           rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
           int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
@@ -1596,8 +1594,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                         propagate_invalid_rows);
   } else if (elem_type_id == cudf::type_id::STRING || elem_type_id == cudf::type_id::LIST) {
     if (elem_type_id == cudf::type_id::STRING &&
-        schema[child_schema_idx].encoding ==
-          spark_rapids_jni::protobuf::proto_encoding::ENUM_STRING) {
+        schema[child_schema_idx].encoding == proto_encoding::ENUM_STRING) {
       if (child_schema_idx < static_cast<int>(enum_valid_values.size()) &&
           child_schema_idx < static_cast<int>(enum_names.size()) &&
           !enum_valid_values[child_schema_idx].empty() &&

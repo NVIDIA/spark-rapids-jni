@@ -109,8 +109,10 @@ struct device_nested_field_descriptor {
 
   device_nested_field_descriptor() = default;
 
-  explicit device_nested_field_descriptor(
-    spark_rapids_jni::protobuf::nested_field_descriptor const& src)
+  // Wire type and encoding are stored as int (not typed enums) because CUDA device code
+  // historically had limited constexpr enum support, and the kernel comparison sites use
+  // int-typed wire_type_value()/encoding_value() helpers throughout.
+  explicit device_nested_field_descriptor(nested_field_descriptor const& src)
     : field_number(src.field_number),
       parent_idx(src.parent_idx),
       depth(src.depth),

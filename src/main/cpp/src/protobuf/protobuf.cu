@@ -20,9 +20,9 @@
 #include <set>
 #include <string>
 
-using namespace spark_rapids_jni::protobuf::detail;
-
 namespace spark_rapids_jni::protobuf {
+
+using namespace detail;
 
 namespace {
 
@@ -707,22 +707,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       LAUNCH_VARINT_BATCH(4, uint8_t, false);
       LAUNCH_VARINT_BATCH(5, int32_t, true);
       LAUNCH_VARINT_BATCH(6, int64_t, true);
-      LAUNCH_FIXED_BATCH(7,
-                         float,
-                         spark_rapids_jni::protobuf::wire_type_value(
-                           spark_rapids_jni::protobuf::proto_wire_type::I32BIT));
-      LAUNCH_FIXED_BATCH(8,
-                         double,
-                         spark_rapids_jni::protobuf::wire_type_value(
-                           spark_rapids_jni::protobuf::proto_wire_type::I64BIT));
-      LAUNCH_FIXED_BATCH(9,
-                         int32_t,
-                         spark_rapids_jni::protobuf::wire_type_value(
-                           spark_rapids_jni::protobuf::proto_wire_type::I32BIT));
-      LAUNCH_FIXED_BATCH(10,
-                         int64_t,
-                         spark_rapids_jni::protobuf::wire_type_value(
-                           spark_rapids_jni::protobuf::proto_wire_type::I64BIT));
+      LAUNCH_FIXED_BATCH(7, float, wire_type_value(proto_wire_type::I32BIT));
+      LAUNCH_FIXED_BATCH(8, double, wire_type_value(proto_wire_type::I64BIT));
+      LAUNCH_FIXED_BATCH(9, int32_t, wire_type_value(proto_wire_type::I32BIT));
+      LAUNCH_FIXED_BATCH(10, int64_t, wire_type_value(proto_wire_type::I64BIT));
 
 #undef LAUNCH_VARINT_BATCH
 #undef LAUNCH_FIXED_BATCH

@@ -137,8 +137,7 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                          int* error_ptr,
                                          rmm::cuda_stream_view stream)
 {
-  if (enable_zigzag && encoding == spark_rapids_jni::protobuf::encoding_value(
-                                     spark_rapids_jni::protobuf::proto_encoding::ZIGZAG)) {
+  if (enable_zigzag && encoding == encoding_value(proto_encoding::ZIGZAG)) {
     extract_varint_kernel<T, true, LocationProvider>
       <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                loc_provider,
@@ -148,13 +147,9 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                                error_ptr,
                                                has_default,
                                                default_value);
-  } else if (encoding == spark_rapids_jni::protobuf::encoding_value(
-                           spark_rapids_jni::protobuf::proto_encoding::FIXED)) {
+  } else if (encoding == encoding_value(proto_encoding::FIXED)) {
     if constexpr (sizeof(T) == 4) {
-      extract_fixed_kernel<T,
-                           spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
-                           LocationProvider>
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I32BIT), LocationProvider>
         <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                  loc_provider,
                                                  num_rows,
@@ -165,10 +160,7 @@ inline void extract_integer_into_buffers(uint8_t const* message_data,
                                                  static_cast<T>(default_value));
     } else {
       static_assert(sizeof(T) == 8, "extract_integer_into_buffers only supports 32/64-bit");
-      extract_fixed_kernel<T,
-                           spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
-                           LocationProvider>
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I64BIT), LocationProvider>
         <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                  loc_provider,
                                                  num_rows,
@@ -346,31 +338,6 @@ inline void maybe_check_required_fields(field_location const* locations,
     top_row_indices,
     error_flag);
 }
-
-__global__ void validate_enum_values_kernel(int32_t const* values,
-                                            bool* valid,
-                                            bool* row_has_invalid_enum,
-                                            int32_t const* valid_enum_values,
-                                            int num_valid_values,
-                                            int num_rows);
-
-__global__ void compute_enum_string_lengths_kernel(int32_t const* values,
-                                                   bool const* valid,
-                                                   int32_t const* valid_enum_values,
-                                                   int32_t const* enum_name_offsets,
-                                                   int num_valid_values,
-                                                   int32_t* lengths,
-                                                   int num_rows);
-
-__global__ void copy_enum_string_chars_kernel(int32_t const* values,
-                                              bool const* valid,
-                                              int32_t const* valid_enum_values,
-                                              int32_t const* enum_name_offsets,
-                                              uint8_t const* enum_name_chars,
-                                              int num_valid_values,
-                                              int32_t const* output_offsets,
-                                              char* out_chars,
-                                              int num_rows);
 
 inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
                                                  rmm::device_uvector<bool>& row_invalid,
@@ -776,10 +743,7 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         dt,
         num_items,
         [&](float* out_ptr, bool* valid_ptr) {
-          extract_fixed_kernel<float,
-                               spark_rapids_jni::protobuf::wire_type_value(
-                                 spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
-                               LocationProvider>
+          extract_fixed_kernel<float, wire_type_value(proto_wire_type::I32BIT), LocationProvider>
             <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
                                                                loc_provider,
                                                                num_items,
@@ -798,10 +762,7 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
         dt,
         num_items,
         [&](double* out_ptr, bool* valid_ptr) {
-          extract_fixed_kernel<double,
-                               spark_rapids_jni::protobuf::wire_type_value(
-                                 spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
-                               LocationProvider>
+          extract_fixed_kernel<double, wire_type_value(proto_wire_type::I64BIT), LocationProvider>
             <<<blocks, threads_per_block, 0, stream.value()>>>(message_data,
                                                                loc_provider,
                                                                num_items,
@@ -879,31 +840,24 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
 
   int encoding = field_desc.encoding;
-  bool zigzag  = (encoding == spark_rapids_jni::protobuf::encoding_value(
-                               spark_rapids_jni::protobuf::proto_encoding::ZIGZAG));
+  bool zigzag  = (encoding == encoding_value(proto_encoding::ZIGZAG));
 
   // For float/double types, always use fixed kernel (they use wire type 32BIT/64BIT)
   // For integer types, use fixed kernel only if encoding is
-  // spark_rapids_jni::protobuf::encoding_value(spark_rapids_jni::protobuf::proto_encoding::FIXED)
+  // encoding_value(proto_encoding::FIXED)
   constexpr bool is_floating_point = std::is_same_v<T, float> || std::is_same_v<T, double>;
-  bool use_fixed_kernel =
-    is_floating_point || (encoding == spark_rapids_jni::protobuf::encoding_value(
-                                        spark_rapids_jni::protobuf::proto_encoding::FIXED));
+  bool use_fixed_kernel = is_floating_point || (encoding == encoding_value(proto_encoding::FIXED));
 
   RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   if (use_fixed_kernel) {
     if constexpr (sizeof(T) == 4) {
-      extract_fixed_kernel<T,
-                           spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I32BIT),
-                           RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
-        message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I32BIT), RepeatedLocationProvider>
+        <<<blocks, threads, 0, stream.value()>>>(
+          message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     } else {
-      extract_fixed_kernel<T,
-                           spark_rapids_jni::protobuf::wire_type_value(
-                             spark_rapids_jni::protobuf::proto_wire_type::I64BIT),
-                           RepeatedLocationProvider><<<blocks, threads, 0, stream.value()>>>(
-        message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I64BIT), RepeatedLocationProvider>
+        <<<blocks, threads, 0, stream.value()>>>(
+          message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     }
   } else if (zigzag) {
     extract_varint_kernel<T, true, RepeatedLocationProvider>

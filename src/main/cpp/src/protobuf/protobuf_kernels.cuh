@@ -209,8 +209,7 @@ __global__ void extract_fixed_kernel(uint8_t const* message_data,
   uint8_t const* cur = message_data + data_offset;
   OutputType value;
 
-  if constexpr (WT == spark_rapids_jni::protobuf::wire_type_value(
-                        spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
+  if constexpr (WT == wire_type_value(proto_wire_type::I32BIT)) {
     if (loc.length < 4) {
       set_error_once(error_flag, ERR_FIXED_LEN);
       if (valid) valid[idx] = false;
@@ -335,8 +334,7 @@ __global__ void extract_fixed_batched_kernel(uint8_t const* message_data,
   uint8_t const* cur  = message_data + data_offset;
   OutputType value;
 
-  if constexpr (WT == spark_rapids_jni::protobuf::wire_type_value(
-                        spark_rapids_jni::protobuf::proto_wire_type::I32BIT)) {
+  if constexpr (WT == wire_type_value(proto_wire_type::I32BIT)) {
     if (loc.length < 4) {
       set_error_once(error_flag, ERR_FIXED_LEN);
       desc.valid[row] = false;
