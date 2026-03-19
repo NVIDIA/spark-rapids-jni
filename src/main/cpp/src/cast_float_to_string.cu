@@ -41,7 +41,7 @@ struct float_to_string_fn {
   __device__ cudf::size_type compute_output_size(cudf::size_type idx) const
   {
     auto const value        = d_floats.element<FloatType>(idx);
-    bool constexpr is_float = std::is_same_v<FloatType, float>;
+    bool constexpr is_float = cuda::std::is_same_v<FloatType, float>;
     return static_cast<cudf::size_type>(
       ftos_converter::compute_ftos_size(static_cast<double>(value), is_float));
   }
@@ -49,7 +49,7 @@ struct float_to_string_fn {
   __device__ void float_to_string(cudf::size_type idx) const
   {
     auto const value        = d_floats.element<FloatType>(idx);
-    bool constexpr is_float = std::is_same_v<FloatType, float>;
+    bool constexpr is_float = cuda::std::is_same_v<FloatType, float>;
     auto const output       = d_chars + d_offsets[idx];
     ftos_converter::float_to_string(static_cast<double>(value), is_float, output);
   }
@@ -74,7 +74,7 @@ struct float_to_string_fn {
  * The template function declaration ensures only float types are allowed.
  */
 struct dispatch_float_to_string_fn {
-  template <typename FloatType, CUDF_ENABLE_IF(std::is_floating_point_v<FloatType>)>
+  template <typename FloatType, CUDF_ENABLE_IF(cuda::std::is_floating_point_v<FloatType>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const& floats,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
@@ -95,7 +95,7 @@ struct dispatch_float_to_string_fn {
   }
 
   // non-float types throw an exception
-  template <typename T, CUDF_ENABLE_IF(not std::is_floating_point_v<T>)>
+  template <typename T, CUDF_ENABLE_IF(not cuda::std::is_floating_point_v<T>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const&,
                                            rmm::cuda_stream_view,
                                            rmm::device_async_resource_ref)

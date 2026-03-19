@@ -42,12 +42,12 @@ namespace detail {
 
 namespace {
 
-constexpr bool not_whitespace(cudf::char_utf8 ch)
+__host__ __device__ constexpr bool not_whitespace(cudf::char_utf8 ch)
 {
   return ch != ' ' && ch != '\r' && ch != '\n' && ch != '\t';
 }
 
-constexpr bool can_be_delimiter(char c)
+__host__ __device__ constexpr bool can_be_delimiter(char c)
 {
   // The character list below is from `json_reader_options.set_delimiter`.
   switch (c) {

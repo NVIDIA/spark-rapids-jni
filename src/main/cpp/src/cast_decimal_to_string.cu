@@ -32,6 +32,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/algorithm>
 #include <cuda/std/climits>
 #include <cuda/std/limits>
 #include <cuda/std/type_traits>
@@ -78,7 +79,7 @@ struct decimal_to_non_ansi_string_fn {
     } else if (scale < 0 && adjusted_exponent >= -6) {
       auto const exp_ten   = numeric::detail::exp10<DecimalType>(-scale);
       auto const fraction  = strings::detail::count_digits(abs_value % exp_ten);
-      auto const num_zeros = std::max(0, (-scale - fraction));
+      auto const num_zeros = cuda::std::max(0, (-scale - fraction));
       return static_cast<int32_t>(value < 0) +                     // sign if negative
              strings::detail::count_digits(abs_value / exp_ten) +  // integer
              1 +                                                   // decimal point
@@ -123,7 +124,7 @@ struct decimal_to_non_ansi_string_fn {
     if (scale <= 0 && adjusted_exponent >= -6) {
       auto const exp_ten = numeric::detail::exp10<DecimalType>(-scale);
       auto const num_zeros =
-        std::max(0, (-scale - strings::detail::count_digits(abs_value % exp_ten)));
+        cuda::std::max(0, (-scale - strings::detail::count_digits(abs_value % exp_ten)));
       d_buffer +=
         strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add the integer part
       if (scale != 0) {
@@ -139,8 +140,8 @@ struct decimal_to_non_ansi_string_fn {
       if (abs_value_digits > 1) {
         auto const digits_after_decimal = abs_value_digits - 1;
         auto const exp_ten              = numeric::detail::exp10<DecimalType>(digits_after_decimal);
-        auto const num_zeros =
-          std::max(0, (digits_after_decimal - strings::detail::count_digits(abs_value % exp_ten)));
+        auto const num_zeros            = cuda::std::max(
+          0, (digits_after_decimal - strings::detail::count_digits(abs_value % exp_ten)));
         d_buffer +=
           strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add integer part
         *d_buffer++ = '.';                                                    // add decimal point

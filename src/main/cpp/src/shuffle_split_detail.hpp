@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 
 #include <cudf/utilities/traits.hpp>
 
+#include <cuda/std/type_traits>
+
 namespace spark_rapids_jni {
 
 namespace detail {
@@ -28,23 +30,23 @@ namespace detail {
  */
 struct size_of_helper {
   template <typename T>
-  constexpr std::enable_if_t<!cudf::is_fixed_width<T>() && !std::is_same_v<T, cudf::string_view>,
-                             size_t>
-  operator()() const
+  constexpr cuda::std::
+    enable_if_t<!cudf::is_fixed_width<T>() && !cuda::std::is_same_v<T, cudf::string_view>, size_t>
+    operator()() const
   {
     return 0;
   }
 
   template <typename T>
-  constexpr std::enable_if_t<!cudf::is_fixed_width<T>() && std::is_same_v<T, cudf::string_view>,
-                             size_t>
-  operator()() const
+  constexpr cuda::std::
+    enable_if_t<!cudf::is_fixed_width<T>() && cuda::std::is_same_v<T, cudf::string_view>, size_t>
+    operator()() const
   {
     return sizeof(cudf::device_storage_type_t<int8_t>);
   }
 
   template <typename T>
-  constexpr std::enable_if_t<cudf::is_fixed_width<T>(), size_t> __device__
+  constexpr cuda::std::enable_if_t<cudf::is_fixed_width<T>(), size_t> __device__
   operator()() const noexcept
   {
     return sizeof(cudf::device_storage_type_t<T>);
