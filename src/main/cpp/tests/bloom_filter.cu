@@ -179,6 +179,25 @@ TEST_F(BloomFilterTest, ProbeMergedV1)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
 }
 
+TEST_F(BloomFilterTest, ProbeAllAbsentV1)
+{
+  auto stream                      = cudf::get_default_stream();
+  constexpr int bloom_filter_longs = (1024 * 1024);
+  constexpr int num_hashes         = 3;
+
+  auto bloom_filter = spark_rapids_jni::bloom_filter_create(
+    spark_rapids_jni::bloom_filter_version_1, num_hashes, bloom_filter_longs, 0, stream);
+
+  cudf::test::fixed_width_column_wrapper<int64_t> input{20, 80, 100, 99, 47, -9, 234000000};
+  spark_rapids_jni::bloom_filter_put(*bloom_filter, input, stream);
+
+  cudf::test::fixed_width_column_wrapper<int64_t> probe{-10, 1, 2, 3, 5000, 999999, -77777};
+  cudf::test::fixed_width_column_wrapper<bool> expected{0, 0, 0, 0, 0, 0, 0};
+  auto result = spark_rapids_jni::bloom_filter_probe(probe, *bloom_filter, stream);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+}
+
 // ======================== V2 Tests ========================
 
 TEST_F(BloomFilterTest, InitializationV2)
@@ -287,6 +306,25 @@ TEST_F(BloomFilterTest, ProbeMergedV2)
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
   auto result = spark_rapids_jni::bloom_filter_probe(probe_all, *bloom_filter_merged, stream);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_all, *result);
+}
+
+TEST_F(BloomFilterTest, ProbeAllAbsentV2)
+{
+  auto stream                      = cudf::get_default_stream();
+  constexpr int bloom_filter_longs = (1024 * 1024);
+  constexpr int num_hashes         = 3;
+
+  auto bloom_filter = spark_rapids_jni::bloom_filter_create(
+    spark_rapids_jni::bloom_filter_version_2, num_hashes, bloom_filter_longs, 0, stream);
+
+  cudf::test::fixed_width_column_wrapper<int64_t> input{20, 80, 100, 99, 47, -9, 234000000};
+  spark_rapids_jni::bloom_filter_put(*bloom_filter, input, stream);
+
+  cudf::test::fixed_width_column_wrapper<int64_t> probe{-10, 1, 2, 3, 5000, 999999, -77777};
+  cudf::test::fixed_width_column_wrapper<bool> expected{0, 0, 0, 0, 0, 0, 0};
+  auto result = spark_rapids_jni::bloom_filter_probe(probe, *bloom_filter, stream);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
 }
 
 TEST_F(BloomFilterTest, V2WithSeed)
