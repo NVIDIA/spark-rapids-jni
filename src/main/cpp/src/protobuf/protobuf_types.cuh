@@ -18,39 +18,6 @@
 
 #include "protobuf/protobuf.hpp"
 
-#include <cudf/column/column_device_view.cuh>
-#include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/valid_if.cuh>
-#include <cudf/lists/lists_column_device_view.cuh>
-#include <cudf/lists/lists_column_view.hpp>
-#include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/detail/strings_column_factories.cuh>
-#include <cudf/utilities/error.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
-
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/device_uvector.hpp>
-#include <rmm/exec_policy.hpp>
-
-#include <cuda/std/cstdint>
-#include <cuda/std/utility>
-#include <thrust/fill.h>
-#include <thrust/for_each.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/reduce.h>
-#include <thrust/remove.h>
-#include <thrust/scan.h>
-#include <thrust/sort.h>
-#include <thrust/transform.h>
-#include <thrust/unique.h>
-
-#include <algorithm>
-#include <array>
-#include <limits>
-#include <map>
-#include <type_traits>
-
 namespace spark_rapids_jni::protobuf::detail {
 
 // Protobuf varint encoding uses at most 10 bytes to represent a 64-bit value.
@@ -134,7 +101,7 @@ struct device_nested_field_descriptor {
   int parent_idx;
   int depth;
   int wire_type;
-  int output_type_id;
+  cudf::type_id output_type;
   int encoding;
   bool is_repeated;
   bool is_required;
@@ -148,7 +115,7 @@ struct device_nested_field_descriptor {
       parent_idx(src.parent_idx),
       depth(src.depth),
       wire_type(static_cast<int>(src.wire_type)),
-      output_type_id(static_cast<int>(src.output_type)),
+      output_type(src.output_type),
       encoding(static_cast<int>(src.encoding)),
       is_repeated(src.is_repeated),
       is_required(src.is_required),

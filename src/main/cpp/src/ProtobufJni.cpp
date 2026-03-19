@@ -15,12 +15,9 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "dtype_utils.hpp"
 #include "protobuf/protobuf.hpp"
 
-#include <cudf/column/column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/traits.hpp>
 
 extern "C" {
 
@@ -45,22 +42,12 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                                                          jobjectArray enum_names,
                                                          jboolean fail_on_errors)
 {
-  JNI_NULL_CHECK(env, binary_input_view, "binary_input_view is null", 0);
-  JNI_NULL_CHECK(env, field_numbers, "field_numbers is null", 0);
-  JNI_NULL_CHECK(env, parent_indices, "parent_indices is null", 0);
-  JNI_NULL_CHECK(env, depth_levels, "depth_levels is null", 0);
-  JNI_NULL_CHECK(env, wire_types, "wire_types is null", 0);
-  JNI_NULL_CHECK(env, output_type_ids, "output_type_ids is null", 0);
-  JNI_NULL_CHECK(env, encodings, "encodings is null", 0);
-  JNI_NULL_CHECK(env, is_repeated, "is_repeated is null", 0);
-  JNI_NULL_CHECK(env, is_required, "is_required is null", 0);
-  JNI_NULL_CHECK(env, has_default_value, "has_default_value is null", 0);
-  JNI_NULL_CHECK(env, default_ints, "default_ints is null", 0);
-  JNI_NULL_CHECK(env, default_floats, "default_floats is null", 0);
-  JNI_NULL_CHECK(env, default_bools, "default_bools is null", 0);
-  JNI_NULL_CHECK(env, default_strings, "default_strings is null", 0);
-  JNI_NULL_CHECK(env, enum_valid_values, "enum_valid_values is null", 0);
-  JNI_NULL_CHECK(env, enum_names, "enum_names is null", 0);
+  auto const all_inputs_valid = binary_input_view && field_numbers && parent_indices &&
+                                depth_levels && wire_types && output_type_ids && encodings &&
+                                is_repeated && is_required && has_default_value && default_ints &&
+                                default_floats && default_bools && default_strings &&
+                                enum_valid_values && enum_names;
+  JNI_NULL_CHECK(env, all_inputs_valid, "one or more input arrays are null", 0);
 
   JNI_TRY
   {
@@ -111,13 +98,6 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
                         n_is_repeated[i] != 0,
                         n_is_required[i] != 0,
                         n_has_default[i] != 0});
-    }
-
-    // Build output types
-    std::vector<cudf::data_type> schema_output_types;
-    schema_output_types.reserve(num_fields);
-    for (int i = 0; i < num_fields; ++i) {
-      schema_output_types.emplace_back(static_cast<cudf::type_id>(n_output_type_ids[i]));
     }
 
     // Convert boolean arrays
@@ -216,7 +196,6 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     }
 
     spark_rapids_jni::protobuf::ProtobufDecodeContext context{std::move(schema),
-                                                              std::move(schema_output_types),
                                                               std::move(default_int_values),
                                                               std::move(default_float_values),
                                                               std::move(default_bool_values),

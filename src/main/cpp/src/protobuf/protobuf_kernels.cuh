@@ -18,6 +18,11 @@
 
 #include "protobuf/protobuf_device_helpers.cuh"
 
+#include <cudf/column/column_device_view.cuh>
+#include <cudf/lists/lists_column_device_view.cuh>
+
+#include <cuda/std/type_traits>
+
 namespace spark_rapids_jni::protobuf::detail {
 
 // ============================================================================
@@ -142,7 +147,7 @@ __global__ void extract_varint_kernel(uint8_t const* message_data,
   // For BOOL8 (uint8_t), protobuf spec says any non-zero varint is true.
   // A raw static_cast<uint8_t> would silently truncate values >= 256 to 0.
   auto const write_value = [](OutputType* dst, uint64_t val) {
-    if constexpr (std::is_same_v<OutputType, uint8_t>) {
+    if constexpr (cuda::std::is_same_v<OutputType, uint8_t>) {
       *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
     } else {
       *dst = static_cast<OutputType>(val);
@@ -260,7 +265,7 @@ __global__ void extract_varint_batched_kernel(uint8_t const* message_data,
   auto* out        = static_cast<OutputType*>(desc.output);
 
   auto const write_value = [](OutputType* dst, uint64_t val) {
-    if constexpr (std::is_same_v<OutputType, uint8_t>) {
+    if constexpr (cuda::std::is_same_v<OutputType, uint8_t>) {
       *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
     } else {
       *dst = static_cast<OutputType>(val);
@@ -314,7 +319,7 @@ __global__ void extract_fixed_batched_kernel(uint8_t const* message_data,
 
   if (loc.offset < 0) {
     if (desc.has_default) {
-      if constexpr (std::is_integral_v<OutputType>) {
+      if constexpr (cuda::std::is_integral_v<OutputType>) {
         out[row] = static_cast<OutputType>(desc.default_int);
       } else {
         out[row] = static_cast<OutputType>(desc.default_float);

@@ -1151,7 +1151,7 @@ static void BM_protobuf_repeated_child_string_count_scan(nvbench::state& state)
     work.reserve(num_repeated_children);
     for (int ri = 0; ri < num_repeated_children; ri++) {
       auto& w = *work.emplace_back(std::make_unique<rep_work>(num_rows, stream, mr));
-      thrust::transform(rmm::exec_policy(stream),
+      thrust::transform(rmm::exec_policy_nosync(stream),
                         thrust::make_counting_iterator(0),
                         thrust::make_counting_iterator(num_rows),
                         w.counts.data(),
@@ -1159,7 +1159,7 @@ static void BM_protobuf_repeated_child_string_count_scan(nvbench::state& state)
                           d_rep_info.data(), ri, num_repeated_children});
       CUDF_CUDA_TRY(cudaMemsetAsync(w.offsets.data(), 0, sizeof(int32_t), stream.value()));
       thrust::inclusive_scan(
-        rmm::exec_policy(stream), w.counts.begin(), w.counts.end(), w.offsets.data() + 1);
+        rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), w.offsets.data() + 1);
       CUDF_CUDA_TRY(cudaMemcpyAsync(&w.total_count,
                                     w.offsets.data() + num_rows,
                                     sizeof(int32_t),
@@ -1274,7 +1274,7 @@ static void BM_protobuf_repeated_child_string_build(nvbench::state& state)
       auto& c = *children[i];
       rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
       thrust::exclusive_scan(
-        rmm::exec_policy(stream), c.counts.begin(), c.counts.end(), list_offs.begin(), 0);
+        rmm::exec_policy_nosync(stream), c.counts.begin(), c.counts.end(), list_offs.begin(), 0);
       CUDF_CUDA_TRY(cudaMemcpyAsync(list_offs.data() + num_rows,
                                     &c.total_count,
                                     sizeof(int32_t),

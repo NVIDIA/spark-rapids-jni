@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "protobuf/protobuf_device_helpers.cuh"
+#include "protobuf/protobuf_kernels.cuh"
 
 namespace spark_rapids_jni::protobuf::detail {
 

@@ -18,6 +18,36 @@
 
 #include "protobuf/protobuf_kernels.cuh"
 
+#include <cudf/column/column_factories.hpp>
+#include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/valid_if.cuh>
+#include <cudf/null_mask.hpp>
+#include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/strings/detail/strings_column_factories.cuh>
+#include <cudf/utilities/error.hpp>
+
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_uvector.hpp>
+#include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
+
+#include <thrust/fill.h>
+#include <thrust/for_each.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/reduce.h>
+#include <thrust/remove.h>
+#include <thrust/scan.h>
+#include <thrust/sort.h>
+#include <thrust/transform.h>
+#include <thrust/unique.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
 namespace spark_rapids_jni::protobuf::detail {
 
 // ============================================================================
@@ -245,7 +275,6 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
 template <typename SchemaT>
 std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   SchemaT const& schema,
-  std::vector<cudf::data_type> const& schema_output_types,
   int parent_idx,
   int num_fields,
   rmm::cuda_stream_view stream,
@@ -255,12 +284,11 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
 
   std::vector<std::unique_ptr<cudf::column>> children;
   for (int child_idx : child_indices) {
-    auto child_type = schema_output_types[child_idx];
+    auto child_type = cudf::data_type{schema[child_idx].output_type};
 
     std::unique_ptr<cudf::column> child_col;
     if (child_type.id() == cudf::type_id::STRUCT) {
-      child_col = make_empty_struct_column_with_schema(
-        schema, schema_output_types, child_idx, num_fields, stream, mr);
+      child_col = make_empty_struct_column_with_schema(schema, child_idx, num_fields, stream, mr);
     } else {
       child_col = make_empty_column_safe(child_type, stream, mr);
     }
@@ -357,7 +385,7 @@ inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const
   if (top_row_indices == nullptr) {
     CUDF_EXPECTS(static_cast<size_t>(num_items) <= row_invalid.size(),
                  "enum invalid-row propagation exceeded row buffer");
-    thrust::transform(rmm::exec_policy(stream),
+    thrust::transform(rmm::exec_policy_nosync(stream),
                       row_invalid.begin(),
                       row_invalid.begin() + num_items,
                       item_invalid.begin(),
@@ -369,7 +397,7 @@ inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const
   }
 
   rmm::device_uvector<int32_t> invalid_rows(num_items, stream, mr);
-  thrust::transform(rmm::exec_policy(stream),
+  thrust::transform(rmm::exec_policy_nosync(stream),
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(num_items),
                     invalid_rows.begin(),
@@ -378,10 +406,11 @@ inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const
                     });
 
   auto valid_end =
-    thrust::remove(rmm::exec_policy(stream), invalid_rows.begin(), invalid_rows.end(), -1);
-  thrust::sort(rmm::exec_policy(stream), invalid_rows.begin(), valid_end);
-  auto unique_end = thrust::unique(rmm::exec_policy(stream), invalid_rows.begin(), valid_end);
-  thrust::for_each(rmm::exec_policy(stream),
+    thrust::remove(rmm::exec_policy_nosync(stream), invalid_rows.begin(), invalid_rows.end(), -1);
+  thrust::sort(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
+  auto unique_end =
+    thrust::unique(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
+  thrust::for_each(rmm::exec_policy_nosync(stream),
                    invalid_rows.begin(),
                    unique_end,
                    [row_invalid = row_invalid.data()] __device__(int32_t row_idx) {
@@ -410,7 +439,7 @@ inline void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const&
                                 stream.value()));
 
   rmm::device_uvector<bool> item_invalid(num_items, stream, mr);
-  thrust::fill(rmm::exec_policy(stream), item_invalid.begin(), item_invalid.end(), false);
+  thrust::fill(rmm::exec_policy_nosync(stream), item_invalid.begin(), item_invalid.end(), false);
   validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
     values.data(),
     valid.data(),
@@ -491,7 +520,6 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int> const& child_field_indices,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  std::vector<cudf::data_type> const& schema_output_types,
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
@@ -517,7 +545,6 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   int child_schema_idx,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  std::vector<cudf::data_type> const& schema_output_types,
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
@@ -545,7 +572,6 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   int num_rows,
   std::vector<device_nested_field_descriptor> const& h_device_schema,
   std::vector<int> const& child_field_indices,
-  std::vector<cudf::data_type> const& schema_output_types,
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
@@ -603,7 +629,7 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
   }
 
   rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
-  thrust::transform(rmm::exec_policy(stream),
+  thrust::transform(rmm::exec_policy_nosync(stream),
                     thrust::make_counting_iterator<cudf::size_type>(0),
                     thrust::make_counting_iterator<cudf::size_type>(num_rows),
                     valid.data(),
@@ -812,16 +838,15 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   if (total_count == 0) {
     // All rows have count=0, but we still need to check input nulls
     rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-    thrust::fill(rmm::exec_policy(stream), offsets.begin(), offsets.end(), 0);
+    thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
     auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                       num_rows + 1,
                                                       offsets.release(),
                                                       rmm::device_buffer{},
                                                       0);
-    auto elem_type   = field_desc.output_type_id == static_cast<int>(cudf::type_id::LIST)
-                         ? cudf::type_id::UINT8
-                         : static_cast<cudf::type_id>(field_desc.output_type_id);
-    auto child_col   = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
+    auto elem_type =
+      field_desc.output_type == cudf::type_id::LIST ? cudf::type_id::UINT8 : field_desc.output_type;
+    auto child_col = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
 
     if (input_null_count > 0) {
       // Copy input null mask - only input nulls produce output nulls
@@ -839,11 +864,14 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   }
 
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
-  thrust::exclusive_scan(
-    rmm::exec_policy(stream), d_field_counts.begin(), d_field_counts.end(), list_offs.begin(), 0);
+  thrust::exclusive_scan(rmm::exec_policy_nosync(stream),
+                         d_field_counts.begin(),
+                         d_field_counts.end(),
+                         list_offs.begin(),
+                         0);
 
   int32_t total_count_i32 = static_cast<int32_t>(total_count);
-  thrust::fill_n(rmm::exec_policy(stream), list_offs.data() + num_rows, 1, total_count_i32);
+  thrust::fill_n(rmm::exec_policy_nosync(stream), list_offs.data() + num_rows, 1, total_count_i32);
 
   rmm::device_uvector<T> values(total_count, stream, mr);
 
@@ -892,12 +920,11 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                                     list_offs.release(),
                                                     rmm::device_buffer{},
                                                     0);
-  auto child_col   = std::make_unique<cudf::column>(
-    cudf::data_type{static_cast<cudf::type_id>(field_desc.output_type_id)},
-    total_count,
-    values.release(),
-    rmm::device_buffer{},
-    0);
+  auto child_col   = std::make_unique<cudf::column>(cudf::data_type{field_desc.output_type},
+                                                  total_count,
+                                                  values.release(),
+                                                  rmm::device_buffer{},
+                                                  0);
 
   // Only rows where INPUT is null should produce null output
   // Rows with valid input but count=0 should produce empty array []

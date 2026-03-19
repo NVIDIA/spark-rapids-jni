@@ -18,7 +18,12 @@
 
 #include "protobuf/protobuf_types.cuh"
 
+#include <cudf/utilities/error.hpp>
+
+#include <rmm/cuda_stream_view.hpp>
+
 #include <cuda/atomic>
+#include <cuda/std/limits>
 
 namespace spark_rapids_jni::protobuf::detail {
 
@@ -217,7 +222,8 @@ __device__ __host__ inline size_t flat_index(size_t row, size_t width, size_t co
 __device__ inline bool checked_add_int32(int32_t lhs, int32_t rhs, int32_t& out)
 {
   auto const sum = static_cast<int64_t>(lhs) + rhs;
-  if (sum < std::numeric_limits<int32_t>::min() || sum > std::numeric_limits<int32_t>::max()) {
+  if (sum < cuda::std::numeric_limits<int32_t>::min() ||
+      sum > cuda::std::numeric_limits<int32_t>::max()) {
     return false;
   }
   out = static_cast<int32_t>(sum);

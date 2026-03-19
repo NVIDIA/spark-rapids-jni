@@ -19,7 +19,6 @@
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/types.hpp>
-#include <cudf/utilities/export.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
@@ -74,7 +73,6 @@ struct nested_field_descriptor {
 
 struct ProtobufDecodeContext {
   std::vector<nested_field_descriptor> schema;
-  std::vector<cudf::data_type> schema_output_types;
   std::vector<int64_t> default_ints;
   std::vector<double> default_floats;
   std::vector<bool> default_bools;
@@ -86,7 +84,7 @@ struct ProtobufDecodeContext {
 
 struct ProtobufFieldMetaView {
   nested_field_descriptor const& schema;
-  cudf::data_type const& output_type;
+  cudf::data_type output_type;
   int64_t default_int;
   double default_float;
   bool default_bool;
