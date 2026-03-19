@@ -42,7 +42,7 @@ void bloom_filter_put_impl(nvbench::state& state, int version)
   auto const stream = cudf::get_default_stream();
   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
   state.exec(nvbench::exec_tag::timer | nvbench::exec_tag::sync,
-             [&](nvbench::launch& launch, auto& timer) {
+             [&](nvbench::launch&, auto& timer) {
                timer.start();
                spark_rapids_jni::bloom_filter_put(*bloom_filter, *input);
                stream.synchronize();
