@@ -33,6 +33,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/atomic>
 #include <cuda/functional>
 #include <cuda/std/utility>
 #include <thrust/logical.h>
@@ -94,7 +95,8 @@ CUDF_KERNEL void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
         static_cast<int64_t>(combined_hash < 0 ? ~combined_hash : combined_hash) %
         bloom_filter_bits;
       auto const [word_index, mask] = gpu_bit_to_word_mask(bit_pos);
-      atomicOr(bloom_filter + word_index, mask);
+      cuda::atomic_ref<cudf::bitmask_type, cuda::thread_scope_device> ref(bloom_filter[word_index]);
+      ref.fetch_or(mask, cuda::memory_order_relaxed);
     }
   } else {
     // https://github.com/apache/spark/blob/5075ea6a85f3f1689766cf08a7d5b2ce500be1fb/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImplV2.java#L63
@@ -105,7 +107,8 @@ CUDF_KERNEL void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
       int64_t combined_index        = combined_hash < 0 ? ~combined_hash : combined_hash;
       auto const bit_pos            = combined_index % bloom_filter_bits;
       auto const [word_index, mask] = gpu_bit_to_word_mask(bit_pos);
-      atomicOr(bloom_filter + word_index, mask);
+      cuda::atomic_ref<cudf::bitmask_type, cuda::thread_scope_device> ref(bloom_filter[word_index]);
+      ref.fetch_or(mask, cuda::memory_order_relaxed);
     }
   }
 }
