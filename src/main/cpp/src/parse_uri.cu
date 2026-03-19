@@ -145,7 +145,7 @@ __device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_e
   auto iter = s.begin();
   {
     auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
-    iter                = std::move(iter_);
+    iter                = cuda::std::move(iter_);
     if (!valid) { return false; }
   }
   while (iter != s.end()) {
@@ -153,7 +153,7 @@ __device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_e
 
     iter++;
     auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
-    iter                = std::move(iter_);
+    iter                = cuda::std::move(iter_);
     if (!valid) { return false; }
   }
   return true;

@@ -40,6 +40,7 @@
 
 #include <cub/device/device_memcpy.cuh>
 #include <cuda/functional>
+#include <cuda/std/type_traits>
 #include <cuda/std/utility>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
@@ -539,7 +540,9 @@ struct assemble_src_buffer_size_functor {
     *data_out = cudf::type_dispatcher(data_type{col.type}, size_of_helper{}) * col.num_rows;
   }
 
-  template <typename T, typename OutputIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
+  template <typename T,
+            typename OutputIter,
+            CUDF_ENABLE_IF(cuda::std::is_same_v<T, cudf::list_view>)>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
                              OutputIter offsets_out,
@@ -555,7 +558,9 @@ struct assemble_src_buffer_size_functor {
     *data_out = 0;
   }
 
-  template <typename T, typename OutputIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
+  template <typename T,
+            typename OutputIter,
+            CUDF_ENABLE_IF(cuda::std::is_same_v<T, cudf::struct_view>)>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
                              OutputIter offsets_out,
@@ -569,7 +574,9 @@ struct assemble_src_buffer_size_functor {
     *data_out    = 0;
   }
 
-  template <typename T, typename OutputIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
+  template <typename T,
+            typename OutputIter,
+            CUDF_ENABLE_IF(cuda::std::is_same_v<T, cudf::string_view>)>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
                              OutputIter offsets_out,
@@ -587,9 +594,10 @@ struct assemble_src_buffer_size_functor {
 
   template <typename T,
             typename OutputIter,
-            CUDF_ENABLE_IF(!std::is_same_v<T, cudf::struct_view> &&
-                           !std::is_same_v<T, cudf::list_view> &&
-                           !std::is_same_v<T, cudf::string_view> && !cudf::is_fixed_width<T>())>
+            CUDF_ENABLE_IF(!cuda::std::is_same_v<T, cudf::struct_view> &&
+                           !cuda::std::is_same_v<T, cudf::list_view> &&
+                           !cuda::std::is_same_v<T, cudf::string_view> &&
+                           !cudf::is_fixed_width<T>())>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
                              OutputIter offsets_out,
