@@ -25,6 +25,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <cuda/std/type_traits>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/tabulate.h>
 
@@ -154,7 +155,7 @@ class murmur_device_row_hasher {
     : _check_nulls{check_nulls}, _table{t}, _seed(seed)
   {
     // Error out if passed an unsupported hash_function
-    static_assert(std::is_base_of_v<MurmurHash3_32<int>, hash_function<int>>,
+    static_assert(cuda::std::is_base_of_v<MurmurHash3_32<int>, hash_function<int>>,
                   "murmur_device_row_hasher only supports the MurmurHash3_32 hash function");
   }
 
