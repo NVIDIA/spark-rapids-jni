@@ -166,8 +166,8 @@ __device__ inline cuda::std::optional<Timestamp> trunc_date(
 template <typename FormatDeviceT>
 struct truncate_date_fn {
   using Timestamp = cudf::timestamp_D;
-  static_assert(std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
-                  std::is_same_v<FormatDeviceT, truncation_format>,
+  static_assert(cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
+                  cuda::std::is_same_v<FormatDeviceT, truncation_format>,
                 "FormatDeviceT must be either 'cudf::column_device_view' or 'truncation_format'.");
 
   cudf::column_device_view datetime;
@@ -204,8 +204,8 @@ struct truncate_date_fn {
 template <typename FormatDeviceT>
 struct truncate_timestamp_fn {
   using Timestamp = cudf::timestamp_us;
-  static_assert(std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
-                  std::is_same_v<FormatDeviceT, truncation_format>,
+  static_assert(cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
+                  cuda::std::is_same_v<FormatDeviceT, truncation_format>,
                 "FormatDeviceT must be either 'cudf::column_device_view' or 'truncation_format'.");
 
   cudf::column_device_view datetime;
