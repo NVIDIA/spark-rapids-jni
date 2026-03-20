@@ -16,6 +16,8 @@
 
 #include "protobuf/protobuf_host_helpers.hpp"
 
+#include <thrust/binary_search.h>
+
 #include <limits>
 #include <set>
 #include <string>
@@ -477,22 +479,23 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                     stream.value()));
     }
 
-    count_repeated_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
-      *d_in,
-      d_schema.data(),
-      num_fields,
-      0,
-      d_repeated_info.data(),
-      num_repeated,
-      d_repeated_indices.data(),
-      d_nested_locations.data(),
-      num_nested,
-      d_nested_indices.data(),
-      d_error.data(),
-      d_fn_to_rep.data(),
-      static_cast<int>(d_fn_to_rep.size()),
-      d_fn_to_nested.data(),
-      static_cast<int>(d_fn_to_nested.size()));
+    launch_count_repeated_fields(*d_in,
+                                 d_schema.data(),
+                                 num_fields,
+                                 0,
+                                 d_repeated_info.data(),
+                                 num_repeated,
+                                 d_repeated_indices.data(),
+                                 d_nested_locations.data(),
+                                 num_nested,
+                                 d_nested_indices.data(),
+                                 d_error.data(),
+                                 d_fn_to_rep.data(),
+                                 static_cast<int>(d_fn_to_rep.size()),
+                                 d_fn_to_nested.data(),
+                                 static_cast<int>(d_fn_to_nested.size()),
+                                 num_rows,
+                                 stream);
   }
 
   // Store decoded columns by schema index for ordered assembly at the end.
@@ -528,15 +531,16 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                     stream.value()));
     }
 
-    scan_all_fields_kernel<<<blocks, threads, 0, stream.value()>>>(
-      *d_in,
-      d_field_descs.data(),
-      num_scalar,
-      h_field_lookup.empty() ? nullptr : d_field_lookup.data(),
-      static_cast<int>(h_field_lookup.size()),
-      d_locations.data(),
-      d_error.data(),
-      track_permissive_null_rows ? d_row_force_null.data() : nullptr);
+    launch_scan_all_fields(*d_in,
+                           d_field_descs.data(),
+                           num_scalar,
+                           h_field_lookup.empty() ? nullptr : d_field_lookup.data(),
+                           static_cast<int>(h_field_lookup.size()),
+                           d_locations.data(),
+                           d_error.data(),
+                           track_permissive_null_rows ? d_row_force_null.data() : nullptr,
+                           num_rows,
+                           stream);
 
     // Required-field validation applies to all scalar leaves, not just top-level numerics.
     maybe_check_required_fields(d_locations.data(),
@@ -964,13 +968,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         fn_to_scan_size = static_cast<int>(h_fn_to_scan.size());
       }
 
-      scan_all_repeated_occurrences_kernel<<<blocks, threads, 0, stream.value()>>>(
-        *d_in,
-        d_scan_descs.data(),
-        static_cast<int>(h_scan_descs.size()),
-        d_error.data(),
-        fn_to_scan_size > 0 ? d_fn_to_scan.data() : nullptr,
-        fn_to_scan_size);
+      launch_scan_all_repeated_occurrences(*d_in,
+                                           d_scan_descs.data(),
+                                           static_cast<int>(h_scan_descs.size()),
+                                           d_error.data(),
+                                           fn_to_scan_size > 0 ? d_fn_to_scan.data() : nullptr,
+                                           fn_to_scan_size,
+                                           num_rows,
+                                           stream);
     }
 
     // Phase C: Build columns per field.
@@ -1249,8 +1254,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       // Extract parent locations for this nested field directly on GPU
       rmm::device_uvector<field_location> d_parent_locs(num_rows, stream, mr);
-      extract_strided_locations_kernel<<<blocks, threads, 0, stream.value()>>>(
-        d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows);
+      launch_extract_strided_locations(
+        d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
 
       column_map[parent_schema_idx] = build_nested_struct_column(message_data,
                                                                  message_data_size,

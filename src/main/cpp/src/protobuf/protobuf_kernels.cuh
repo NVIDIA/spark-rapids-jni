@@ -129,14 +129,14 @@ struct RepeatedMsgChildLocationProvider {
 };
 
 template <typename OutputType, bool ZigZag = false, typename LocationProvider>
-__global__ void extract_varint_kernel(uint8_t const* message_data,
-                                      LocationProvider loc_provider,
-                                      int total_items,
-                                      OutputType* out,
-                                      bool* valid,
-                                      int* error_flag,
-                                      bool has_default      = false,
-                                      int64_t default_value = 0)
+CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
+                                       LocationProvider loc_provider,
+                                       int total_items,
+                                       OutputType* out,
+                                       bool* valid,
+                                       int* error_flag,
+                                       bool has_default      = false,
+                                       int64_t default_value = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (idx >= total_items) return;
@@ -181,14 +181,14 @@ __global__ void extract_varint_kernel(uint8_t const* message_data,
 }
 
 template <typename OutputType, int WT, typename LocationProvider>
-__global__ void extract_fixed_kernel(uint8_t const* message_data,
-                                     LocationProvider loc_provider,
-                                     int total_items,
-                                     OutputType* out,
-                                     bool* valid,
-                                     int* error_flag,
-                                     bool has_default         = false,
-                                     OutputType default_value = OutputType{})
+CUDF_KERNEL void extract_fixed_kernel(uint8_t const* message_data,
+                                      LocationProvider loc_provider,
+                                      int total_items,
+                                      OutputType* out,
+                                      bool* valid,
+                                      int* error_flag,
+                                      bool has_default         = false,
+                                      OutputType default_value = OutputType{})
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (idx >= total_items) return;
@@ -245,15 +245,15 @@ struct batched_scalar_desc {
 };
 
 template <typename OutputType, bool ZigZag = false>
-__global__ void extract_varint_batched_kernel(uint8_t const* message_data,
-                                              cudf::size_type const* row_offsets,
-                                              cudf::size_type base_offset,
-                                              field_location const* locations,
-                                              int num_loc_fields,
-                                              batched_scalar_desc const* descs,
-                                              int num_descs,
-                                              int num_rows,
-                                              int* error_flag)
+CUDF_KERNEL void extract_varint_batched_kernel(uint8_t const* message_data,
+                                               cudf::size_type const* row_offsets,
+                                               cudf::size_type base_offset,
+                                               field_location const* locations,
+                                               int num_loc_fields,
+                                               batched_scalar_desc const* descs,
+                                               int num_descs,
+                                               int num_rows,
+                                               int* error_flag)
 {
   int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   int fi  = static_cast<int>(blockIdx.y);
@@ -298,15 +298,15 @@ __global__ void extract_varint_batched_kernel(uint8_t const* message_data,
 }
 
 template <typename OutputType, int WT>
-__global__ void extract_fixed_batched_kernel(uint8_t const* message_data,
-                                             cudf::size_type const* row_offsets,
-                                             cudf::size_type base_offset,
-                                             field_location const* locations,
-                                             int num_loc_fields,
-                                             batched_scalar_desc const* descs,
-                                             int num_descs,
-                                             int num_rows,
-                                             int* error_flag)
+CUDF_KERNEL void extract_fixed_batched_kernel(uint8_t const* message_data,
+                                              cudf::size_type const* row_offsets,
+                                              cudf::size_type base_offset,
+                                              field_location const* locations,
+                                              int num_loc_fields,
+                                              batched_scalar_desc const* descs,
+                                              int num_descs,
+                                              int num_rows,
+                                              int* error_flag)
 {
   int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   int fi  = static_cast<int>(blockIdx.y);
@@ -358,11 +358,11 @@ __global__ void extract_fixed_batched_kernel(uint8_t const* message_data,
 // ============================================================================
 
 template <typename LocationProvider>
-__global__ void extract_lengths_kernel(LocationProvider loc_provider,
-                                       int total_items,
-                                       int32_t* out_lengths,
-                                       bool has_default       = false,
-                                       int32_t default_length = 0)
+CUDF_KERNEL void extract_lengths_kernel(LocationProvider loc_provider,
+                                        int total_items,
+                                        int32_t* out_lengths,
+                                        bool has_default       = false,
+                                        int32_t default_length = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (idx >= total_items) return;
@@ -379,15 +379,15 @@ __global__ void extract_lengths_kernel(LocationProvider loc_provider,
   }
 }
 template <typename LocationProvider>
-__global__ void copy_varlen_data_kernel(uint8_t const* message_data,
-                                        LocationProvider loc_provider,
-                                        int total_items,
-                                        cudf::size_type const* output_offsets,
-                                        char* output_chars,
-                                        int* error_flag,
-                                        bool has_default             = false,
-                                        uint8_t const* default_chars = nullptr,
-                                        int default_len              = 0)
+CUDF_KERNEL void copy_varlen_data_kernel(uint8_t const* message_data,
+                                         LocationProvider loc_provider,
+                                         int total_items,
+                                         cudf::size_type const* output_offsets,
+                                         char* output_chars,
+                                         int* error_flag,
+                                         bool has_default             = false,
+                                         uint8_t const* default_chars = nullptr,
+                                         int default_len              = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (idx >= total_items) return;
@@ -409,165 +409,4 @@ __global__ void copy_varlen_data_kernel(uint8_t const* message_data,
 }
 
 // ============================================================================
-// Forward declarations of non-template __global__ kernels
-// ============================================================================
-
-__global__ void scan_all_fields_kernel(cudf::column_device_view const d_in,
-                                       field_descriptor const* field_descs,
-                                       int num_fields,
-                                       int const* field_lookup,
-                                       int field_lookup_size,
-                                       field_location* locations,
-                                       int* error_flag,
-                                       bool* row_has_invalid_data);
-
-__global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in,
-                                             device_nested_field_descriptor const* schema,
-                                             int num_fields,
-                                             int depth_level,
-                                             repeated_field_info* repeated_info,
-                                             int num_repeated_fields,
-                                             int const* repeated_field_indices,
-                                             field_location* nested_locations,
-                                             int num_nested_fields,
-                                             int const* nested_field_indices,
-                                             int* error_flag,
-                                             int const* fn_to_rep_idx    = nullptr,
-                                             int fn_to_rep_size          = 0,
-                                             int const* fn_to_nested_idx = nullptr,
-                                             int fn_to_nested_size       = 0);
-
-__global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view const d_in,
-                                                     repeated_field_scan_desc const* scan_descs,
-                                                     int num_scan_fields,
-                                                     int* error_flag,
-                                                     int const* fn_to_desc_idx = nullptr,
-                                                     int fn_to_desc_size       = 0);
-
-__global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
-                                                  cudf::size_type message_data_size,
-                                                  cudf::size_type const* parent_row_offsets,
-                                                  cudf::size_type parent_base_offset,
-                                                  field_location const* parent_locations,
-                                                  int num_parent_rows,
-                                                  field_descriptor const* field_descs,
-                                                  int num_fields,
-                                                  field_location* output_locations,
-                                                  int* error_flag);
-
-__global__ void scan_repeated_message_children_kernel(uint8_t const* message_data,
-                                                      cudf::size_type message_data_size,
-                                                      cudf::size_type const* msg_row_offsets,
-                                                      field_location const* msg_locs,
-                                                      int num_occurrences,
-                                                      field_descriptor const* child_descs,
-                                                      int num_child_fields,
-                                                      field_location* child_locs,
-                                                      int* error_flag,
-                                                      int const* child_lookup = nullptr,
-                                                      int child_lookup_size   = 0);
-
-__global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
-                                                cudf::size_type message_data_size,
-                                                cudf::size_type const* row_offsets,
-                                                cudf::size_type base_offset,
-                                                field_location const* parent_locs,
-                                                int num_rows,
-                                                device_nested_field_descriptor const* schema,
-                                                int num_fields,
-                                                repeated_field_info* repeated_info,
-                                                int num_repeated,
-                                                int const* repeated_indices,
-                                                int* error_flag);
-
-__global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
-                                               cudf::size_type message_data_size,
-                                               cudf::size_type const* row_offsets,
-                                               cudf::size_type base_offset,
-                                               field_location const* parent_locs,
-                                               int num_rows,
-                                               device_nested_field_descriptor const* schema,
-                                               int32_t const* occ_prefix_sums,
-                                               int const* repeated_indices,
-                                               repeated_occurrence* occurrences,
-                                               int* error_flag);
-
-__global__ void compute_nested_struct_locations_kernel(field_location const* child_locs,
-                                                       field_location const* msg_locs,
-                                                       cudf::size_type const* msg_row_offsets,
-                                                       int child_idx,
-                                                       int num_child_fields,
-                                                       field_location* nested_locs,
-                                                       cudf::size_type* nested_row_offsets,
-                                                       int total_count,
-                                                       int* error_flag);
-
-__global__ void compute_grandchild_parent_locations_kernel(field_location const* parent_locs,
-                                                           field_location const* child_locs,
-                                                           int child_idx,
-                                                           int num_child_fields,
-                                                           field_location* gc_parent_abs,
-                                                           int num_rows,
-                                                           int* error_flag);
-
-__global__ void compute_virtual_parents_for_nested_repeated_kernel(
-  repeated_occurrence const* occurrences,
-  cudf::size_type const* row_list_offsets,
-  field_location const* parent_locations,
-  cudf::size_type* virtual_row_offsets,
-  field_location* virtual_parent_locs,
-  int total_count,
-  int* error_flag);
-
-__global__ void compute_msg_locations_from_occurrences_kernel(
-  repeated_occurrence const* occurrences,
-  cudf::size_type const* list_offsets,
-  cudf::size_type base_offset,
-  field_location* msg_locs,
-  cudf::size_type* msg_row_offsets,
-  int total_count,
-  int* error_flag);
-
-__global__ void extract_strided_locations_kernel(field_location const* nested_locations,
-                                                 int field_idx,
-                                                 int num_fields,
-                                                 field_location* parent_locs,
-                                                 int num_rows);
-
-__global__ void check_required_fields_kernel(field_location const* locations,
-                                             uint8_t const* is_required,
-                                             int num_fields,
-                                             int num_rows,
-                                             cudf::bitmask_type const* input_null_mask,
-                                             cudf::size_type input_offset,
-                                             field_location const* parent_locs,
-                                             bool* row_force_null,
-                                             int32_t const* top_row_indices,
-                                             int* error_flag);
-
-__global__ void validate_enum_values_kernel(int32_t const* values,
-                                            bool* valid,
-                                            bool* row_has_invalid_enum,
-                                            int32_t const* valid_enum_values,
-                                            int num_valid_values,
-                                            int num_rows);
-
-__global__ void compute_enum_string_lengths_kernel(int32_t const* values,
-                                                   bool const* valid,
-                                                   int32_t const* valid_enum_values,
-                                                   int32_t const* enum_name_offsets,
-                                                   int num_valid_values,
-                                                   int32_t* lengths,
-                                                   int num_rows);
-
-__global__ void copy_enum_string_chars_kernel(int32_t const* values,
-                                              bool const* valid,
-                                              int32_t const* valid_enum_values,
-                                              int32_t const* enum_name_offsets,
-                                              uint8_t const* enum_name_chars,
-                                              int num_valid_values,
-                                              int32_t const* output_offsets,
-                                              char* out_chars,
-                                              int num_rows);
-
 }  // namespace spark_rapids_jni::protobuf::detail

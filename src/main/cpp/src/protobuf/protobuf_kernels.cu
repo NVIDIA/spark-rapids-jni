@@ -16,13 +16,29 @@
 
 #include "protobuf/protobuf_kernels.cuh"
 
+#include <cudf/column/column_device_view.cuh>
+#include <cudf/lists/lists_column_device_view.cuh>
+#include <cudf/utilities/error.hpp>
+
+#include <rmm/device_uvector.hpp>
+#include <rmm/exec_policy.hpp>
+
+#include <thrust/fill.h>
+#include <thrust/for_each.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/remove.h>
+#include <thrust/sort.h>
+#include <thrust/transform.h>
+#include <thrust/unique.h>
+
 namespace spark_rapids_jni::protobuf::detail {
+namespace {
 
 // ============================================================================
 // Pass 1: Scan all fields kernel - records (offset, length) for each field
 // ============================================================================
 
-__global__ void set_error_if_unset_kernel(int* error_flag, int error_code)
+CUDF_KERNEL void set_error_if_unset_kernel(int* error_flag, int error_code)
 {
   if (blockIdx.x == 0 && threadIdx.x == 0) { set_error_once(error_flag, error_code); }
 }
@@ -40,7 +56,7 @@ __global__ void set_error_if_unset_kernel(int* error_flag, int error_code)
  * row-level invalidity buffer so the full struct row can be nulled to match Spark CPU semantics for
  * malformed messages.
  */
-__global__ void scan_all_fields_kernel(
+CUDF_KERNEL void scan_all_fields_kernel(
   cudf::column_device_view const d_in,
   field_descriptor const* field_descs,  // [num_fields]
   int num_fields,
@@ -340,21 +356,21 @@ __device__ bool scan_repeated_element(uint8_t const* cur,
  * Optional lookup tables (fn_to_rep_idx, fn_to_nested_idx) provide O(1) field_number
  * to local index mapping. When nullptr, falls back to linear search.
  */
-__global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in,
-                                             device_nested_field_descriptor const* schema,
-                                             int num_fields,
-                                             int depth_level,
-                                             repeated_field_info* repeated_info,
-                                             int num_repeated_fields,
-                                             int const* repeated_field_indices,
-                                             field_location* nested_locations,
-                                             int num_nested_fields,
-                                             int const* nested_field_indices,
-                                             int* error_flag,
-                                             int const* fn_to_rep_idx,
-                                             int fn_to_rep_size,
-                                             int const* fn_to_nested_idx,
-                                             int fn_to_nested_size)
+CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_in,
+                                              device_nested_field_descriptor const* schema,
+                                              int num_fields,
+                                              int depth_level,
+                                              repeated_field_info* repeated_info,
+                                              int num_repeated_fields,
+                                              int const* repeated_field_indices,
+                                              field_location* nested_locations,
+                                              int num_nested_fields,
+                                              int const* nested_field_indices,
+                                              int* error_flag,
+                                              int const* fn_to_rep_idx,
+                                              int fn_to_rep_size,
+                                              int const* fn_to_nested_idx,
+                                              int fn_to_nested_size)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   cudf::detail::lists_column_device_view in{d_in};
@@ -493,12 +509,12 @@ __global__ void count_repeated_fields_kernel(cudf::column_device_view const d_in
  * Combined occurrence scan: scans each message ONCE and writes occurrences for ALL
  * repeated fields simultaneously, scanning each message only once.
  */
-__global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view const d_in,
-                                                     repeated_field_scan_desc const* scan_descs,
-                                                     int num_scan_fields,
-                                                     int* error_flag,
-                                                     int const* fn_to_desc_idx,
-                                                     int fn_to_desc_size)
+CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view const d_in,
+                                                      repeated_field_scan_desc const* scan_descs,
+                                                      int num_scan_fields,
+                                                      int* error_flag,
+                                                      int const* fn_to_desc_idx,
+                                                      int fn_to_desc_size)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   cudf::detail::lists_column_device_view in{d_in};
@@ -594,16 +610,16 @@ __global__ void scan_all_repeated_occurrences_kernel(cudf::column_device_view co
  * scanning, previous benchmarking did not show a stable win from adding a host-built lookup table
  * here, so we keep the simpler implementation unless that trade-off changes.
  */
-__global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
-                                                  cudf::size_type message_data_size,
-                                                  cudf::size_type const* parent_row_offsets,
-                                                  cudf::size_type parent_base_offset,
-                                                  field_location const* parent_locations,
-                                                  int num_parent_rows,
-                                                  field_descriptor const* field_descs,
-                                                  int num_fields,
-                                                  field_location* output_locations,
-                                                  int* error_flag)
+CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
+                                                   cudf::size_type message_data_size,
+                                                   cudf::size_type const* parent_row_offsets,
+                                                   cudf::size_type parent_base_offset,
+                                                   field_location const* parent_locations,
+                                                   int num_parent_rows,
+                                                   field_descriptor const* field_descs,
+                                                   int num_fields,
+                                                   field_location* output_locations,
+                                                   int* error_flag)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_parent_rows) return;
@@ -695,7 +711,7 @@ __global__ void scan_nested_message_fields_kernel(uint8_t const* message_data,
  * Scan for child fields within repeated message occurrences.
  * Each occurrence is a protobuf message, and we need to find child field locations within it.
  */
-__global__ void scan_repeated_message_children_kernel(
+CUDF_KERNEL void scan_repeated_message_children_kernel(
   uint8_t const* message_data,
   cudf::size_type message_data_size,
   cudf::size_type const* msg_row_offsets,  // Row offset for each occurrence
@@ -822,18 +838,18 @@ __global__ void scan_repeated_message_children_kernel(
  * the depth is implicitly fixed. Callers must pre-filter repeated_indices to include only
  * fields at the expected child depth.
  */
-__global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
-                                                cudf::size_type message_data_size,
-                                                cudf::size_type const* row_offsets,
-                                                cudf::size_type base_offset,
-                                                field_location const* parent_locs,
-                                                int num_rows,
-                                                device_nested_field_descriptor const* schema,
-                                                int num_fields,
-                                                repeated_field_info* repeated_info,
-                                                int num_repeated,
-                                                int const* repeated_indices,
-                                                int* error_flag)
+CUDF_KERNEL void count_repeated_in_nested_kernel(uint8_t const* message_data,
+                                                 cudf::size_type message_data_size,
+                                                 cudf::size_type const* row_offsets,
+                                                 cudf::size_type base_offset,
+                                                 field_location const* parent_locs,
+                                                 int num_rows,
+                                                 device_nested_field_descriptor const* schema,
+                                                 int num_fields,
+                                                 repeated_field_info* repeated_info,
+                                                 int num_repeated,
+                                                 int const* repeated_indices,
+                                                 int* error_flag)
 {
   auto row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
@@ -902,17 +918,17 @@ __global__ void count_repeated_in_nested_kernel(uint8_t const* message_data,
  *
  * Note: no depth-level check is performed; see count_repeated_in_nested_kernel comment.
  */
-__global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
-                                               cudf::size_type message_data_size,
-                                               cudf::size_type const* row_offsets,
-                                               cudf::size_type base_offset,
-                                               field_location const* parent_locs,
-                                               int num_rows,
-                                               device_nested_field_descriptor const* schema,
-                                               int32_t const* occ_prefix_sums,
-                                               int const* repeated_indices,
-                                               repeated_occurrence* occurrences,
-                                               int* error_flag)
+CUDF_KERNEL void scan_repeated_in_nested_kernel(uint8_t const* message_data,
+                                                cudf::size_type message_data_size,
+                                                cudf::size_type const* row_offsets,
+                                                cudf::size_type base_offset,
+                                                field_location const* parent_locs,
+                                                int num_rows,
+                                                device_nested_field_descriptor const* schema,
+                                                int32_t const* occ_prefix_sums,
+                                                int const* repeated_indices,
+                                                repeated_occurrence* occurrences,
+                                                int* error_flag)
 {
   auto row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_rows) return;
@@ -977,7 +993,7 @@ __global__ void scan_repeated_in_nested_kernel(uint8_t const* message_data,
  * Replaces host-side loop that was copying data D->H, processing, then H->D.
  * This is a critical performance optimization.
  */
-__global__ void compute_nested_struct_locations_kernel(
+CUDF_KERNEL void compute_nested_struct_locations_kernel(
   field_location const* child_locs,        // Child field locations from parent scan
   field_location const* msg_locs,          // Parent message locations
   cudf::size_type const* msg_row_offsets,  // Parent message row offsets
@@ -1010,7 +1026,7 @@ __global__ void compute_nested_struct_locations_kernel(
  * Computes: gc_parent_abs[i] = parent[i].offset + child[i * ncf + ci].offset
  * This replaces host-side loop with D->H->D copy pattern.
  */
-__global__ void compute_grandchild_parent_locations_kernel(
+CUDF_KERNEL void compute_grandchild_parent_locations_kernel(
   field_location const* parent_locs,  // Parent locations (row count)
   field_location const* child_locs,   // Child locations (row * num_child_fields)
   int child_idx,                      // Which child field
@@ -1048,7 +1064,7 @@ __global__ void compute_grandchild_parent_locations_kernel(
  * inside nested messages. Each occurrence becomes a virtual "row" so that
  * build_nested_struct_column can recursively process the children.
  */
-__global__ void compute_virtual_parents_for_nested_repeated_kernel(
+CUDF_KERNEL void compute_virtual_parents_for_nested_repeated_kernel(
   repeated_occurrence const* occurrences,
   cudf::size_type const* row_list_offsets,  // original binary input list offsets
   field_location const* parent_locations,   // parent nested message locations
@@ -1086,7 +1102,7 @@ __global__ void compute_virtual_parents_for_nested_repeated_kernel(
  * Kernel to compute message locations and row offsets from repeated occurrences.
  * Replaces host-side loop that processed occurrences.
  */
-__global__ void compute_msg_locations_from_occurrences_kernel(
+CUDF_KERNEL void compute_msg_locations_from_occurrences_kernel(
   repeated_occurrence const* occurrences,  // Repeated field occurrences
   cudf::size_type const* list_offsets,     // List offsets for rows
   cudf::size_type base_offset,             // Base offset to subtract
@@ -1115,11 +1131,11 @@ __global__ void compute_msg_locations_from_occurrences_kernel(
  * Extract a single field's locations from a 2D strided array on the GPU.
  * Replaces a D2H + CPU loop + H2D pattern for nested message location extraction.
  */
-__global__ void extract_strided_locations_kernel(field_location const* nested_locations,
-                                                 int field_idx,
-                                                 int num_fields,
-                                                 field_location* parent_locs,
-                                                 int num_rows)
+CUDF_KERNEL void extract_strided_locations_kernel(field_location const* nested_locations,
+                                                  int field_idx,
+                                                  int num_fields,
+                                                  field_location* parent_locs,
+                                                  int num_rows)
 {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
   if (row >= num_rows) return;
@@ -1135,7 +1151,7 @@ __global__ void extract_strided_locations_kernel(field_location const* nested_lo
  * Check if any required fields are missing (offset < 0) and set error flag.
  * This is called after the scan pass to validate required field constraints.
  */
-__global__ void check_required_fields_kernel(
+CUDF_KERNEL void check_required_fields_kernel(
   field_location const* locations,  // [num_rows * num_fields]
   uint8_t const* is_required,       // [num_fields] (1 = required, 0 = optional)
   int num_fields,
@@ -1185,7 +1201,7 @@ __global__ void check_required_fields_kernel(
  * @note Time complexity: O(log(num_valid_values)) per row.
 
  */
-__global__ void validate_enum_values_kernel(
+CUDF_KERNEL void validate_enum_values_kernel(
   int32_t const* values,             // [num_rows] extracted enum values
   bool* valid,                       // [num_rows] field validity flags (will be modified)
   bool* row_has_invalid_enum,        // [num_rows] row-level invalid enum flag (will be set to true)
@@ -1232,7 +1248,7 @@ __global__ void validate_enum_values_kernel(
  * row_has_invalid_enum).
 
  */
-__global__ void compute_enum_string_lengths_kernel(
+CUDF_KERNEL void compute_enum_string_lengths_kernel(
   int32_t const* values,             // [num_rows] enum numeric values
   bool const* valid,                 // [num_rows] field validity
   int32_t const* valid_enum_values,  // sorted enum numeric values
@@ -1272,7 +1288,7 @@ __global__ void compute_enum_string_lengths_kernel(
 /**
  * Copy enum-as-string UTF-8 bytes into output chars buffer using precomputed row offsets.
  */
-__global__ void copy_enum_string_chars_kernel(
+CUDF_KERNEL void copy_enum_string_chars_kernel(
   int32_t const* values,             // [num_rows] enum numeric values
   bool const* valid,                 // [num_rows] field validity
   int32_t const* valid_enum_values,  // sorted enum numeric values
@@ -1307,6 +1323,479 @@ __global__ void copy_enum_string_chars_kernel(
       right = mid - 1;
     }
   }
+}
+
+}  // anonymous namespace
+
+// ============================================================================
+// Host wrapper functions — callable from other translation units
+// ============================================================================
+
+void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stream_view stream)
+{
+  set_error_if_unset_kernel<<<1, 1, 0, stream.value()>>>(error_flag, error_code);
+  CUDF_CUDA_TRY(cudaPeekAtLastError());
+}
+
+void launch_scan_all_fields(cudf::column_device_view const& d_in,
+                            field_descriptor const* field_descs,
+                            int num_fields,
+                            int const* field_lookup,
+                            int field_lookup_size,
+                            field_location* locations,
+                            int* error_flag,
+                            bool* row_has_invalid_data,
+                            int num_rows,
+                            rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  scan_all_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(d_in,
+                                                                           field_descs,
+                                                                           num_fields,
+                                                                           field_lookup,
+                                                                           field_lookup_size,
+                                                                           locations,
+                                                                           error_flag,
+                                                                           row_has_invalid_data);
+}
+
+void launch_count_repeated_fields(cudf::column_device_view const& d_in,
+                                  device_nested_field_descriptor const* schema,
+                                  int num_fields,
+                                  int depth_level,
+                                  repeated_field_info* repeated_info,
+                                  int num_repeated_fields,
+                                  int const* repeated_field_indices,
+                                  field_location* nested_locations,
+                                  int num_nested_fields,
+                                  int const* nested_field_indices,
+                                  int* error_flag,
+                                  int const* fn_to_rep_idx,
+                                  int fn_to_rep_size,
+                                  int const* fn_to_nested_idx,
+                                  int fn_to_nested_size,
+                                  int num_rows,
+                                  rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  count_repeated_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    d_in,
+    schema,
+    num_fields,
+    depth_level,
+    repeated_info,
+    num_repeated_fields,
+    repeated_field_indices,
+    nested_locations,
+    num_nested_fields,
+    nested_field_indices,
+    error_flag,
+    fn_to_rep_idx,
+    fn_to_rep_size,
+    fn_to_nested_idx,
+    fn_to_nested_size);
+}
+
+void launch_scan_all_repeated_occurrences(cudf::column_device_view const& d_in,
+                                          repeated_field_scan_desc const* scan_descs,
+                                          int num_scan_fields,
+                                          int* error_flag,
+                                          int const* fn_to_desc_idx,
+                                          int fn_to_desc_size,
+                                          int num_rows,
+                                          rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  scan_all_repeated_occurrences_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    d_in, scan_descs, num_scan_fields, error_flag, fn_to_desc_idx, fn_to_desc_size);
+}
+
+void launch_extract_strided_locations(field_location const* nested_locations,
+                                      int field_idx,
+                                      int num_fields,
+                                      field_location* parent_locs,
+                                      int num_rows,
+                                      rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  extract_strided_locations_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    nested_locations, field_idx, num_fields, parent_locs, num_rows);
+}
+
+void launch_scan_nested_message_fields(uint8_t const* message_data,
+                                       cudf::size_type message_data_size,
+                                       cudf::size_type const* parent_row_offsets,
+                                       cudf::size_type parent_base_offset,
+                                       field_location const* parent_locations,
+                                       int num_parent_rows,
+                                       field_descriptor const* field_descs,
+                                       int num_fields,
+                                       field_location* output_locations,
+                                       int* error_flag,
+                                       rmm::cuda_stream_view stream)
+{
+  if (num_parent_rows == 0) return;
+  auto const blocks =
+    static_cast<int>((num_parent_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  scan_nested_message_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    message_data,
+    message_data_size,
+    parent_row_offsets,
+    parent_base_offset,
+    parent_locations,
+    num_parent_rows,
+    field_descs,
+    num_fields,
+    output_locations,
+    error_flag);
+}
+
+void launch_scan_repeated_message_children(uint8_t const* message_data,
+                                           cudf::size_type message_data_size,
+                                           cudf::size_type const* msg_row_offsets,
+                                           field_location const* msg_locs,
+                                           int num_occurrences,
+                                           field_descriptor const* child_descs,
+                                           int num_child_fields,
+                                           field_location* child_locs,
+                                           int* error_flag,
+                                           int const* child_lookup,
+                                           int child_lookup_size,
+                                           rmm::cuda_stream_view stream)
+{
+  if (num_occurrences == 0) return;
+  auto const blocks =
+    static_cast<int>((num_occurrences + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  scan_repeated_message_children_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    message_data,
+    message_data_size,
+    msg_row_offsets,
+    msg_locs,
+    num_occurrences,
+    child_descs,
+    num_child_fields,
+    child_locs,
+    error_flag,
+    child_lookup,
+    child_lookup_size);
+}
+
+void launch_count_repeated_in_nested(uint8_t const* message_data,
+                                     cudf::size_type message_data_size,
+                                     cudf::size_type const* row_offsets,
+                                     cudf::size_type base_offset,
+                                     field_location const* parent_locs,
+                                     int num_rows,
+                                     device_nested_field_descriptor const* schema,
+                                     int num_fields,
+                                     repeated_field_info* repeated_info,
+                                     int num_repeated,
+                                     int const* repeated_indices,
+                                     int* error_flag,
+                                     rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  count_repeated_in_nested_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    message_data,
+    message_data_size,
+    row_offsets,
+    base_offset,
+    parent_locs,
+    num_rows,
+    schema,
+    num_fields,
+    repeated_info,
+    num_repeated,
+    repeated_indices,
+    error_flag);
+}
+
+void launch_scan_repeated_in_nested(uint8_t const* message_data,
+                                    cudf::size_type message_data_size,
+                                    cudf::size_type const* row_offsets,
+                                    cudf::size_type base_offset,
+                                    field_location const* parent_locs,
+                                    int num_rows,
+                                    device_nested_field_descriptor const* schema,
+                                    int32_t const* occ_prefix_sums,
+                                    int const* repeated_indices,
+                                    repeated_occurrence* occurrences,
+                                    int* error_flag,
+                                    rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  scan_repeated_in_nested_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    message_data,
+    message_data_size,
+    row_offsets,
+    base_offset,
+    parent_locs,
+    num_rows,
+    schema,
+    occ_prefix_sums,
+    repeated_indices,
+    occurrences,
+    error_flag);
+}
+
+void launch_compute_nested_struct_locations(field_location const* child_locs,
+                                            field_location const* msg_locs,
+                                            cudf::size_type const* msg_row_offsets,
+                                            int child_idx,
+                                            int num_child_fields,
+                                            field_location* nested_locs,
+                                            cudf::size_type* nested_row_offsets,
+                                            int total_count,
+                                            int* error_flag,
+                                            rmm::cuda_stream_view stream)
+{
+  if (total_count == 0) return;
+  auto const blocks = static_cast<int>((total_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  compute_nested_struct_locations_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    child_locs,
+    msg_locs,
+    msg_row_offsets,
+    child_idx,
+    num_child_fields,
+    nested_locs,
+    nested_row_offsets,
+    total_count,
+    error_flag);
+}
+
+void launch_compute_grandchild_parent_locations(field_location const* parent_locs,
+                                                field_location const* child_locs,
+                                                int child_idx,
+                                                int num_child_fields,
+                                                field_location* gc_parent_abs,
+                                                int num_rows,
+                                                int* error_flag,
+                                                rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  compute_grandchild_parent_locations_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    parent_locs, child_locs, child_idx, num_child_fields, gc_parent_abs, num_rows, error_flag);
+}
+
+void launch_compute_virtual_parents_for_nested_repeated(repeated_occurrence const* occurrences,
+                                                        cudf::size_type const* row_list_offsets,
+                                                        field_location const* parent_locations,
+                                                        cudf::size_type* virtual_row_offsets,
+                                                        field_location* virtual_parent_locs,
+                                                        int total_count,
+                                                        int* error_flag,
+                                                        rmm::cuda_stream_view stream)
+{
+  if (total_count == 0) return;
+  auto const blocks = static_cast<int>((total_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  compute_virtual_parents_for_nested_repeated_kernel<<<blocks,
+                                                       THREADS_PER_BLOCK,
+                                                       0,
+                                                       stream.value()>>>(occurrences,
+                                                                         row_list_offsets,
+                                                                         parent_locations,
+                                                                         virtual_row_offsets,
+                                                                         virtual_parent_locs,
+                                                                         total_count,
+                                                                         error_flag);
+}
+
+void launch_compute_msg_locations_from_occurrences(repeated_occurrence const* occurrences,
+                                                   cudf::size_type const* list_offsets,
+                                                   cudf::size_type base_offset,
+                                                   field_location* msg_locs,
+                                                   cudf::size_type* msg_row_offsets,
+                                                   int total_count,
+                                                   int* error_flag,
+                                                   rmm::cuda_stream_view stream)
+{
+  if (total_count == 0) return;
+  auto const blocks = static_cast<int>((total_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  compute_msg_locations_from_occurrences_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    occurrences, list_offsets, base_offset, msg_locs, msg_row_offsets, total_count, error_flag);
+}
+
+void launch_validate_enum_values(int32_t const* values,
+                                 bool* valid,
+                                 bool* row_has_invalid_enum,
+                                 int32_t const* valid_enum_values,
+                                 int num_valid_values,
+                                 int num_rows,
+                                 rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    values, valid, row_has_invalid_enum, valid_enum_values, num_valid_values, num_rows);
+}
+
+void launch_compute_enum_string_lengths(int32_t const* values,
+                                        bool const* valid,
+                                        int32_t const* valid_enum_values,
+                                        int32_t const* enum_name_offsets,
+                                        int num_valid_values,
+                                        int32_t* lengths,
+                                        int num_rows,
+                                        rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  compute_enum_string_lengths_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    values, valid, valid_enum_values, enum_name_offsets, num_valid_values, lengths, num_rows);
+}
+
+void launch_copy_enum_string_chars(int32_t const* values,
+                                   bool const* valid,
+                                   int32_t const* valid_enum_values,
+                                   int32_t const* enum_name_offsets,
+                                   uint8_t const* enum_name_chars,
+                                   int num_valid_values,
+                                   int32_t const* output_offsets,
+                                   char* out_chars,
+                                   int num_rows,
+                                   rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  copy_enum_string_chars_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(values,
+                                                                                  valid,
+                                                                                  valid_enum_values,
+                                                                                  enum_name_offsets,
+                                                                                  enum_name_chars,
+                                                                                  num_valid_values,
+                                                                                  output_offsets,
+                                                                                  out_chars,
+                                                                                  num_rows);
+}
+
+void maybe_check_required_fields(field_location const* locations,
+                                 std::vector<int> const& field_indices,
+                                 std::vector<nested_field_descriptor> const& schema,
+                                 int num_rows,
+                                 cudf::bitmask_type const* input_null_mask,
+                                 cudf::size_type input_offset,
+                                 field_location const* parent_locs,
+                                 bool* row_force_null,
+                                 int32_t const* top_row_indices,
+                                 int* error_flag,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::device_async_resource_ref mr)
+{
+  if (num_rows == 0 || field_indices.empty()) { return; }
+
+  bool has_required = false;
+  std::vector<uint8_t> h_is_required(field_indices.size());
+  for (size_t i = 0; i < field_indices.size(); ++i) {
+    h_is_required[i] = schema[field_indices[i]].is_required ? 1 : 0;
+    has_required |= (h_is_required[i] != 0);
+  }
+  if (!has_required) { return; }
+
+  rmm::device_uvector<uint8_t> d_is_required(field_indices.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_is_required.data(),
+                                h_is_required.data(),
+                                h_is_required.size() * sizeof(uint8_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  check_required_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    locations,
+    d_is_required.data(),
+    static_cast<int>(field_indices.size()),
+    num_rows,
+    input_null_mask,
+    input_offset,
+    parent_locs,
+    row_force_null,
+    top_row_indices,
+    error_flag);
+}
+
+void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
+                                          rmm::device_uvector<bool>& row_invalid,
+                                          int num_items,
+                                          int32_t const* top_row_indices,
+                                          bool propagate_to_rows,
+                                          rmm::cuda_stream_view stream,
+                                          rmm::device_async_resource_ref mr)
+{
+  if (num_items == 0 || row_invalid.size() == 0 || !propagate_to_rows) { return; }
+
+  if (top_row_indices == nullptr) {
+    CUDF_EXPECTS(static_cast<size_t>(num_items) <= row_invalid.size(),
+                 "enum invalid-row propagation exceeded row buffer");
+    thrust::transform(rmm::exec_policy(stream),
+                      row_invalid.begin(),
+                      row_invalid.begin() + num_items,
+                      item_invalid.begin(),
+                      row_invalid.begin(),
+                      [] __device__(bool row_is_invalid, bool item_is_invalid) {
+                        return row_is_invalid || item_is_invalid;
+                      });
+    return;
+  }
+
+  rmm::device_uvector<int32_t> invalid_rows(num_items, stream, mr);
+  thrust::transform(rmm::exec_policy(stream),
+                    thrust::make_counting_iterator(0),
+                    thrust::make_counting_iterator(num_items),
+                    invalid_rows.begin(),
+                    [item_invalid = item_invalid.data(), top_row_indices] __device__(int idx) {
+                      return item_invalid[idx] ? top_row_indices[idx] : -1;
+                    });
+
+  auto valid_end =
+    thrust::remove(rmm::exec_policy(stream), invalid_rows.begin(), invalid_rows.end(), -1);
+  thrust::sort(rmm::exec_policy(stream), invalid_rows.begin(), valid_end);
+  auto unique_end = thrust::unique(rmm::exec_policy(stream), invalid_rows.begin(), valid_end);
+  thrust::for_each(rmm::exec_policy(stream),
+                   invalid_rows.begin(),
+                   unique_end,
+                   [row_invalid = row_invalid.data()] __device__(int32_t row_idx) {
+                     row_invalid[row_idx] = true;
+                   });
+}
+
+void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
+                                      rmm::device_uvector<bool>& valid,
+                                      std::vector<int32_t> const& valid_enums,
+                                      rmm::device_uvector<bool>& row_invalid,
+                                      int num_items,
+                                      int32_t const* top_row_indices,
+                                      bool propagate_to_rows,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::device_async_resource_ref mr)
+{
+  if (num_items == 0 || valid_enums.empty()) { return; }
+
+  auto const blocks = static_cast<int>((num_items + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
+                                valid_enums.data(),
+                                valid_enums.size() * sizeof(int32_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  rmm::device_uvector<bool> item_invalid(num_items, stream, mr);
+  thrust::fill(rmm::exec_policy(stream), item_invalid.begin(), item_invalid.end(), false);
+  validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    values.data(),
+    valid.data(),
+    item_invalid.data(),
+    d_valid_enums.data(),
+    static_cast<int>(valid_enums.size()),
+    num_items);
+
+  propagate_invalid_enum_flags_to_rows(
+    item_invalid, row_invalid, num_items, top_row_indices, propagate_to_rows, stream, mr);
 }
 
 }  // namespace spark_rapids_jni::protobuf::detail

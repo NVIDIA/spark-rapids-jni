@@ -295,129 +295,203 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   return cudf::make_structs_column(0, std::move(children), 0, rmm::device_buffer{}, stream, mr);
 }
 
-inline void maybe_check_required_fields(field_location const* locations,
-                                        std::vector<int> const& field_indices,
-                                        std::vector<nested_field_descriptor> const& schema,
+// ============================================================================
+// Host wrapper declarations for kernel launches
+// ============================================================================
+
+void launch_scan_all_fields(cudf::column_device_view const& d_in,
+                            field_descriptor const* field_descs,
+                            int num_fields,
+                            int const* field_lookup,
+                            int field_lookup_size,
+                            field_location* locations,
+                            int* error_flag,
+                            bool* row_has_invalid_data,
+                            int num_rows,
+                            rmm::cuda_stream_view stream);
+
+void launch_count_repeated_fields(cudf::column_device_view const& d_in,
+                                  device_nested_field_descriptor const* schema,
+                                  int num_fields,
+                                  int depth_level,
+                                  repeated_field_info* repeated_info,
+                                  int num_repeated_fields,
+                                  int const* repeated_field_indices,
+                                  field_location* nested_locations,
+                                  int num_nested_fields,
+                                  int const* nested_field_indices,
+                                  int* error_flag,
+                                  int const* fn_to_rep_idx,
+                                  int fn_to_rep_size,
+                                  int const* fn_to_nested_idx,
+                                  int fn_to_nested_size,
+                                  int num_rows,
+                                  rmm::cuda_stream_view stream);
+
+void launch_scan_all_repeated_occurrences(cudf::column_device_view const& d_in,
+                                          repeated_field_scan_desc const* scan_descs,
+                                          int num_scan_fields,
+                                          int* error_flag,
+                                          int const* fn_to_desc_idx,
+                                          int fn_to_desc_size,
+                                          int num_rows,
+                                          rmm::cuda_stream_view stream);
+
+void launch_extract_strided_locations(field_location const* nested_locations,
+                                      int field_idx,
+                                      int num_fields,
+                                      field_location* parent_locs,
+                                      int num_rows,
+                                      rmm::cuda_stream_view stream);
+
+void launch_scan_nested_message_fields(uint8_t const* message_data,
+                                       cudf::size_type message_data_size,
+                                       cudf::size_type const* parent_row_offsets,
+                                       cudf::size_type parent_base_offset,
+                                       field_location const* parent_locations,
+                                       int num_parent_rows,
+                                       field_descriptor const* field_descs,
+                                       int num_fields,
+                                       field_location* output_locations,
+                                       int* error_flag,
+                                       rmm::cuda_stream_view stream);
+
+void launch_scan_repeated_message_children(uint8_t const* message_data,
+                                           cudf::size_type message_data_size,
+                                           cudf::size_type const* msg_row_offsets,
+                                           field_location const* msg_locs,
+                                           int num_occurrences,
+                                           field_descriptor const* child_descs,
+                                           int num_child_fields,
+                                           field_location* child_locs,
+                                           int* error_flag,
+                                           int const* child_lookup,
+                                           int child_lookup_size,
+                                           rmm::cuda_stream_view stream);
+
+void launch_count_repeated_in_nested(uint8_t const* message_data,
+                                     cudf::size_type message_data_size,
+                                     cudf::size_type const* row_offsets,
+                                     cudf::size_type base_offset,
+                                     field_location const* parent_locs,
+                                     int num_rows,
+                                     device_nested_field_descriptor const* schema,
+                                     int num_fields,
+                                     repeated_field_info* repeated_info,
+                                     int num_repeated,
+                                     int const* repeated_indices,
+                                     int* error_flag,
+                                     rmm::cuda_stream_view stream);
+
+void launch_scan_repeated_in_nested(uint8_t const* message_data,
+                                    cudf::size_type message_data_size,
+                                    cudf::size_type const* row_offsets,
+                                    cudf::size_type base_offset,
+                                    field_location const* parent_locs,
+                                    int num_rows,
+                                    device_nested_field_descriptor const* schema,
+                                    int32_t const* occ_prefix_sums,
+                                    int const* repeated_indices,
+                                    repeated_occurrence* occurrences,
+                                    int* error_flag,
+                                    rmm::cuda_stream_view stream);
+
+void launch_compute_nested_struct_locations(field_location const* child_locs,
+                                            field_location const* msg_locs,
+                                            cudf::size_type const* msg_row_offsets,
+                                            int child_idx,
+                                            int num_child_fields,
+                                            field_location* nested_locs,
+                                            cudf::size_type* nested_row_offsets,
+                                            int total_count,
+                                            int* error_flag,
+                                            rmm::cuda_stream_view stream);
+
+void launch_compute_grandchild_parent_locations(field_location const* parent_locs,
+                                                field_location const* child_locs,
+                                                int child_idx,
+                                                int num_child_fields,
+                                                field_location* gc_parent_abs,
+                                                int num_rows,
+                                                int* error_flag,
+                                                rmm::cuda_stream_view stream);
+
+void launch_compute_virtual_parents_for_nested_repeated(repeated_occurrence const* occurrences,
+                                                        cudf::size_type const* row_list_offsets,
+                                                        field_location const* parent_locations,
+                                                        cudf::size_type* virtual_row_offsets,
+                                                        field_location* virtual_parent_locs,
+                                                        int total_count,
+                                                        int* error_flag,
+                                                        rmm::cuda_stream_view stream);
+
+void launch_compute_msg_locations_from_occurrences(repeated_occurrence const* occurrences,
+                                                   cudf::size_type const* list_offsets,
+                                                   cudf::size_type base_offset,
+                                                   field_location* msg_locs,
+                                                   cudf::size_type* msg_row_offsets,
+                                                   int total_count,
+                                                   int* error_flag,
+                                                   rmm::cuda_stream_view stream);
+
+void launch_validate_enum_values(int32_t const* values,
+                                 bool* valid,
+                                 bool* row_has_invalid_enum,
+                                 int32_t const* valid_enum_values,
+                                 int num_valid_values,
+                                 int num_rows,
+                                 rmm::cuda_stream_view stream);
+
+void launch_compute_enum_string_lengths(int32_t const* values,
+                                        bool const* valid,
+                                        int32_t const* valid_enum_values,
+                                        int32_t const* enum_name_offsets,
+                                        int num_valid_values,
+                                        int32_t* lengths,
                                         int num_rows,
-                                        cudf::bitmask_type const* input_null_mask,
-                                        cudf::size_type input_offset,
-                                        field_location const* parent_locs,
-                                        bool* row_force_null,
-                                        int32_t const* top_row_indices,
-                                        int* error_flag,
-                                        rmm::cuda_stream_view stream,
-                                        rmm::device_async_resource_ref mr)
-{
-  if (num_rows == 0 || field_indices.empty()) { return; }
+                                        rmm::cuda_stream_view stream);
 
-  bool has_required = false;
-  std::vector<uint8_t> h_is_required(field_indices.size());
-  for (size_t i = 0; i < field_indices.size(); ++i) {
-    h_is_required[i] = schema[field_indices[i]].is_required ? 1 : 0;
-    has_required |= (h_is_required[i] != 0);
-  }
-  if (!has_required) { return; }
+void launch_copy_enum_string_chars(int32_t const* values,
+                                   bool const* valid,
+                                   int32_t const* valid_enum_values,
+                                   int32_t const* enum_name_offsets,
+                                   uint8_t const* enum_name_chars,
+                                   int num_valid_values,
+                                   int32_t const* output_offsets,
+                                   char* out_chars,
+                                   int num_rows,
+                                   rmm::cuda_stream_view stream);
 
-  rmm::device_uvector<uint8_t> d_is_required(field_indices.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_is_required.data(),
-                                h_is_required.data(),
-                                h_is_required.size() * sizeof(uint8_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+void maybe_check_required_fields(field_location const* locations,
+                                 std::vector<int> const& field_indices,
+                                 std::vector<nested_field_descriptor> const& schema,
+                                 int num_rows,
+                                 cudf::bitmask_type const* input_null_mask,
+                                 cudf::size_type input_offset,
+                                 field_location const* parent_locs,
+                                 bool* row_force_null,
+                                 int32_t const* top_row_indices,
+                                 int* error_flag,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::device_async_resource_ref mr);
 
-  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
-  check_required_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-    locations,
-    d_is_required.data(),
-    static_cast<int>(field_indices.size()),
-    num_rows,
-    input_null_mask,
-    input_offset,
-    parent_locs,
-    row_force_null,
-    top_row_indices,
-    error_flag);
-}
+void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
+                                          rmm::device_uvector<bool>& row_invalid,
+                                          int num_items,
+                                          int32_t const* top_row_indices,
+                                          bool propagate_to_rows,
+                                          rmm::cuda_stream_view stream,
+                                          rmm::device_async_resource_ref mr);
 
-inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
-                                                 rmm::device_uvector<bool>& row_invalid,
-                                                 int num_items,
-                                                 int32_t const* top_row_indices,
-                                                 bool propagate_to_rows,
-                                                 rmm::cuda_stream_view stream,
-                                                 rmm::device_async_resource_ref mr)
-{
-  if (num_items == 0 || row_invalid.size() == 0 || !propagate_to_rows) { return; }
-
-  if (top_row_indices == nullptr) {
-    CUDF_EXPECTS(static_cast<size_t>(num_items) <= row_invalid.size(),
-                 "enum invalid-row propagation exceeded row buffer");
-    thrust::transform(rmm::exec_policy_nosync(stream),
-                      row_invalid.begin(),
-                      row_invalid.begin() + num_items,
-                      item_invalid.begin(),
-                      row_invalid.begin(),
-                      [] __device__(bool row_is_invalid, bool item_is_invalid) {
-                        return row_is_invalid || item_is_invalid;
-                      });
-    return;
-  }
-
-  rmm::device_uvector<int32_t> invalid_rows(num_items, stream, mr);
-  thrust::transform(rmm::exec_policy_nosync(stream),
-                    thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(num_items),
-                    invalid_rows.begin(),
-                    [item_invalid = item_invalid.data(), top_row_indices] __device__(int idx) {
-                      return item_invalid[idx] ? top_row_indices[idx] : -1;
-                    });
-
-  auto valid_end =
-    thrust::remove(rmm::exec_policy_nosync(stream), invalid_rows.begin(), invalid_rows.end(), -1);
-  thrust::sort(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
-  auto unique_end =
-    thrust::unique(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   invalid_rows.begin(),
-                   unique_end,
-                   [row_invalid = row_invalid.data()] __device__(int32_t row_idx) {
-                     row_invalid[row_idx] = true;
-                   });
-}
-
-inline void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
-                                             rmm::device_uvector<bool>& valid,
-                                             std::vector<int32_t> const& valid_enums,
-                                             rmm::device_uvector<bool>& row_invalid,
-                                             int num_items,
-                                             int32_t const* top_row_indices,
-                                             bool propagate_to_rows,
-                                             rmm::cuda_stream_view stream,
-                                             rmm::device_async_resource_ref mr)
-{
-  if (num_items == 0 || valid_enums.empty()) { return; }
-
-  auto const blocks = static_cast<int>((num_items + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
-  rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
-                                valid_enums.data(),
-                                valid_enums.size() * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
-
-  rmm::device_uvector<bool> item_invalid(num_items, stream, mr);
-  thrust::fill(rmm::exec_policy_nosync(stream), item_invalid.begin(), item_invalid.end(), false);
-  validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-    values.data(),
-    valid.data(),
-    item_invalid.data(),
-    d_valid_enums.data(),
-    static_cast<int>(valid_enums.size()),
-    num_items);
-
-  propagate_invalid_enum_flags_to_rows(
-    item_invalid, row_invalid, num_items, top_row_indices, propagate_to_rows, stream, mr);
-}
+void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
+                                      rmm::device_uvector<bool>& valid,
+                                      std::vector<int32_t> const& valid_enums,
+                                      rmm::device_uvector<bool>& row_invalid,
+                                      int num_items,
+                                      int32_t const* top_row_indices,
+                                      bool propagate_to_rows,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::device_async_resource_ref mr);
 
 // ============================================================================
 // Forward declarations of builder/utility functions
