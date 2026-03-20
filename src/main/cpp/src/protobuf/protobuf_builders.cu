@@ -17,6 +17,7 @@
 #include "protobuf/protobuf_host_helpers.hpp"
 
 #include <cudf/lists/detail/lists_column_factories.hpp>
+#include <cudf/strings/detail/strings_column_factories.cuh>
 
 namespace spark_rapids_jni::protobuf::detail {
 

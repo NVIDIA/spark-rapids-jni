@@ -101,12 +101,6 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     }
 
     // Build output types
-    std::vector<cudf::data_type> schema_output_types;
-    schema_output_types.reserve(num_fields);
-    for (int i = 0; i < num_fields; ++i) {
-      schema_output_types.emplace_back(static_cast<cudf::type_id>(n_output_type_ids[i]));
-    }
-
     // Convert boolean arrays
     std::vector<bool> default_bool_values;
     default_bool_values.reserve(num_fields);
@@ -203,7 +197,6 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     }
 
     spark_rapids_jni::protobuf::ProtobufDecodeContext context{std::move(schema),
-                                                              std::move(schema_output_types),
                                                               std::move(default_int_values),
                                                               std::move(default_float_values),
                                                               std::move(default_bool_values),

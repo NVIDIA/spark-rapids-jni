@@ -62,13 +62,7 @@ __device__ inline void set_error_once(int* error_flag, int error_code)
   ref.compare_exchange_strong(expected, error_code, cuda::memory_order_relaxed);
 }
 
-__global__ void set_error_if_unset_kernel(int* error_flag, int error_code);
-
-inline void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stream_view stream)
-{
-  set_error_if_unset_kernel<<<1, 1, 0, stream.value()>>>(error_flag, error_code);
-  CUDF_CUDA_TRY(cudaPeekAtLastError());
-}
+void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stream_view stream);
 
 __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t const* end)
 {

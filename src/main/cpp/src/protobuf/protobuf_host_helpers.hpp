@@ -35,7 +35,6 @@
 #include <thrust/fill.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/reduce.h>
 #include <thrust/remove.h>
 #include <thrust/scan.h>
 #include <thrust/sort.h>
@@ -271,7 +270,6 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
 template <typename SchemaT>
 std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   SchemaT const& schema,
-  std::vector<cudf::data_type> const& schema_output_types,
   int parent_idx,
   int num_fields,
   rmm::cuda_stream_view stream,
@@ -281,12 +279,11 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
 
   std::vector<std::unique_ptr<cudf::column>> children;
   for (int child_idx : child_indices) {
-    auto child_type = schema_output_types[child_idx];
+    auto child_type = cudf::data_type{schema[child_idx].output_type};
 
     std::unique_ptr<cudf::column> child_col;
     if (child_type.id() == cudf::type_id::STRUCT) {
-      child_col = make_empty_struct_column_with_schema(
-        schema, schema_output_types, child_idx, num_fields, stream, mr);
+      child_col = make_empty_struct_column_with_schema(schema, child_idx, num_fields, stream, mr);
     } else {
       child_col = make_empty_column_safe(child_type, stream, mr);
     }
@@ -301,129 +298,36 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   return cudf::make_structs_column(0, std::move(children), 0, rmm::device_buffer{}, stream, mr);
 }
 
-inline void maybe_check_required_fields(field_location const* locations,
-                                        std::vector<int> const& field_indices,
-                                        std::vector<nested_field_descriptor> const& schema,
-                                        int num_rows,
-                                        cudf::bitmask_type const* input_null_mask,
-                                        cudf::size_type input_offset,
-                                        field_location const* parent_locs,
-                                        bool* row_force_null,
-                                        int32_t const* top_row_indices,
-                                        int* error_flag,
-                                        rmm::cuda_stream_view stream,
-                                        rmm::device_async_resource_ref mr)
-{
-  if (num_rows == 0 || field_indices.empty()) { return; }
+void maybe_check_required_fields(field_location const* locations,
+                                 std::vector<int> const& field_indices,
+                                 std::vector<nested_field_descriptor> const& schema,
+                                 int num_rows,
+                                 cudf::bitmask_type const* input_null_mask,
+                                 cudf::size_type input_offset,
+                                 field_location const* parent_locs,
+                                 bool* row_force_null,
+                                 int32_t const* top_row_indices,
+                                 int* error_flag,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::device_async_resource_ref mr);
 
-  bool has_required = false;
-  std::vector<uint8_t> h_is_required(field_indices.size());
-  for (size_t i = 0; i < field_indices.size(); ++i) {
-    h_is_required[i] = schema[field_indices[i]].is_required ? 1 : 0;
-    has_required |= (h_is_required[i] != 0);
-  }
-  if (!has_required) { return; }
+void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
+                                          rmm::device_uvector<bool>& row_invalid,
+                                          int num_items,
+                                          int32_t const* top_row_indices,
+                                          bool propagate_to_rows,
+                                          rmm::cuda_stream_view stream,
+                                          rmm::device_async_resource_ref mr);
 
-  rmm::device_uvector<uint8_t> d_is_required(field_indices.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_is_required.data(),
-                                h_is_required.data(),
-                                h_is_required.size() * sizeof(uint8_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
-
-  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
-  check_required_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-    locations,
-    d_is_required.data(),
-    static_cast<int>(field_indices.size()),
-    num_rows,
-    input_null_mask,
-    input_offset,
-    parent_locs,
-    row_force_null,
-    top_row_indices,
-    error_flag);
-}
-
-inline void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
-                                                 rmm::device_uvector<bool>& row_invalid,
-                                                 int num_items,
-                                                 int32_t const* top_row_indices,
-                                                 bool propagate_to_rows,
-                                                 rmm::cuda_stream_view stream,
-                                                 rmm::device_async_resource_ref mr)
-{
-  if (num_items == 0 || row_invalid.size() == 0 || !propagate_to_rows) { return; }
-
-  if (top_row_indices == nullptr) {
-    CUDF_EXPECTS(static_cast<size_t>(num_items) <= row_invalid.size(),
-                 "enum invalid-row propagation exceeded row buffer");
-    thrust::transform(rmm::exec_policy_nosync(stream),
-                      row_invalid.begin(),
-                      row_invalid.begin() + num_items,
-                      item_invalid.begin(),
-                      row_invalid.begin(),
-                      [] __device__(bool row_is_invalid, bool item_is_invalid) {
-                        return row_is_invalid || item_is_invalid;
-                      });
-    return;
-  }
-
-  rmm::device_uvector<int32_t> invalid_rows(num_items, stream, mr);
-  thrust::transform(rmm::exec_policy_nosync(stream),
-                    thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(num_items),
-                    invalid_rows.begin(),
-                    [item_invalid = item_invalid.data(), top_row_indices] __device__(int idx) {
-                      return item_invalid[idx] ? top_row_indices[idx] : -1;
-                    });
-
-  auto valid_end =
-    thrust::remove(rmm::exec_policy_nosync(stream), invalid_rows.begin(), invalid_rows.end(), -1);
-  thrust::sort(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
-  auto unique_end =
-    thrust::unique(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   invalid_rows.begin(),
-                   unique_end,
-                   [row_invalid = row_invalid.data()] __device__(int32_t row_idx) {
-                     row_invalid[row_idx] = true;
-                   });
-}
-
-inline void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
-                                             rmm::device_uvector<bool>& valid,
-                                             std::vector<int32_t> const& valid_enums,
-                                             rmm::device_uvector<bool>& row_invalid,
-                                             int num_items,
-                                             int32_t const* top_row_indices,
-                                             bool propagate_to_rows,
-                                             rmm::cuda_stream_view stream,
-                                             rmm::device_async_resource_ref mr)
-{
-  if (num_items == 0 || valid_enums.empty()) { return; }
-
-  auto const blocks = static_cast<int>((num_items + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
-  rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
-                                valid_enums.data(),
-                                valid_enums.size() * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
-
-  rmm::device_uvector<bool> item_invalid(num_items, stream, mr);
-  thrust::fill(rmm::exec_policy_nosync(stream), item_invalid.begin(), item_invalid.end(), false);
-  validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
-    values.data(),
-    valid.data(),
-    item_invalid.data(),
-    d_valid_enums.data(),
-    static_cast<int>(valid_enums.size()),
-    num_items);
-
-  propagate_invalid_enum_flags_to_rows(
-    item_invalid, row_invalid, num_items, top_row_indices, propagate_to_rows, stream, mr);
-}
+void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
+                                      rmm::device_uvector<bool>& valid,
+                                      std::vector<int32_t> const& valid_enums,
+                                      rmm::device_uvector<bool>& row_invalid,
+                                      int num_items,
+                                      int32_t const* top_row_indices,
+                                      bool propagate_to_rows,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::device_async_resource_ref mr);
 
 // ============================================================================
 // Forward declarations of builder/utility functions
@@ -493,7 +397,6 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int> const& child_field_indices,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  std::vector<cudf::data_type> const& schema_output_types,
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
@@ -519,7 +422,6 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   int child_schema_idx,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  std::vector<cudf::data_type> const& schema_output_types,
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
@@ -547,7 +449,6 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   int num_rows,
   std::vector<device_nested_field_descriptor> const& h_device_schema,
   std::vector<int> const& child_field_indices,
-  std::vector<cudf::data_type> const& schema_output_types,
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
