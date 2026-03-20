@@ -31,19 +31,19 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_creategpu(
   {
     cudf::jni::auto_set_device(env);
 
-    // TODO (future): There is an impedance mismatch between the C++ and Java APIs.
-    // This seems to have been introduced in https://github.com/NVIDIA/spark-rapids-jni/pull/1303.
-    // The Java API accepts a long for the bloom filter bit count, but the C++ API accepts an int.
-    // This means that the Java API can represent a bloom filter bit count that is too large to
-    // be represented as an int in the C++ API.
-    // We should fix this by changing the C++ API to accept a long for the bloom filter bit count.
-    // We will address this in a future PR.  For now, we add error checking to avoid overflow.
-    JNI_ARG_CHECK(env,
-                  bloomFilterBits >= 0 && bloomFilterBits <= std::numeric_limits<int>::max() - 63,
-                  "bloom filter bit count overflows int when converted to longs",
-                  0);
-    auto const bloom_filter_longs_long = (bloomFilterBits + 63) / 64;
-    auto const bloom_filter_longs      = static_cast<int>(bloom_filter_longs_long);
+    // Per the Spark implementation, according to the BitArray class,
+    // https://github.com/apache/spark/blob/5075ea6a85f3f1689766cf08a7d5b2ce500be1fb/common/sketch/src/main/java/org/apache/spark/util/sketch/BitArray.java#L34
+    // the number of longs representing the bit array can only be Integer.MAX_VALUE, at the most.
+    // (This is presumably because the BitArray is indexed with an int32_t.)
+    // This implies that the maximum supported bloom filter bit count is Integer.MAX_VALUE * 64.
+
+    JNI_ARG_CHECK(
+      env,
+      bloomFilterBits >= 0 &&
+        bloomFilterBits <= static_cast<int64_t>(std::numeric_limits<int32_t>::max()) * 64,
+      "bloom filter bit count exceeds maximum supported size",
+      0);
+    auto const bloom_filter_longs = static_cast<int32_t>((bloomFilterBits + 63) / 64);
     auto bloom_filter =
       spark_rapids_jni::bloom_filter_create(version, numHashes, bloom_filter_longs, seed);
     return reinterpret_cast<jlong>(bloom_filter.release());
