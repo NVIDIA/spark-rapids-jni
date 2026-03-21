@@ -39,9 +39,10 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_creategpu(
 
     JNI_ARG_CHECK(
       env,
-      bloomFilterBits >= 0 &&
+      bloomFilterBits > 0 &&
         bloomFilterBits <= static_cast<int64_t>(std::numeric_limits<int32_t>::max()) * 64,
-      "bloom filter bit count exceeds maximum supported size",
+      "bloom filter bit count must be positive and less than or equal to the maximum supported "
+      "size",
       0);
     auto const bloom_filter_longs = static_cast<int32_t>((bloomFilterBits + 63) / 64);
     auto bloom_filter =
