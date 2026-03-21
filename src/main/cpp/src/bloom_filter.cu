@@ -196,6 +196,8 @@ unpack_bloom_filter(cudf::device_span<uint8_t const> bloom_filter, rmm::cuda_str
   auto const read_size =
     std::min(bloom_filter.size(), static_cast<size_t>(bloom_filter_header_v2_size_bytes));
 
+  // TODO (future): Consider using pinned host memory for cudaMemcpyAsync.
+  // Refer to https://github.com/NVIDIA/spark-rapids-jni/issues/4407.
   CUDF_CUDA_TRY(
     cudaMemcpyAsync(raw_ints, bloom_filter.data(), read_size, cudaMemcpyDeviceToHost, stream));
   stream.synchronize();
