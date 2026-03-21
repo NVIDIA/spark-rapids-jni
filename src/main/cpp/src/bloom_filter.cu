@@ -178,15 +178,15 @@ void pack_bloom_filter_header(cudf::device_span<uint8_t> buf,
   @return A std::tuple of four elements:
     - Element 0 (bloom_filter_header): Decoded header with version, num_hashes, and num_longs.
       Does not include seed; that is returned separately as element 3.
-    - Element 1 (cudf::device_span<cudf::bitmask_type>): Device span over the bloom filter bit
-      array. Length is header.num_longs * 2 (number of 32-bit words). The data start
+    - Element 1 (cudf::device_span<cudf::bitmask_type const>): Device span over the bloom filter
+      bit array. Length is header.num_longs * 2 (number of 32-bit words). The data start
       immediately after the version-specific header in the buffer.
     - Element 2 (int64_t): Total number of bits in the bloom filter, i.e. header.num_longs * 64.
     - Element 3 (int32_t): Hash seed used when building/probing the filter. Zero for V1;
       for V2, the value stored in the serialized header.
 */
-std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int64_t, int32_t>
-unpack_bloom_filter(cudf::device_span<uint8_t> bloom_filter, rmm::cuda_stream_view stream)
+std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type const>, int64_t, int32_t>
+unpack_bloom_filter(cudf::device_span<uint8_t const> bloom_filter, rmm::cuda_stream_view stream)
 {
   CUDF_EXPECTS(bloom_filter.size() >= static_cast<size_t>(bloom_filter_header_v1_size_bytes),
                "Encountered truncated bloom filter");
@@ -225,27 +225,19 @@ unpack_bloom_filter(cudf::device_span<uint8_t> bloom_filter, rmm::cuda_stream_vi
 
   CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter size");
 
-  return {
-    header,
-    {reinterpret_cast<cudf::bitmask_type*>(bloom_filter.data() + hdr_size), num_bitmask_words},
-    bloom_filter_bits,
-    seed};
+  return {header,
+          {reinterpret_cast<cudf::bitmask_type const*>(bloom_filter.data() + hdr_size),
+           num_bitmask_words},
+          bloom_filter_bits,
+          seed};
 }
 
-std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int64_t, int32_t>
+std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type const>, int64_t, int32_t>
 unpack_bloom_filter(cudf::column_view const& bloom_filter, rmm::cuda_stream_view stream)
 {
   return unpack_bloom_filter(
-    cudf::device_span<uint8_t>{const_cast<uint8_t*>(bloom_filter.data<uint8_t>()),
-                               static_cast<size_t>(bloom_filter.size())},
-    stream);
-}
-
-std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int64_t, int32_t>
-unpack_bloom_filter(cudf::device_span<uint8_t const> bloom_filter, rmm::cuda_stream_view stream)
-{
-  return unpack_bloom_filter(
-    cudf::device_span<uint8_t>{const_cast<uint8_t*>(bloom_filter.data()), bloom_filter.size()},
+    cudf::device_span<uint8_t const>{bloom_filter.data<uint8_t>(),
+                                     static_cast<size_t>(bloom_filter.size())},
     stream);
 }
 
@@ -343,6 +335,10 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
   CUDF_EXPECTS(static_cast<size_t>(bloom_filter.view().size()) == (buffer.size() * 4) + hdr_size,
                "Encountered invalid/mismatched bloom filter buffer data");
 
+  // bloom_filter is non-const, so mutable access to the underlying data is valid.
+  // list_scalar::view() returns a const column_view, requiring const_cast here.
+  auto* mutable_buffer = const_cast<cudf::bitmask_type*>(buffer.data());
+
   constexpr int block_size = 256;
   auto grid                = cudf::detail::grid_1d{input.size(), block_size, 1};
   auto d_input             = cudf::column_device_view::create(input);
@@ -350,7 +346,7 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
   auto launch = [&](auto version_tag, auto nullable_tag) {
     gpu_bloom_filter_put<decltype(version_tag)::value, decltype(nullable_tag)::value>
       <<<grid.num_blocks, block_size, 0, stream.value()>>>(
-        buffer.data(), bloom_filter_bits, *d_input, header.num_hashes, seed);
+        mutable_buffer, bloom_filter_bits, *d_input, header.num_hashes, seed);
   };
 
   if (header.version == bloom_filter_version_1) {
