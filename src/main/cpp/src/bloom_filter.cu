@@ -16,6 +16,7 @@
 
 #include "bloom_filter.hpp"
 #include "hash/murmur_hash.cuh"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -299,6 +300,7 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_create(int version,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
+  SRJ_FUNC_RANGE();
   CUDF_EXPECTS(version == bloom_filter_version_1 || version == bloom_filter_version_2,
                "Bloom filter version must be 1 or 2");
 
@@ -330,6 +332,7 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
                       cudf::column_view const& input,
                       rmm::cuda_stream_view stream)
 {
+  SRJ_FUNC_RANGE();
   auto [header, buffer, bloom_filter_bits, seed] = unpack_bloom_filter(bloom_filter.view(), stream);
   auto const hdr_size = bloom_filter_header_size_for_version(header.version);
   CUDF_EXPECTS(static_cast<size_t>(bloom_filter.view().size()) == (buffer.size() * 4) + hdr_size,
@@ -370,6 +373,7 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
                                                       rmm::cuda_stream_view stream,
                                                       rmm::device_async_resource_ref mr)
 {
+  SRJ_FUNC_RANGE();
   cudf::lists_column_view lcv(bloom_filters);
 
   // The list child column is a concatenation of packed bloom filter buffers (header + bits)
@@ -447,6 +451,7 @@ std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
+  SRJ_FUNC_RANGE();
   auto [header, buffer, bloom_filter_bits, seed] = unpack_bloom_filter(bloom_filter, stream);
   auto const hdr_size = bloom_filter_header_size_for_version(header.version);
   CUDF_EXPECTS(bloom_filter.size() == static_cast<size_t>((buffer.size() * 4) + hdr_size),
@@ -485,6 +490,7 @@ std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
+  SRJ_FUNC_RANGE();
   return bloom_filter_probe(input, bloom_filter.view(), stream, mr);
 }
 
