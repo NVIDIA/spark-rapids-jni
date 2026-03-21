@@ -36,6 +36,7 @@ struct bloom_filter_header_v1 {
   int num_longs;
 };
 constexpr int bloom_filter_header_v1_size_bytes = sizeof(bloom_filter_header_v1);
+static_assert(bloom_filter_header_v1_size_bytes == 12, "V1 header size must be 12 bytes");
 
 // V2 header: [version, num_hashes, seed, num_longs] — 16 bytes
 struct bloom_filter_header_v2 {
@@ -45,6 +46,7 @@ struct bloom_filter_header_v2 {
   int num_longs;
 };
 constexpr int bloom_filter_header_v2_size_bytes = sizeof(bloom_filter_header_v2);
+static_assert(bloom_filter_header_v2_size_bytes == 16, "V2 header size must be 16 bytes");
 
 // Unified header used internally after unpacking from either format.
 // Seed is not stored here; for V2 it is returned separately from unpack_bloom_filter.
