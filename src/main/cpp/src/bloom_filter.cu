@@ -273,7 +273,7 @@ struct bloom_filter_same {
 };
 
 /*
-  Returns a pair indicating:
+  Returns a std::tuple indicating:
   - first: size in bytes of the bloom filter bit array (num_longs * 8).
   - second: total size in bytes of the serialized bloom filter buffer (header + bit array).
   Uses the version-specific header size.
@@ -458,7 +458,7 @@ std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
 
   auto out = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
                                            input.size(),
-                                           cudf::copy_bitmask(input),
+                                           cudf::copy_bitmask(input, stream, mr),
                                            input.null_count(),
                                            stream,
                                            mr);
