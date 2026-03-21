@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,17 +20,33 @@
 #include "jni_utils.hpp"
 #include "utilities.hpp"
 
+#include <limits>
+
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_creategpu(
-  JNIEnv* env, jclass, jint numHashes, jlong bloomFilterBits)
+  JNIEnv* env, jclass, jint version, jint numHashes, jlong bloomFilterBits, jint seed)
 {
   JNI_TRY
   {
     cudf::jni::auto_set_device(env);
 
-    int bloom_filter_longs = static_cast<int>((bloomFilterBits + 63) / 64);
-    auto bloom_filter      = spark_rapids_jni::bloom_filter_create(numHashes, bloom_filter_longs);
+    // Per the Spark implementation, according to the BitArray class,
+    // https://github.com/apache/spark/blob/5075ea6a85f3f1689766cf08a7d5b2ce500be1fb/common/sketch/src/main/java/org/apache/spark/util/sketch/BitArray.java#L34
+    // the number of longs representing the bit array can only be Integer.MAX_VALUE, at the most.
+    // (This is presumably because the BitArray is indexed with an int32_t.)
+    // This implies that the maximum supported bloom filter bit count is Integer.MAX_VALUE * 64.
+
+    JNI_ARG_CHECK(
+      env,
+      bloomFilterBits > 0 &&
+        bloomFilterBits <= static_cast<int64_t>(std::numeric_limits<int32_t>::max()) * 64,
+      "bloom filter bit count must be positive and less than or equal to the maximum supported "
+      "size",
+      0);
+    auto const bloom_filter_longs = static_cast<int32_t>((bloomFilterBits + 63) / 64);
+    auto bloom_filter =
+      spark_rapids_jni::bloom_filter_create(version, numHashes, bloom_filter_longs, seed);
     return reinterpret_cast<jlong>(bloom_filter.release());
   }
   JNI_CATCH(env, 0);
