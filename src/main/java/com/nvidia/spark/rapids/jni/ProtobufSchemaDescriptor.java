@@ -1,0 +1,319 @@
+/*
+ * Copyright (c) 2026, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.nvidia.spark.rapids.jni;
+
+import java.util.HashSet;
+import java.util.Set;
+
+/**
+ * Immutable descriptor for a flattened protobuf schema, grouping the parallel arrays
+ * that describe field structure, types, defaults, and enum metadata.
+ *
+ * <p>Use this class instead of passing 15+ individual arrays through the JNI boundary.
+ * Validation is performed once in the constructor (and again on deserialization).
+ *
+ * <p>All arrays provided to the constructor are defensively copied to guarantee immutability.
+ * During deserialization, {@code defaultReadObject()} reconstructs a fresh object graph and
+ * {@link #readObject(java.io.ObjectInputStream)} re-validates the schema invariants before the
+ * instance becomes visible. Package-private field access from {@link Protobuf} is therefore safe
+ * because constructor callers cannot retain mutable aliases into the stored arrays.
+ */
+public final class ProtobufSchemaDescriptor implements java.io.Serializable {
+  private static final long serialVersionUID = 1L;
+  private static final int MAX_FIELD_NUMBER = (1 << 29) - 1;
+  private static final int MAX_NESTING_DEPTH = 10;
+  private static final int STRUCT_TYPE_ID = ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId();
+  private static final int STRING_TYPE_ID = ai.rapids.cudf.DType.STRING.getTypeId().getNativeId();
+  private static final int LIST_TYPE_ID = ai.rapids.cudf.DType.LIST.getTypeId().getNativeId();
+  private static final int BOOL8_TYPE_ID = ai.rapids.cudf.DType.BOOL8.getTypeId().getNativeId();
+  private static final int INT32_TYPE_ID = ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
+  private static final int UINT32_TYPE_ID = ai.rapids.cudf.DType.UINT32.getTypeId().getNativeId();
+  private static final int INT64_TYPE_ID = ai.rapids.cudf.DType.INT64.getTypeId().getNativeId();
+  private static final int UINT64_TYPE_ID = ai.rapids.cudf.DType.UINT64.getTypeId().getNativeId();
+  private static final int FLOAT32_TYPE_ID = ai.rapids.cudf.DType.FLOAT32.getTypeId().getNativeId();
+  private static final int FLOAT64_TYPE_ID = ai.rapids.cudf.DType.FLOAT64.getTypeId().getNativeId();
+
+  final int[] fieldNumbers;
+  final int[] parentIndices;
+  final int[] depthLevels;
+  final int[] wireTypes;
+  final int[] outputTypeIds;
+  final int[] encodings;
+  final boolean[] isRepeated;
+  final boolean[] isRequired;
+  final boolean[] hasDefaultValue;
+  final long[] defaultInts;
+  final double[] defaultFloats;
+  final boolean[] defaultBools;
+  final byte[][] defaultStrings;
+  final int[][] enumValidValues;
+  final byte[][][] enumNames;
+
+  /**
+   * @throws IllegalArgumentException if any array is null, arrays have mismatched lengths,
+   *         field numbers are out of range, or encoding values are invalid.
+   */
+  public ProtobufSchemaDescriptor(
+      int[] fieldNumbers,
+      int[] parentIndices,
+      int[] depthLevels,
+      int[] wireTypes,
+      int[] outputTypeIds,
+      int[] encodings,
+      boolean[] isRepeated,
+      boolean[] isRequired,
+      boolean[] hasDefaultValue,
+      long[] defaultInts,
+      double[] defaultFloats,
+      boolean[] defaultBools,
+      byte[][] defaultStrings,
+      int[][] enumValidValues,
+      byte[][][] enumNames) {
+
+    validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
+        encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
+        defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
+
+    this.fieldNumbers = fieldNumbers.clone();
+    this.parentIndices = parentIndices.clone();
+    this.depthLevels = depthLevels.clone();
+    this.wireTypes = wireTypes.clone();
+    this.outputTypeIds = outputTypeIds.clone();
+    this.encodings = encodings.clone();
+    this.isRepeated = isRepeated.clone();
+    this.isRequired = isRequired.clone();
+    this.hasDefaultValue = hasDefaultValue.clone();
+    this.defaultInts = defaultInts.clone();
+    this.defaultFloats = defaultFloats.clone();
+    this.defaultBools = defaultBools.clone();
+    this.defaultStrings = deepCopy(defaultStrings);
+    this.enumValidValues = deepCopy(enumValidValues);
+    this.enumNames = deepCopy(enumNames);
+  }
+
+  public int numFields() { return fieldNumbers.length; }
+
+  private void readObject(java.io.ObjectInputStream in)
+      throws java.io.IOException, ClassNotFoundException {
+    // defaultReadObject() reconstructs new array objects from the serialized stream; we do not
+    // receive caller-owned array aliases here. Re-run validate() so deserialization cannot bypass
+    // the constructor's schema invariants.
+    in.defaultReadObject();
+    try {
+      validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
+          encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
+          defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
+    } catch (IllegalArgumentException e) {
+      java.io.InvalidObjectException ioe = new java.io.InvalidObjectException(e.getMessage());
+      ioe.initCause(e);
+      throw ioe;
+    }
+  }
+
+  private static byte[][] deepCopy(byte[][] src) {
+    byte[][] dst = new byte[src.length][];
+    for (int i = 0; i < src.length; i++) {
+      dst[i] = src[i] != null ? src[i].clone() : null;
+    }
+    return dst;
+  }
+
+  private static int[][] deepCopy(int[][] src) {
+    int[][] dst = new int[src.length][];
+    for (int i = 0; i < src.length; i++) {
+      dst[i] = src[i] != null ? src[i].clone() : null;
+    }
+    return dst;
+  }
+
+  private static byte[][][] deepCopy(byte[][][] src) {
+    byte[][][] dst = new byte[src.length][][];
+    for (int i = 0; i < src.length; i++) {
+      if (src[i] == null) continue;
+      dst[i] = new byte[src[i].length][];
+      for (int j = 0; j < src[i].length; j++) {
+        dst[i][j] = src[i][j] != null ? src[i][j].clone() : null;
+      }
+    }
+    return dst;
+  }
+
+  private static void validate(
+      int[] fieldNumbers, int[] parentIndices, int[] depthLevels,
+      int[] wireTypes, int[] outputTypeIds, int[] encodings,
+      boolean[] isRepeated, boolean[] isRequired, boolean[] hasDefaultValue,
+      long[] defaultInts, double[] defaultFloats, boolean[] defaultBools,
+      byte[][] defaultStrings, int[][] enumValidValues, byte[][][] enumNames) {
+
+    if (fieldNumbers == null || parentIndices == null || depthLevels == null ||
+        wireTypes == null || outputTypeIds == null || encodings == null ||
+        isRepeated == null || isRequired == null || hasDefaultValue == null ||
+        defaultInts == null || defaultFloats == null || defaultBools == null ||
+        defaultStrings == null || enumValidValues == null || enumNames == null) {
+      throw new IllegalArgumentException("All schema arrays must be non-null");
+    }
+
+    int n = fieldNumbers.length;
+    if (parentIndices.length != n || depthLevels.length != n ||
+        wireTypes.length != n || outputTypeIds.length != n ||
+        encodings.length != n || isRepeated.length != n ||
+        isRequired.length != n || hasDefaultValue.length != n ||
+        defaultInts.length != n || defaultFloats.length != n ||
+        defaultBools.length != n || defaultStrings.length != n ||
+        enumValidValues.length != n || enumNames.length != n) {
+      throw new IllegalArgumentException("All schema arrays must have the same length");
+    }
+
+    Set<Long> seenFieldNumbers = new HashSet<>();
+    for (int i = 0; i < n; i++) {
+      if (fieldNumbers[i] <= 0 || fieldNumbers[i] > MAX_FIELD_NUMBER) {
+        throw new IllegalArgumentException(
+            "Invalid field number at index " + i + ": " + fieldNumbers[i] +
+            " (must be 1-" + MAX_FIELD_NUMBER + ")");
+      }
+      if (depthLevels[i] < 0 || depthLevels[i] >= MAX_NESTING_DEPTH) {
+        throw new IllegalArgumentException(
+            "Invalid depth at index " + i + ": " + depthLevels[i] +
+            " (must be 0-" + (MAX_NESTING_DEPTH - 1) + ")");
+      }
+      int pi = parentIndices[i];
+      if (pi < -1 || pi >= i) {
+        throw new IllegalArgumentException(
+            "Invalid parent index at index " + i + ": " + pi +
+            " (must be -1 or a prior index < " + i + ")");
+      }
+      if (pi == -1) {
+        if (depthLevels[i] != 0) {
+          throw new IllegalArgumentException(
+              "Top-level field at index " + i + " must have depth 0, got " + depthLevels[i]);
+        }
+      } else {
+        if (outputTypeIds[pi] != STRUCT_TYPE_ID) {
+          throw new IllegalArgumentException(
+              "Parent at index " + pi + " for field " + i + " must be STRUCT, got type id " +
+              outputTypeIds[pi]);
+        }
+        if (depthLevels[i] != depthLevels[pi] + 1) {
+          throw new IllegalArgumentException(
+              "Field at index " + i + " depth (" + depthLevels[i] +
+              ") must be parent depth (" + depthLevels[pi] + ") + 1");
+        }
+      }
+      long fieldKey = (((long) pi) << 32) | (fieldNumbers[i] & 0xFFFFFFFFL);
+      if (!seenFieldNumbers.add(fieldKey)) {
+        throw new IllegalArgumentException(
+            "Duplicate field number " + fieldNumbers[i] +
+            " under parent index " + pi + " at schema index " + i);
+      }
+      int wt = wireTypes[i];
+      if (wt != 0 && wt != 1 && wt != 2 && wt != 5) {
+        throw new IllegalArgumentException(
+            "Invalid wire type at index " + i + ": " + wt +
+            " (must be one of {0, 1, 2, 5})");
+      }
+      int enc = encodings[i];
+      if (enc < Protobuf.ENC_DEFAULT || enc > Protobuf.ENC_ENUM_STRING) {
+        throw new IllegalArgumentException(
+            "Invalid encoding at index " + i + ": " + enc);
+      }
+      if (!isEncodingCompatible(wt, outputTypeIds[i], enc)) {
+        throw new IllegalArgumentException(
+            "Incompatible wire type / output type / encoding at index " + i +
+            ": wireType=" + wt + ", outputTypeId=" + outputTypeIds[i] + ", encoding=" + enc);
+      }
+      if (isRepeated[i] && isRequired[i]) {
+        throw new IllegalArgumentException(
+            "Field at index " + i + " cannot be both repeated and required");
+      }
+      if (isRepeated[i] && hasDefaultValue[i]) {
+        throw new IllegalArgumentException(
+            "Repeated field at index " + i + " cannot carry a default value");
+      }
+      if (hasDefaultValue[i] &&
+          (outputTypeIds[i] == STRUCT_TYPE_ID || outputTypeIds[i] == LIST_TYPE_ID)) {
+        throw new IllegalArgumentException(
+            "STRUCT/LIST field at index " + i + " cannot carry a default value");
+      }
+      if (enc == Protobuf.ENC_ENUM_STRING &&
+          (enumValidValues[i] == null || enumValidValues[i].length == 0 ||
+           enumNames[i] == null || enumNames[i].length == 0)) {
+        throw new IllegalArgumentException(
+            "Enum-as-string field at index " + i +
+            " must provide non-empty enumValidValues and enumNames");
+      }
+      if (enumValidValues[i] != null) {
+        int[] ev = enumValidValues[i];
+        for (int j = 1; j < ev.length; j++) {
+          if (ev[j] <= ev[j - 1]) {
+            throw new IllegalArgumentException(
+                "enumValidValues[" + i + "] must be strictly sorted in ascending order " +
+                "(binary search requires unique values), but found " + ev[j - 1] +
+                " followed by " + ev[j]);
+          }
+        }
+        if (enumNames[i] != null && enumNames[i].length != ev.length) {
+          throw new IllegalArgumentException(
+              "enumNames[" + i + "].length (" + enumNames[i].length + ") must equal " +
+              "enumValidValues[" + i + "].length (" + ev.length + ")");
+        }
+      } else if (enumNames[i] != null) {
+        throw new IllegalArgumentException(
+            "enumNames[" + i + "] is non-null but enumValidValues[" + i + "] is null; " +
+            "both must be provided together for enum-as-string fields");
+      }
+    }
+  }
+
+  private static boolean isEncodingCompatible(int wireType, int outputTypeId, int encoding) {
+    switch (encoding) {
+      case Protobuf.ENC_DEFAULT:
+        if (outputTypeId == BOOL8_TYPE_ID || outputTypeId == INT32_TYPE_ID ||
+            outputTypeId == UINT32_TYPE_ID || outputTypeId == INT64_TYPE_ID ||
+            outputTypeId == UINT64_TYPE_ID) {
+          return wireType == Protobuf.WT_VARINT;
+        }
+        if (outputTypeId == FLOAT32_TYPE_ID) {
+          return wireType == Protobuf.WT_32BIT;
+        }
+        if (outputTypeId == FLOAT64_TYPE_ID) {
+          return wireType == Protobuf.WT_64BIT;
+        }
+        if (outputTypeId == STRING_TYPE_ID || outputTypeId == LIST_TYPE_ID ||
+            outputTypeId == STRUCT_TYPE_ID) {
+          return wireType == Protobuf.WT_LEN;
+        }
+        return false;
+      case Protobuf.ENC_FIXED:
+        if (outputTypeId == INT32_TYPE_ID || outputTypeId == UINT32_TYPE_ID ||
+            outputTypeId == FLOAT32_TYPE_ID) {
+          return wireType == Protobuf.WT_32BIT;
+        }
+        if (outputTypeId == INT64_TYPE_ID || outputTypeId == UINT64_TYPE_ID ||
+            outputTypeId == FLOAT64_TYPE_ID) {
+          return wireType == Protobuf.WT_64BIT;
+        }
+        return false;
+      case Protobuf.ENC_ZIGZAG:
+        return wireType == Protobuf.WT_VARINT &&
+            (outputTypeId == INT32_TYPE_ID || outputTypeId == INT64_TYPE_ID);
+      case Protobuf.ENC_ENUM_STRING:
+        return wireType == Protobuf.WT_VARINT && outputTypeId == STRING_TYPE_ID;
+      default:
+        return false;
+    }
+  }
+}
