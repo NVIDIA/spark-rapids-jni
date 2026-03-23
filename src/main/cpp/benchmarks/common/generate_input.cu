@@ -549,12 +549,12 @@ std::unique_ptr<cudf::column> create_random_column<cudf::string_view>(data_profi
     create_random_utf8_string_column(profile, engine, cardinality == 0 ? num_rows : cardinality);
   if (cardinality == 0) { return sample_strings; }
   auto sample_indices = sample_indices_with_run_length(avg_run_len, cardinality, num_rows, engine);
-  auto str_table      = cudf::detail::gather(cudf::table_view{{sample_strings->view()}},
-                                        sample_indices,
-                                        cudf::out_of_bounds_policy::DONT_CHECK,
-                                        cudf::negative_index_policy::NOT_ALLOWED,
-                                        cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource_ref());
+  auto str_table      = cudf::gather(cudf::table_view{{sample_strings->view()}},
+                                sample_indices,
+                                cudf::out_of_bounds_policy::DONT_CHECK,
+                                cudf::negative_index_policy::NOT_ALLOWED,
+                                cudf::get_default_stream(),
+                                rmm::mr::get_current_device_resource_ref());
   return std::move(str_table->release()[0]);
 }
 

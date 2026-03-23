@@ -195,12 +195,12 @@ std::unique_ptr<cudf::column> legal_list_slice(lists_column_view const& input,
 
   // The following code is adapted from cudf::lists::segmented_gather
   // Call gather on child of input column
-  auto child_table = cudf::detail::gather(table_view({input.get_sliced_child(stream)}),
-                                          gather_map,
-                                          out_of_bounds_policy::DONT_CHECK,
-                                          cudf::negative_index_policy::NOT_ALLOWED,
-                                          stream,
-                                          mr);
+  auto child_table = cudf::gather(table_view({input.get_sliced_child(stream)}),
+                                  gather_map,
+                                  out_of_bounds_policy::DONT_CHECK,
+                                  cudf::negative_index_policy::NOT_ALLOWED,
+                                  stream,
+                                  mr);
 
   auto child = std::move(child_table->release().front());
 
