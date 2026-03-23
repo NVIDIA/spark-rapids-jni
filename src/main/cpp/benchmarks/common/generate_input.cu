@@ -19,6 +19,7 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/detail/gather.hpp>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/valid_if.cuh>
@@ -551,7 +552,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::string_view>(data_profi
   auto str_table      = cudf::detail::gather(cudf::table_view{{sample_strings->view()}},
                                         sample_indices,
                                         cudf::out_of_bounds_policy::DONT_CHECK,
-                                        cudf::detail::negative_index_policy::NOT_ALLOWED,
+                                        cudf::negative_index_policy::NOT_ALLOWED,
                                         cudf::get_default_stream(),
                                         rmm::mr::get_current_device_resource_ref());
   return std::move(str_table->release()[0]);

@@ -19,7 +19,7 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/copy.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/detail/gather.hpp>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
@@ -198,7 +198,7 @@ std::unique_ptr<cudf::column> legal_list_slice(lists_column_view const& input,
   auto child_table = cudf::detail::gather(table_view({input.get_sliced_child(stream)}),
                                           gather_map,
                                           out_of_bounds_policy::DONT_CHECK,
-                                          cudf::detail::negative_index_policy::NOT_ALLOWED,
+                                          cudf::negative_index_policy::NOT_ALLOWED,
                                           stream,
                                           mr);
 
