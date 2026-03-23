@@ -77,18 +77,17 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
       return -1;  // Invalid varint
     }
     case wire_type_value(proto_wire_type::I64BIT):
-      // Check if there's enough data for 8 bytes
-      if (end - cur < 8) return -1;
+      if (end - cur < 8) { return -1; }
       return 8;
     case wire_type_value(proto_wire_type::I32BIT):
-      // Check if there's enough data for 4 bytes
-      if (end - cur < 4) return -1;
+      if (end - cur < 4) { return -1; }
       return 4;
     case wire_type_value(proto_wire_type::LEN): {
       uint64_t len;
       int n;
       if (!read_varint(cur, end, len, n)) return -1;
-      if (len > static_cast<uint64_t>(end - cur - n) || len > static_cast<uint64_t>(INT_MAX - n))
+      if (len > static_cast<uint64_t>(end - cur - n) ||
+          len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max() - n))
         return -1;
       return n + static_cast<int>(len);
     }
@@ -122,7 +121,9 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
               uint64_t len;
               int len_bytes;
               if (!read_varint(cur, end, len, len_bytes)) return -1;
-              if (len > static_cast<uint64_t>(INT_MAX - len_bytes)) return -1;
+              if (len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max() - len_bytes)) {
+                return -1;
+              }
               inner_size = len_bytes + static_cast<int>(len);
               break;
             }
@@ -172,7 +173,7 @@ __device__ inline bool get_field_data_location(
     int len_bytes;
     if (!read_varint(cur, end, len, len_bytes)) return false;
     if (len > static_cast<uint64_t>(end - cur - len_bytes) ||
-        len > static_cast<uint64_t>(INT_MAX)) {
+        len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max())) {
       return false;
     }
     data_offset = len_bytes;  // offset past the length prefix
@@ -187,7 +188,7 @@ __device__ inline bool get_field_data_location(
   return true;
 }
 
-__device__ __host__ inline size_t flat_index(size_t row, size_t width, size_t col)
+CUDF_HOST_DEVICE inline size_t flat_index(size_t row, size_t width, size_t col)
 {
   return row * width + col;
 }

@@ -55,42 +55,37 @@ namespace spark_rapids_jni::protobuf::detail {
 // ============================================================================
 
 /**
- * Build a host-side direct-mapped lookup table: field_number -> local_index,
- * given an array of schema indices and the schema itself.
+ * Build a host-side direct-mapped lookup table: field_number -> index.
  * Returns an empty vector if the max field number exceeds the threshold.
+ *
+ * @tparam GetFieldNumber callable (int i) -> int returning the field number for index i
  */
-inline std::vector<int> build_index_lookup_table(nested_field_descriptor const* schema,
-                                                 int const* field_indices,
-                                                 int num_indices)
+template <typename GetFieldNumber>
+inline std::vector<int> build_lookup_table(int num_entries, GetFieldNumber get_fn)
 {
   int max_fn = 0;
-  for (int i = 0; i < num_indices; i++) {
-    max_fn = std::max(max_fn, schema[field_indices[i]].field_number);
+  for (int i = 0; i < num_entries; i++) {
+    max_fn = std::max(max_fn, get_fn(i));
   }
-  if (max_fn > FIELD_LOOKUP_TABLE_MAX) return {};
+  if (max_fn > FIELD_LOOKUP_TABLE_MAX) { return {}; }
   std::vector<int> table(max_fn + 1, -1);
-  for (int i = 0; i < num_indices; i++) {
-    table[schema[field_indices[i]].field_number] = i;
+  for (int i = 0; i < num_entries; i++) {
+    table[get_fn(i)] = i;
   }
   return table;
 }
 
-/**
- * Build a host-side direct-mapped lookup table: field_number -> field_index.
- * Returns an empty vector if the max field number exceeds the threshold.
- */
+inline std::vector<int> build_index_lookup_table(nested_field_descriptor const* schema,
+                                                 int const* field_indices,
+                                                 int num_indices)
+{
+  return build_lookup_table(num_indices,
+                            [&](int i) { return schema[field_indices[i]].field_number; });
+}
+
 inline std::vector<int> build_field_lookup_table(field_descriptor const* descs, int num_fields)
 {
-  int max_fn = 0;
-  for (int i = 0; i < num_fields; i++) {
-    max_fn = std::max(max_fn, descs[i].field_number);
-  }
-  if (max_fn > FIELD_LOOKUP_TABLE_MAX) return {};
-  std::vector<int> table(max_fn + 1, -1);
-  for (int i = 0; i < num_fields; i++) {
-    table[descs[i].field_number] = i;
-  }
-  return table;
+  return build_lookup_table(num_fields, [&](int i) { return descs[i].field_number; });
 }
 
 template <typename T>
@@ -922,23 +917,23 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   constexpr bool is_floating_point = std::is_same_v<T, float> || std::is_same_v<T, double>;
   bool use_fixed_kernel = is_floating_point || (encoding == encoding_value(proto_encoding::FIXED));
 
-  RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
+  repeated_location_provider loc_provider{list_offsets, base_offset, d_occurrences.data()};
   if (use_fixed_kernel) {
     if constexpr (sizeof(T) == 4) {
-      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I32BIT), RepeatedLocationProvider>
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I32BIT), repeated_location_provider>
         <<<blocks, threads, 0, stream.value()>>>(
           message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     } else {
-      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I64BIT), RepeatedLocationProvider>
+      extract_fixed_kernel<T, wire_type_value(proto_wire_type::I64BIT), repeated_location_provider>
         <<<blocks, threads, 0, stream.value()>>>(
           message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
     }
   } else if (zigzag) {
-    extract_varint_kernel<T, true, RepeatedLocationProvider>
+    extract_varint_kernel<T, true, repeated_location_provider>
       <<<blocks, threads, 0, stream.value()>>>(
         message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
   } else {
-    extract_varint_kernel<T, false, RepeatedLocationProvider>
+    extract_varint_kernel<T, false, repeated_location_provider>
       <<<blocks, threads, 0, stream.value()>>>(
         message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
   }

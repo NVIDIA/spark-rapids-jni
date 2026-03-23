@@ -80,13 +80,13 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
     });
 
   if (total_data > 0) {
-    RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
-                                                  0,
-                                                  d_msg_locs.data(),
-                                                  d_child_locs.data(),
-                                                  child_idx,
-                                                  num_child_fields};
-    copy_varlen_data_kernel<RepeatedMsgChildLocationProvider>
+    repeated_msg_child_location_provider loc_provider{d_msg_row_offsets.data(),
+                                                      0,
+                                                      d_msg_locs.data(),
+                                                      d_child_locs.data(),
+                                                      child_idx,
+                                                      num_child_fields};
+    copy_varlen_data_kernel<repeated_msg_child_location_provider>
       <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                loc_provider,
                                                total_count,
@@ -395,13 +395,13 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column(
 
   rmm::device_uvector<int32_t> enum_values(total_count, stream, mr);
   rmm::device_uvector<bool> valid((total_count > 0 ? total_count : 1), stream, mr);
-  RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
-                                                0,
-                                                d_msg_locs.data(),
-                                                d_child_locs.data(),
-                                                child_idx,
-                                                num_child_fields};
-  extract_varint_kernel<int32_t, false, RepeatedMsgChildLocationProvider>
+  repeated_msg_child_location_provider loc_provider{d_msg_row_offsets.data(),
+                                                    0,
+                                                    d_msg_locs.data(),
+                                                    d_child_locs.data(),
+                                                    child_idx,
+                                                    num_child_fields};
+  extract_varint_kernel<int32_t, false, repeated_msg_child_location_provider>
     <<<blocks, threads, 0, stream.value()>>>(message_data,
                                              loc_provider,
                                              total_count,
@@ -456,7 +456,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   // 1. Extract enum integer values from occurrences
   rmm::device_uvector<int32_t> enum_ints(total_count, stream, mr);
   rmm::device_uvector<bool> elem_valid(total_count, stream, mr);
-  RepeatedLocationProvider rep_loc{list_offsets, base_offset, d_occurrences.data()};
+  repeated_location_provider rep_loc{list_offsets, base_offset, d_occurrences.data()};
   extract_varint_kernel<int32_t, false>
     <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(message_data,
                                                            rep_loc,
@@ -582,8 +582,8 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, mr);
   auto const threads = THREADS_PER_BLOCK;
   auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
-  RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
-  extract_lengths_kernel<RepeatedLocationProvider>
+  repeated_location_provider loc_provider{list_offsets, base_offset, d_occurrences.data()};
+  extract_lengths_kernel<repeated_location_provider>
     <<<blocks, threads, 0, stream.value()>>>(loc_provider, total_count, str_lengths.data());
 
   auto [str_offsets_col, total_chars] = cudf::strings::detail::make_offsets_child_column(
@@ -591,8 +591,8 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   rmm::device_uvector<char> chars(total_chars, stream, mr);
   if (total_chars > 0) {
-    RepeatedLocationProvider loc_provider{list_offsets, base_offset, d_occurrences.data()};
-    copy_varlen_data_kernel<RepeatedLocationProvider>
+    repeated_location_provider loc_provider{list_offsets, base_offset, d_occurrences.data()};
+    copy_varlen_data_kernel<repeated_location_provider>
       <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                loc_provider,
                                                total_count,
@@ -903,12 +903,12 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
       case cudf::type_id::UINT64:
       case cudf::type_id::FLOAT32:
       case cudf::type_id::FLOAT64: {
-        RepeatedMsgChildLocationProvider loc_provider{d_msg_row_offsets.data(),
-                                                      0,
-                                                      d_msg_locs.data(),
-                                                      d_child_locs.data(),
-                                                      ci,
-                                                      num_child_fields};
+        repeated_msg_child_location_provider loc_provider{d_msg_row_offsets.data(),
+                                                          0,
+                                                          d_msg_locs.data(),
+                                                          d_child_locs.data(),
+                                                          ci,
+                                                          num_child_fields};
         struct_children.push_back(
           extract_typed_column(dt,
                                enc,
@@ -1098,7 +1098,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   int depth,
   bool propagate_invalid_rows)
 {
-  CUDF_EXPECTS(depth < MAX_NESTED_STRUCT_DECODE_DEPTH,
+  CUDF_EXPECTS(depth < MAX_NESTING_DEPTH,
                "Nested protobuf struct depth exceeds supported decode recursion limit");
 
   if (num_rows == 0) {
@@ -1210,12 +1210,12 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
       case cudf::type_id::UINT64:
       case cudf::type_id::FLOAT32:
       case cudf::type_id::FLOAT64: {
-        NestedLocationProvider loc_provider{list_offsets,
-                                            base_offset,
-                                            d_parent_locs.data(),
-                                            d_child_locations.data(),
-                                            ci,
-                                            num_child_fields};
+        nested_location_provider loc_provider{list_offsets,
+                                              base_offset,
+                                              d_parent_locs.data(),
+                                              d_child_locations.data(),
+                                              ci,
+                                              num_child_fields};
         struct_children.push_back(
           extract_typed_column(dt,
                                enc,
@@ -1245,13 +1245,13 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
           rmm::device_uvector<int32_t> out(num_rows, stream, mr);
           rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
           int64_t def_int = has_def ? default_ints[child_schema_idx] : 0;
-          NestedLocationProvider loc_provider{list_offsets,
-                                              base_offset,
-                                              d_parent_locs.data(),
-                                              d_child_locations.data(),
-                                              ci,
-                                              num_child_fields};
-          extract_varint_kernel<int32_t, false, NestedLocationProvider>
+          nested_location_provider loc_provider{list_offsets,
+                                                base_offset,
+                                                d_parent_locs.data(),
+                                                d_child_locations.data(),
+                                                ci,
+                                                num_child_fields};
+          extract_varint_kernel<int32_t, false, nested_location_provider>
             <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                      loc_provider,
                                                      num_rows,
@@ -1287,18 +1287,18 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         } else {
           bool has_def_str    = has_def;
           auto const& def_str = default_strings[child_schema_idx];
-          NestedLocationProvider len_provider{list_offsets,
-                                              base_offset,
-                                              d_parent_locs.data(),
-                                              d_child_locations.data(),
-                                              ci,
-                                              num_child_fields};
-          NestedLocationProvider copy_provider{list_offsets,
-                                               base_offset,
-                                               d_parent_locs.data(),
-                                               d_child_locations.data(),
-                                               ci,
-                                               num_child_fields};
+          nested_location_provider len_provider{list_offsets,
+                                                base_offset,
+                                                d_parent_locs.data(),
+                                                d_child_locations.data(),
+                                                ci,
+                                                num_child_fields};
+          nested_location_provider copy_provider{list_offsets,
+                                                 base_offset,
+                                                 d_parent_locs.data(),
+                                                 d_child_locations.data(),
+                                                 ci,
+                                                 num_child_fields};
           auto valid_fn = [plocs = d_parent_locs.data(),
                            flocs = d_child_locations.data(),
                            ci,
@@ -1329,18 +1329,18 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         // bytes (BinaryType) represented as LIST<UINT8>
         bool has_def_bytes    = has_def;
         auto const& def_bytes = default_strings[child_schema_idx];
-        NestedLocationProvider len_provider{list_offsets,
-                                            base_offset,
-                                            d_parent_locs.data(),
-                                            d_child_locations.data(),
-                                            ci,
-                                            num_child_fields};
-        NestedLocationProvider copy_provider{list_offsets,
-                                             base_offset,
-                                             d_parent_locs.data(),
-                                             d_child_locations.data(),
-                                             ci,
-                                             num_child_fields};
+        nested_location_provider len_provider{list_offsets,
+                                              base_offset,
+                                              d_parent_locs.data(),
+                                              d_child_locations.data(),
+                                              ci,
+                                              num_child_fields};
+        nested_location_provider copy_provider{list_offsets,
+                                               base_offset,
+                                               d_parent_locs.data(),
+                                               d_child_locations.data(),
+                                               ci,
+                                               num_child_fields};
         auto valid_fn = [plocs = d_parent_locs.data(),
                          flocs = d_child_locations.data(),
                          ci,
@@ -1555,7 +1555,8 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   std::unique_ptr<cudf::column> child_values;
   auto const rep_blocks =
     static_cast<int>((total_rep_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
-  NestedRepeatedLocationProvider nr_loc{row_offsets, base_offset, parent_locs, d_rep_occs.data()};
+  nested_repeated_location_provider nr_loc{
+    row_offsets, base_offset, parent_locs, d_rep_occs.data()};
 
   if (elem_type_id == cudf::type_id::BOOL8 || elem_type_id == cudf::type_id::INT32 ||
       elem_type_id == cudf::type_id::UINT32 || elem_type_id == cudf::type_id::INT64 ||
@@ -1593,7 +1594,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
           enum_valid_values[child_schema_idx], enum_names[child_schema_idx], stream, mr);
         rmm::device_uvector<int32_t> enum_values(total_rep_count, stream, mr);
         rmm::device_uvector<bool> valid((total_rep_count > 0 ? total_rep_count : 1), stream, mr);
-        extract_varint_kernel<int32_t, false, NestedRepeatedLocationProvider>
+        extract_varint_kernel<int32_t, false, nested_repeated_location_provider>
           <<<rep_blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(message_data,
                                                                  nr_loc,
                                                                  total_rep_count,

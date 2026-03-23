@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "nvtx_ranges.hpp"
 #include "protobuf/protobuf_host_helpers.hpp"
 
 #include <thrust/binary_search.h>
@@ -172,7 +173,7 @@ bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_typ
   }
 }
 
-void validate_decode_context(ProtobufDecodeContext const& context)
+void validate_decode_context(protobuf_decode_context const& context)
 {
   auto const num_fields = context.schema.size();
   CUDF_EXPECTS(context.default_ints.size() == num_fields,
@@ -276,24 +277,26 @@ void validate_decode_context(ProtobufDecodeContext const& context)
   }
 }
 
-ProtobufFieldMetaView make_field_meta_view(ProtobufDecodeContext const& context, int schema_idx)
+protobuf_field_meta_view make_field_meta_view(protobuf_decode_context const& context,
+                                              int schema_idx)
 {
   auto const idx = static_cast<size_t>(schema_idx);
-  return ProtobufFieldMetaView{context.schema.at(idx),
-                               cudf::data_type{context.schema.at(idx).output_type},
-                               context.default_ints.at(idx),
-                               context.default_floats.at(idx),
-                               context.default_bools.at(idx),
-                               context.default_strings.at(idx),
-                               context.enum_valid_values.at(idx),
-                               context.enum_names.at(idx)};
+  return protobuf_field_meta_view{context.schema.at(idx),
+                                  cudf::data_type{context.schema.at(idx).output_type},
+                                  context.default_ints.at(idx),
+                                  context.default_floats.at(idx),
+                                  context.default_bools.at(idx),
+                                  context.default_strings.at(idx),
+                                  context.enum_valid_values.at(idx),
+                                  context.enum_names.at(idx)};
 }
 
 std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
-                                                        ProtobufDecodeContext const& context,
+                                                        protobuf_decode_context const& context,
                                                         rmm::cuda_stream_view stream,
                                                         rmm::device_async_resource_ref mr)
 {
+  SRJ_FUNC_RANGE();
   validate_decode_context(context);
   auto const& schema            = context.schema;
   auto const& default_ints      = context.default_ints;
@@ -321,14 +324,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         auto field_type = cudf::data_type{schema[i].output_type};
         if (schema[i].is_repeated && field_type.id() == cudf::type_id::STRUCT) {
           // Repeated message field - build empty LIST with proper struct element
-          rmm::device_uvector<int32_t> offsets(1, stream, mr);
-          CUDF_CUDA_TRY(cudaMemsetAsync(offsets.data(), 0, sizeof(int32_t), stream.value()));
-          auto offsets_col = std::make_unique<cudf::column>(
-            cudf::data_type{cudf::type_id::INT32}, 1, offsets.release(), rmm::device_buffer{}, 0);
           auto empty_struct =
             make_empty_struct_column_with_schema(schema, i, num_fields, stream, mr);
-          empty_children.push_back(cudf::make_lists_column(
-            0, std::move(offsets_col), std::move(empty_struct), 0, rmm::device_buffer{}));
+          empty_children.push_back(make_empty_list_column(std::move(empty_struct), stream, mr));
         } else if (field_type.id() == cudf::type_id::STRUCT && !schema[i].is_repeated) {
           // Non-repeated nested message field
           empty_children.push_back(
@@ -726,7 +724,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         auto const dt         = field_meta.output_type;
         auto const enc        = static_cast<int>(field_meta.schema.encoding);
         bool has_def          = field_meta.schema.has_default_value;
-        TopLevelLocationProvider loc_provider{
+        top_level_location_provider loc_provider{
           list_offsets, base_offset, d_locations.data(), i, num_scalar};
         column_map[schema_idx] = extract_typed_column(dt,
                                                       enc,
@@ -769,9 +767,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             rmm::device_uvector<int32_t> out(num_rows, stream, mr);
             rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
             int64_t def_int = has_def ? field_meta.default_int : 0;
-            TopLevelLocationProvider loc_provider{
+            top_level_location_provider loc_provider{
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
-            extract_varint_kernel<int32_t, false, TopLevelLocationProvider>
+            extract_varint_kernel<int32_t, false, top_level_location_provider>
               <<<blocks, threads, 0, stream.value()>>>(message_data,
                                                        loc_provider,
                                                        num_rows,
@@ -801,9 +799,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             // Regular protobuf STRING (length-delimited)
             bool has_def_str    = has_def;
             auto const& def_str = field_meta.default_string;
-            TopLevelLocationProvider len_provider{
+            top_level_location_provider len_provider{
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
-            TopLevelLocationProvider copy_provider{
+            top_level_location_provider copy_provider{
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
             auto valid_fn = [locs = d_locations.data(), i, num_scalar, has_def_str] __device__(
                               cudf::size_type row) {
@@ -831,9 +829,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           // bytes (BinaryType) represented as LIST<UINT8>
           bool has_def_bytes    = has_def;
           auto const& def_bytes = field_meta.default_string;
-          TopLevelLocationProvider len_provider{
+          top_level_location_provider len_provider{
             list_offsets, base_offset, d_locations.data(), i, num_scalar};
-          TopLevelLocationProvider copy_provider{
+          top_level_location_provider copy_provider{
             list_offsets, base_offset, d_locations.data(), i, num_scalar};
           auto valid_fn = [locs = d_locations.data(), i, num_scalar, has_def_bytes] __device__(
                             cudf::size_type row) {

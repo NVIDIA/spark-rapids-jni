@@ -72,7 +72,7 @@ struct nested_field_descriptor {
   bool has_default_value;     // Whether this field has a default value
 };
 
-struct ProtobufDecodeContext {
+struct protobuf_decode_context {
   std::vector<nested_field_descriptor> schema;
   std::vector<int64_t> default_ints;
   std::vector<double> default_floats;
@@ -83,7 +83,7 @@ struct ProtobufDecodeContext {
   bool fail_on_errors;
 };
 
-struct ProtobufFieldMetaView {
+struct protobuf_field_meta_view {
   nested_field_descriptor const& schema;
   cudf::data_type output_type;
   int64_t default_int;
@@ -96,12 +96,13 @@ struct ProtobufFieldMetaView {
 
 bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_type const& type);
 
-void validate_decode_context(ProtobufDecodeContext const& context);
+void validate_decode_context(protobuf_decode_context const& context);
 
-ProtobufFieldMetaView make_field_meta_view(ProtobufDecodeContext const& context, int schema_idx);
+protobuf_field_meta_view make_field_meta_view(protobuf_decode_context const& context,
+                                              int schema_idx);
 
 std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
-                                                        ProtobufDecodeContext const& context,
+                                                        protobuf_decode_context const& context,
                                                         rmm::cuda_stream_view stream,
                                                         rmm::device_async_resource_ref mr);
 

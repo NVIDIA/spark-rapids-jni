@@ -33,7 +33,7 @@ namespace spark_rapids_jni::protobuf::detail {
 // Data Extraction Location Providers
 // ============================================================================
 
-struct TopLevelLocationProvider {
+struct top_level_location_provider {
   cudf::size_type const* offsets;
   cudf::size_type base_offset;
   field_location const* locations;
@@ -50,7 +50,7 @@ struct TopLevelLocationProvider {
   }
 };
 
-struct RepeatedLocationProvider {
+struct repeated_location_provider {
   cudf::size_type const* row_offsets;
   cudf::size_type base_offset;
   repeated_occurrence const* occurrences;
@@ -63,7 +63,7 @@ struct RepeatedLocationProvider {
   }
 };
 
-struct NestedLocationProvider {
+struct nested_location_provider {
   cudf::size_type const* row_offsets;
   cudf::size_type base_offset;
   field_location const* parent_locations;
@@ -86,7 +86,7 @@ struct NestedLocationProvider {
   }
 };
 
-struct NestedRepeatedLocationProvider {
+struct nested_repeated_location_provider {
   cudf::size_type const* row_offsets;
   cudf::size_type base_offset;
   field_location const* parent_locations;
@@ -105,7 +105,7 @@ struct NestedRepeatedLocationProvider {
   }
 };
 
-struct RepeatedMsgChildLocationProvider {
+struct repeated_msg_child_location_provider {
   cudf::size_type const* row_offsets;
   cudf::size_type base_offset;
   field_location const* msg_locations;

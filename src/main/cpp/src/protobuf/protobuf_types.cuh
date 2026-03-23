@@ -40,9 +40,6 @@ constexpr int ERR_SCHEMA_TOO_LARGE        = 10;
 constexpr int ERR_MISSING_ENUM_META       = 11;
 constexpr int ERR_REPEATED_COUNT_MISMATCH = 12;
 
-// Maximum supported nesting depth for recursive struct decoding.
-constexpr int MAX_NESTED_STRUCT_DECODE_DEPTH = 10;
-
 // Threshold for using a direct-mapped lookup table for field_number -> field_index.
 // Field numbers above this threshold fall back to linear search.
 constexpr int FIELD_LOOKUP_TABLE_MAX = 4096;

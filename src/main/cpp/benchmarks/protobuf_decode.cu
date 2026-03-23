@@ -207,9 +207,9 @@ struct FlatScalarCase {
   int num_int_fields;
   int num_string_fields;
 
-  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  spark_rapids_jni::protobuf_decode_context build_context() const
   {
-    spark_rapids_jni::ProtobufDecodeContext ctx;
+    spark_rapids_jni::protobuf_decode_context ctx;
     ctx.fail_on_errors = true;
 
     // type_id cycle for integer-like fields
@@ -311,9 +311,9 @@ struct FlatScalarCase {
 struct NestedMessageCase {
   int num_inner_fields;  // scalar fields inside InnerMessage
 
-  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  spark_rapids_jni::protobuf_decode_context build_context() const
   {
-    spark_rapids_jni::ProtobufDecodeContext ctx;
+    spark_rapids_jni::protobuf_decode_context ctx;
     ctx.fail_on_errors = true;
 
     // idx 0: id (int32, top-level)
@@ -397,9 +397,9 @@ struct RepeatedFieldCase {
   int avg_labels_per_row;
   int avg_items_per_row;
 
-  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  spark_rapids_jni::protobuf_decode_context build_context() const
   {
-    spark_rapids_jni::ProtobufDecodeContext ctx;
+    spark_rapids_jni::protobuf_decode_context ctx;
     ctx.fail_on_errors = true;
 
     // idx 0: id (int32, scalar)
@@ -508,9 +508,9 @@ struct WideRepeatedMessageCase {
   int num_child_fields;
   int avg_items_per_row;
 
-  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  spark_rapids_jni::protobuf_decode_context build_context() const
   {
-    spark_rapids_jni::ProtobufDecodeContext ctx;
+    spark_rapids_jni::protobuf_decode_context ctx;
     ctx.fail_on_errors = true;
 
     // idx 0: id (scalar)
@@ -629,9 +629,9 @@ struct RepeatedChildListCase {
     return (child_idx % 4 == 3);
   }
 
-  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  spark_rapids_jni::protobuf_decode_context build_context() const
   {
-    spark_rapids_jni::ProtobufDecodeContext ctx;
+    spark_rapids_jni::protobuf_decode_context ctx;
     ctx.fail_on_errors = true;
 
     // idx 0: id (scalar)
@@ -782,9 +782,9 @@ struct ManyRepeatedFieldsCase {
   int num_repeated_int;
   int num_repeated_str;
 
-  spark_rapids_jni::ProtobufDecodeContext build_context() const
+  spark_rapids_jni::protobuf_decode_context build_context() const
   {
-    spark_rapids_jni::ProtobufDecodeContext ctx;
+    spark_rapids_jni::protobuf_decode_context ctx;
     ctx.fail_on_errors = true;
 
     int fn = 1;
@@ -1281,7 +1281,7 @@ static void BM_protobuf_repeated_child_string_build(nvbench::state& state)
                                     cudaMemcpyHostToDevice,
                                     stream.value()));
 
-      spark_rapids_jni::protobuf_detail::NestedRepeatedLocationProvider nr_loc{
+      spark_rapids_jni::protobuf_detail::nested_repeated_location_provider nr_loc{
         row_offsets, 0, d_parent_locs.data(), c.occs.data()};
       auto valid_fn = [] __device__(cudf::size_type) { return true; };
       std::vector<uint8_t> empty_default;
