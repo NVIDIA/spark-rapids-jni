@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "nvtx_ranges.hpp"
 #include "protobuf/protobuf_host_helpers.hpp"
 
 #include <set>
@@ -100,7 +101,7 @@ bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_typ
   }
 }
 
-void validate_decode_context(ProtobufDecodeContext const& context)
+void validate_decode_context(protobuf_decode_context const& context)
 {
   auto const num_fields = context.schema.size();
   CUDF_EXPECTS(context.default_ints.size() == num_fields,
@@ -218,24 +219,26 @@ void validate_decode_context(ProtobufDecodeContext const& context)
   }
 }
 
-ProtobufFieldMetaView make_field_meta_view(ProtobufDecodeContext const& context, int schema_idx)
+protobuf_field_meta_view make_field_meta_view(protobuf_decode_context const& context,
+                                              int schema_idx)
 {
   auto const idx = static_cast<size_t>(schema_idx);
-  return ProtobufFieldMetaView{context.schema.at(idx),
-                               cudf::data_type{context.schema.at(idx).output_type},
-                               context.default_ints.at(idx),
-                               context.default_floats.at(idx),
-                               context.default_bools.at(idx),
-                               context.default_strings.at(idx),
-                               context.enum_valid_values.at(idx),
-                               context.enum_names.at(idx)};
+  return protobuf_field_meta_view{context.schema.at(idx),
+                                  cudf::data_type{context.schema.at(idx).output_type},
+                                  context.default_ints.at(idx),
+                                  context.default_floats.at(idx),
+                                  context.default_bools.at(idx),
+                                  context.default_strings.at(idx),
+                                  context.enum_valid_values.at(idx),
+                                  context.enum_names.at(idx)};
 }
 
 std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
-                                                        ProtobufDecodeContext const& context,
+                                                        protobuf_decode_context const& context,
                                                         rmm::cuda_stream_view stream,
                                                         rmm::device_async_resource_ref mr)
 {
+  SRJ_FUNC_RANGE();
   validate_decode_context(context);
   auto const& schema = context.schema;
   CUDF_EXPECTS(binary_input.type().id() == cudf::type_id::LIST,
@@ -264,14 +267,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       if (schema[i].parent_idx == -1) {
         auto field_type = cudf::data_type{schema[i].output_type};
         if (schema[i].is_repeated && field_type.id() == cudf::type_id::STRUCT) {
-          rmm::device_uvector<int32_t> offsets(1, stream, mr);
-          CUDF_CUDA_TRY(cudaMemsetAsync(offsets.data(), 0, sizeof(int32_t), stream.value()));
-          auto offsets_col = std::make_unique<cudf::column>(
-            cudf::data_type{cudf::type_id::INT32}, 1, offsets.release(), rmm::device_buffer{}, 0);
           auto empty_struct =
             make_empty_struct_column_with_schema(schema, i, num_fields, stream, mr);
-          empty_children.push_back(cudf::make_lists_column(
-            0, std::move(offsets_col), std::move(empty_struct), 0, rmm::device_buffer{}));
+          empty_children.push_back(make_empty_list_column(std::move(empty_struct), stream, mr));
         } else if (schema[i].is_repeated) {
           auto empty_child = make_empty_column_safe(field_type, stream, mr);
           empty_children.push_back(make_empty_list_column(std::move(empty_child), stream, mr));

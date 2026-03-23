@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * Copyright (c) 2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -180,6 +180,11 @@ public class ProtobufTest {
                  new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT}), true)) {
       assertEquals(3, result.getRowCount());
       assertEquals(2, result.getNumChildren());
+      try (HostColumnVector hcv = result.copyToHost()) {
+        for (int row = 0; row < 3; row++) {
+          assertTrue(hcv.isNull(row), "Row " + row + " should be null");
+        }
+      }
     }
   }
 

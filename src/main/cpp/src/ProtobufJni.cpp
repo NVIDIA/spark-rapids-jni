@@ -196,14 +196,14 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       }
     }
 
-    spark_rapids_jni::protobuf::ProtobufDecodeContext context{std::move(schema),
-                                                              std::move(default_int_values),
-                                                              std::move(default_float_values),
-                                                              std::move(default_bool_values),
-                                                              std::move(default_string_values),
-                                                              std::move(enum_values),
-                                                              std::move(enum_name_values),
-                                                              static_cast<bool>(fail_on_errors)};
+    spark_rapids_jni::protobuf::protobuf_decode_context context{std::move(schema),
+                                                                std::move(default_int_values),
+                                                                std::move(default_float_values),
+                                                                std::move(default_bool_values),
+                                                                std::move(default_string_values),
+                                                                std::move(enum_values),
+                                                                std::move(enum_name_values),
+                                                                static_cast<bool>(fail_on_errors)};
 
     auto result = spark_rapids_jni::protobuf::decode_protobuf_to_struct(
       *input, context, cudf::get_default_stream(), cudf::get_current_device_resource_ref());
