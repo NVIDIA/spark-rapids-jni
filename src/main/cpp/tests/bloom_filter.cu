@@ -53,10 +53,11 @@ TEST_F(BloomFilterTest, InitializationV1)
 
     auto bytes =
       (bloom_filter->view().data<int8_t>()) + spark_rapids_jni::bloom_filter_header_v1_size_bytes;
-    CUDF_EXPECTS(
-      thrust::all_of(
-        rmm::exec_policy(cudf::get_default_stream()), bytes, bytes + bloom_filter_size, is_zero{}),
-      "Bloom filter not initialized to 0");
+    CUDF_EXPECTS(thrust::all_of(rmm::exec_policy_nosync(cudf::get_default_stream()),
+                                bytes,
+                                bytes + bloom_filter_size,
+                                is_zero{}),
+                 "Bloom filter not initialized to 0");
   }
 }
 
@@ -159,7 +160,7 @@ TEST_F(BloomFilterTest, ProbeMergedV1)
     {bloom_filter_a->view(), bloom_filter_b->view(), bloom_filter_c->view()});
   auto premerge_children = cudf::concatenate(cols);
   auto premerge_offsets  = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32}, 4);
-  thrust::transform(rmm::exec_policy(cudf::get_default_stream()),
+  thrust::transform(rmm::exec_policy_nosync(cudf::get_default_stream()),
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(0) + 4,
                     premerge_offsets->mutable_view().begin<cudf::size_type>(),
@@ -259,10 +260,11 @@ TEST_F(BloomFilterTest, BuildWithNullsAndProbeV2)
 
   spark_rapids_jni::bloom_filter_put(*bloom_filter, input, stream);
 
-  cudf::test::fixed_width_column_wrapper<int64_t> probe_inserted{80, 100, 99, -9, 234000000};
-  cudf::test::fixed_width_column_wrapper<bool> expected_inserted{1, 1, 1, 1, 1};
-  auto result = spark_rapids_jni::bloom_filter_probe(probe_inserted, *bloom_filter, stream);
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_inserted, *result);
+  cudf::test::fixed_width_column_wrapper<int64_t> probe{
+    20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3};
+  cudf::test::fixed_width_column_wrapper<bool> expected{0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0};
+  auto result = spark_rapids_jni::bloom_filter_probe(probe, *bloom_filter, stream);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
 }
 
 TEST_F(BloomFilterTest, BuildAndProbeWithNullsV2)

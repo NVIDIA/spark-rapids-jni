@@ -305,7 +305,7 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_create(int version,
   SRJ_FUNC_RANGE();
   CUDF_EXPECTS(version == bloom_filter_version_1 || version == bloom_filter_version_2,
                "Bloom filter version must be 1 or 2");
-
+  CUDF_EXPECTS(num_hashes > 0, "Bloom filter hash count must be positive");
   CUDF_EXPECTS(bloom_filter_longs > 0, "Bloom filter bit count must be positive");
 
   auto [bloom_filter_size, buf_size] = get_bloom_filter_stride(version, bloom_filter_longs);
