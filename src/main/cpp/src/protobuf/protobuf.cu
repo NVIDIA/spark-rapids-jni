@@ -15,7 +15,9 @@
  */
 
 #include "nvtx_ranges.hpp"
-#include "protobuf/protobuf_host_helpers.hpp"
+#include "protobuf/protobuf_kernels.cuh"
+
+#include <cudf/lists/lists_column_view.hpp>
 
 #include <set>
 #include <string>

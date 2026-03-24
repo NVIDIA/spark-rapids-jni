@@ -17,7 +17,6 @@
 #include "protobuf/protobuf_kernels.cuh"
 
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
 
 #include <rmm/device_uvector.hpp>
@@ -81,9 +80,8 @@ void maybe_check_required_fields(field_location const* locations,
 {
   if (num_rows == 0 || field_indices.empty()) { return; }
 
-  bool has_required = false;
-  auto h_is_required =
-    cudf::detail::make_host_vector<uint8_t>(field_indices.size(), cudf::get_default_stream());
+  bool has_required  = false;
+  auto h_is_required = cudf::detail::make_host_vector<uint8_t>(field_indices.size(), stream);
   for (size_t i = 0; i < field_indices.size(); ++i) {
     h_is_required[i] = schema[field_indices[i]].is_required ? 1 : 0;
     has_required |= (h_is_required[i] != 0);
@@ -154,7 +152,7 @@ void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_
 
 void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
                                       rmm::device_uvector<bool>& valid,
-                                      std::vector<int32_t> const& valid_enums,
+                                      cudf::detail::host_vector<int32_t> const& valid_enums,
                                       rmm::device_uvector<bool>& row_invalid,
                                       int num_items,
                                       int32_t const* top_row_indices,
@@ -164,13 +162,9 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
 {
   if (num_items == 0 || valid_enums.empty()) { return; }
 
-  auto const blocks = static_cast<int>((num_items + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
-  rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
-                                valid_enums.data(),
-                                valid_enums.size() * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  auto const blocks  = static_cast<int>((num_items + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  auto d_valid_enums = cudf::detail::make_device_uvector_async(
+    valid_enums, stream, rmm::mr::get_current_device_resource());
 
   rmm::device_uvector<bool> item_invalid(num_items, stream, mr);
   thrust::fill(rmm::exec_policy_nosync(stream), item_invalid.begin(), item_invalid.end(), false);
