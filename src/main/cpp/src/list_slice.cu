@@ -19,8 +19,7 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/copy.hpp>
-#include <cudf/detail/gather.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/grid_1d.cuh>
@@ -195,12 +194,14 @@ std::unique_ptr<cudf::column> legal_list_slice(lists_column_view const& input,
 
   // The following code is adapted from cudf::lists::segmented_gather
   // Call gather on child of input column
-  auto child_table = cudf::detail::gather(table_view({input.get_sliced_child(stream)}),
-                                          gather_map,
-                                          out_of_bounds_policy::DONT_CHECK,
-                                          cudf::detail::negative_index_policy::NOT_ALLOWED,
-                                          stream,
-                                          mr);
+  auto const col_map =
+    cudf::column_view(cudf::device_span<int32_t const>(gather_map.data(), gather_map.size()));
+  auto child_table = cudf::gather(table_view({input.get_sliced_child(stream)}),
+                                  col_map,
+                                  out_of_bounds_policy::DONT_CHECK,
+                                  negative_index_policy::NOT_ALLOWED,
+                                  stream,
+                                  mr);
 
   auto child = std::move(child_table->release().front());
 

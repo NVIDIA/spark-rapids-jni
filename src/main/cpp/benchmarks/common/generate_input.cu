@@ -19,7 +19,7 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/gather.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/filling.hpp>
@@ -279,7 +279,7 @@ struct random_value_fn<T, std::enable_if_t<cudf::is_fixed_point<T>()>> {
                       [scale       = *(this->scale),
                        upper_bound = this->upper_bound,
                        lower_bound = this->lower_bound] __device__(auto int_value) {
-                        return T{std::clamp(int_value, lower_bound, upper_bound), scale};
+                        return T{cuda::std::clamp(int_value, lower_bound, upper_bound), scale};
                       });
     return result;
   }
@@ -355,7 +355,7 @@ rmm::device_uvector<cudf::size_type> sample_indices_with_run_length(cudf::size_t
     auto const approx_run_len = num_rows / avg_run_len + 1;
     auto run_lens             = avglen_dist(engine, approx_run_len);
     thrust::inclusive_scan(
-      thrust::device, run_lens.begin(), run_lens.end(), run_lens.begin(), std::plus<int>{});
+      thrust::device, run_lens.begin(), run_lens.end(), run_lens.begin(), cuda::std::plus<int>{});
     auto const samples_indices = sample_dist(engine, approx_run_len + 1);
     // This is gather.
     auto avg_repeated_sample_indices_iterator = thrust::make_transform_iterator(
@@ -548,12 +548,14 @@ std::unique_ptr<cudf::column> create_random_column<cudf::string_view>(data_profi
     create_random_utf8_string_column(profile, engine, cardinality == 0 ? num_rows : cardinality);
   if (cardinality == 0) { return sample_strings; }
   auto sample_indices = sample_indices_with_run_length(avg_run_len, cardinality, num_rows, engine);
-  auto str_table      = cudf::detail::gather(cudf::table_view{{sample_strings->view()}},
-                                        sample_indices,
-                                        cudf::out_of_bounds_policy::DONT_CHECK,
-                                        cudf::detail::negative_index_policy::NOT_ALLOWED,
-                                        cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource_ref());
+  auto sample_indices_span =
+    cudf::device_span<cudf::size_type const>(sample_indices.data(), sample_indices.size());
+  auto str_table = cudf::gather(cudf::table_view{{sample_strings->view()}},
+                                cudf::column_view{sample_indices_span},
+                                cudf::out_of_bounds_policy::DONT_CHECK,
+                                cudf::negative_index_policy::NOT_ALLOWED,
+                                cudf::get_default_stream(),
+                                rmm::mr::get_current_device_resource_ref());
   return std::move(str_table->release()[0]);
 }
 
