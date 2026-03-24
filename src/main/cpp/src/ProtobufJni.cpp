@@ -19,6 +19,63 @@
 
 #include <cudf/utilities/default_stream.hpp>
 
+namespace {
+
+std::vector<std::vector<uint8_t>> jni_byte_array_of_arrays_to_vectors(JNIEnv* env,
+                                                                      jobjectArray arr,
+                                                                      int num_fields)
+{
+  std::vector<std::vector<uint8_t>> result;
+  result.reserve(num_fields);
+  for (int i = 0; i < num_fields; ++i) {
+    jbyteArray byte_arr = static_cast<jbyteArray>(env->GetObjectArrayElement(arr, i));
+    if (env->ExceptionCheck()) { return {}; }
+    if (byte_arr == nullptr) {
+      result.emplace_back();
+    } else {
+      jsize len    = env->GetArrayLength(byte_arr);
+      jbyte* bytes = env->GetByteArrayElements(byte_arr, nullptr);
+      if (bytes == nullptr) {
+        env->DeleteLocalRef(byte_arr);
+        return {};
+      }
+      result.emplace_back(reinterpret_cast<uint8_t*>(bytes),
+                          reinterpret_cast<uint8_t*>(bytes) + len);
+      env->ReleaseByteArrayElements(byte_arr, bytes, JNI_ABORT);
+      env->DeleteLocalRef(byte_arr);
+    }
+  }
+  return result;
+}
+
+std::vector<std::vector<int32_t>> jni_int_array_of_arrays_to_vectors(JNIEnv* env,
+                                                                     jobjectArray arr,
+                                                                     int num_fields)
+{
+  std::vector<std::vector<int32_t>> result;
+  result.reserve(num_fields);
+  for (int i = 0; i < num_fields; ++i) {
+    jintArray int_arr = static_cast<jintArray>(env->GetObjectArrayElement(arr, i));
+    if (env->ExceptionCheck()) { return {}; }
+    if (int_arr == nullptr) {
+      result.emplace_back();
+    } else {
+      jsize len  = env->GetArrayLength(int_arr);
+      jint* ints = env->GetIntArrayElements(int_arr, nullptr);
+      if (ints == nullptr) {
+        env->DeleteLocalRef(int_arr);
+        return {};
+      }
+      result.emplace_back(ints, ints + len);
+      env->ReleaseIntArrayElements(int_arr, ints, JNI_ABORT);
+      env->DeleteLocalRef(int_arr);
+    }
+  }
+  return result;
+}
+
+}  // namespace
+
 extern "C" {
 
 JNIEXPORT jlong JNICALL
@@ -111,52 +168,13 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     std::vector<int64_t> default_int_values(n_default_ints.begin(), n_default_ints.end());
     std::vector<double> default_float_values(n_default_floats.begin(), n_default_floats.end());
 
-    // Convert default string values
-    std::vector<std::vector<uint8_t>> default_string_values;
-    default_string_values.reserve(num_fields);
-    for (int i = 0; i < num_fields; ++i) {
-      jbyteArray byte_arr = static_cast<jbyteArray>(env->GetObjectArrayElement(default_strings, i));
-      if (env->ExceptionCheck()) { return 0; }
-      if (byte_arr == nullptr) {
-        default_string_values.emplace_back();
-      } else {
-        jsize len    = env->GetArrayLength(byte_arr);
-        jbyte* bytes = env->GetByteArrayElements(byte_arr, nullptr);
-        if (bytes == nullptr) {
-          env->DeleteLocalRef(byte_arr);
-          return 0;
-        }
-        default_string_values.emplace_back(reinterpret_cast<uint8_t*>(bytes),
-                                           reinterpret_cast<uint8_t*>(bytes) + len);
-        env->ReleaseByteArrayElements(byte_arr, bytes, JNI_ABORT);
-        env->DeleteLocalRef(byte_arr);
-      }
-    }
+    auto default_string_values =
+      jni_byte_array_of_arrays_to_vectors(env, default_strings, num_fields);
+    if (env->ExceptionCheck()) { return 0; }
 
-    // Convert enum valid values
-    std::vector<std::vector<int32_t>> enum_values;
-    enum_values.reserve(num_fields);
-    for (int i = 0; i < num_fields; ++i) {
-      jintArray int_arr = static_cast<jintArray>(env->GetObjectArrayElement(enum_valid_values, i));
-      if (env->ExceptionCheck()) { return 0; }
-      if (int_arr == nullptr) {
-        enum_values.emplace_back();
-      } else {
-        jsize len  = env->GetArrayLength(int_arr);
-        jint* ints = env->GetIntArrayElements(int_arr, nullptr);
-        if (ints == nullptr) {
-          env->DeleteLocalRef(int_arr);
-          return 0;
-        }
-        enum_values.emplace_back(ints, ints + len);
-        env->ReleaseIntArrayElements(int_arr, ints, JNI_ABORT);
-        env->DeleteLocalRef(int_arr);
-      }
-    }
+    auto enum_values = jni_int_array_of_arrays_to_vectors(env, enum_valid_values, num_fields);
+    if (env->ExceptionCheck()) { return 0; }
 
-    // Convert enum names (byte[][][]). For each field:
-    // - null => not an enum-as-string field
-    // - byte[][] where each byte[] is UTF-8 enum name, ordered with enum_values[field]
     std::vector<std::vector<std::vector<uint8_t>>> enum_name_values;
     enum_name_values.reserve(num_fields);
     for (int i = 0; i < num_fields; ++i) {
@@ -165,33 +183,11 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
       if (names_arr == nullptr) {
         enum_name_values.emplace_back();
       } else {
-        jsize num_names = env->GetArrayLength(names_arr);
-        std::vector<std::vector<uint8_t>> names_for_field;
-        names_for_field.reserve(num_names);
-        for (jsize j = 0; j < num_names; ++j) {
-          jbyteArray name_bytes = static_cast<jbyteArray>(env->GetObjectArrayElement(names_arr, j));
-          if (env->ExceptionCheck()) {
-            env->DeleteLocalRef(names_arr);
-            return 0;
-          }
-          if (name_bytes == nullptr) {
-            names_for_field.emplace_back();
-          } else {
-            jsize len    = env->GetArrayLength(name_bytes);
-            jbyte* bytes = env->GetByteArrayElements(name_bytes, nullptr);
-            if (bytes == nullptr) {
-              env->DeleteLocalRef(name_bytes);
-              env->DeleteLocalRef(names_arr);
-              return 0;
-            }
-            names_for_field.emplace_back(reinterpret_cast<uint8_t*>(bytes),
-                                         reinterpret_cast<uint8_t*>(bytes) + len);
-            env->ReleaseByteArrayElements(name_bytes, bytes, JNI_ABORT);
-            env->DeleteLocalRef(name_bytes);
-          }
-        }
-        enum_name_values.push_back(std::move(names_for_field));
+        jsize num_names      = env->GetArrayLength(names_arr);
+        auto names_for_field = jni_byte_array_of_arrays_to_vectors(env, names_arr, num_names);
         env->DeleteLocalRef(names_arr);
+        if (env->ExceptionCheck()) { return 0; }
+        enum_name_values.push_back(std::move(names_for_field));
       }
     }
 

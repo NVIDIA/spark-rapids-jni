@@ -20,6 +20,7 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
@@ -34,7 +35,6 @@
 #include <thrust/fill.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/reduce.h>
 #include <thrust/remove.h>
 #include <thrust/scan.h>
 #include <thrust/sort.h>
@@ -635,10 +635,12 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
   rmm::device_async_resource_ref mr)
 {
   int32_t def_len = has_default ? static_cast<int32_t>(default_bytes.size()) : 0;
-  rmm::device_uvector<uint8_t> d_default(def_len, stream, mr);
+  rmm::device_uvector<uint8_t> d_default(0, stream, mr);
   if (has_default && def_len > 0) {
-    CUDF_CUDA_TRY(cudaMemcpyAsync(
-      d_default.data(), default_bytes.data(), def_len, cudaMemcpyHostToDevice, stream.value()));
+    auto h_default = cudf::detail::make_host_vector<uint8_t>(def_len, stream);
+    std::copy(default_bytes.begin(), default_bytes.end(), h_default.begin());
+    d_default = cudf::detail::make_device_uvector_async(
+      h_default, stream, rmm::mr::get_current_device_resource());
   }
 
   rmm::device_uvector<int32_t> lengths(num_rows, stream, mr);

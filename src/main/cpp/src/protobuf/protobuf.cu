@@ -15,7 +15,7 @@
  */
 
 #include "nvtx_ranges.hpp"
-#include "protobuf/protobuf_host_helpers.hpp"
+#include "protobuf/protobuf_host_helpers.cuh"
 
 #include <thrust/binary_search.h>
 
