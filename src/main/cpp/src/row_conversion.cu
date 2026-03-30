@@ -19,10 +19,10 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/offsets_iterator_factory.cuh>
-#include <cudf/detail/sequence.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/filling.hpp>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
@@ -1234,7 +1234,7 @@ static std::unique_ptr<column> fixed_width_convert_to_rows(
 
   // Allocate and set the offsets row for the byte array
   std::unique_ptr<column> offsets =
-    cudf::detail::sequence(num_rows + 1, zero, scalar_size_per_row, stream, mr);
+    cudf::sequence(num_rows + 1, zero, scalar_size_per_row, stream, mr);
 
   std::unique_ptr<column> data = make_numeric_column(data_type(type_id::INT8),
                                                      static_cast<size_type>(total_allocation),
@@ -1262,9 +1262,7 @@ static std::unique_ptr<column> fixed_width_convert_to_rows(
                            std::move(offsets),
                            std::move(data),
                            0,
-                           rmm::device_buffer{0, cudf::get_default_stream(), mr},
-                           stream,
-                           mr);
+                           rmm::device_buffer{0, cudf::get_default_stream(), mr});
 }
 
 static inline bool are_all_fixed_width(std::vector<data_type> const& schema)
@@ -1978,9 +1976,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
                                             std::move(offsets),
                                             std::move(data),
                                             0,
-                                            rmm::device_buffer{0, cudf::get_default_stream(), mr},
-                                            stream,
-                                            mr);
+                                            rmm::device_buffer{0, cudf::get_default_stream(), mr});
                  });
 
   return ret;
