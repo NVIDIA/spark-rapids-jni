@@ -36,12 +36,15 @@ public class ProtobufSchemaDescriptorTest {
       int encoding,
       int[] enumValidValues,
       byte[][] enumNames) {
+    int outputType = (encoding == Protobuf.ENC_ENUM_STRING)
+        ? ai.rapids.cudf.DType.STRING.getTypeId().getNativeId()
+        : ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
     return new ProtobufSchemaDescriptor(
         new int[]{1},
         new int[]{-1},
         new int[]{0},
         new int[]{Protobuf.WT_VARINT},
-        new int[]{ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
+        new int[]{outputType},
         new int[]{encoding},
         new boolean[]{isRepeated},
         new boolean[]{false},

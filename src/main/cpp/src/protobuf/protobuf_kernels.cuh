@@ -139,7 +139,7 @@ CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
                                        int64_t default_value = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
+  if (idx >= total_items) { return; }
 
   int32_t data_offset = 0;
   auto loc            = loc_provider.get(idx, data_offset);
@@ -157,9 +157,9 @@ CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
   if (loc.offset < 0) {
     if (has_default) {
       write_value(&out[idx], static_cast<uint64_t>(default_value));
-      if (valid) valid[idx] = true;
+      if (valid) { valid[idx] = true; }
     } else {
-      if (valid) valid[idx] = false;
+      if (valid) { valid[idx] = false; }
     }
     return;
   }
@@ -171,13 +171,13 @@ CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
   int n;
   if (!read_varint(cur, cur_end, v, n)) {
     set_error_once(error_flag, ERR_VARINT);
-    if (valid) valid[idx] = false;
+    if (valid) { valid[idx] = false; }
     return;
   }
 
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
   write_value(&out[idx], v);
-  if (valid) valid[idx] = true;
+  if (valid) { valid[idx] = true; }
 }
 
 template <typename OutputType, int WT, typename LocationProvider>
@@ -191,7 +191,7 @@ CUDF_KERNEL void extract_fixed_kernel(uint8_t const* message_data,
                                       OutputType default_value = OutputType{})
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
+  if (idx >= total_items) { return; }
 
   int32_t data_offset = 0;
   auto loc            = loc_provider.get(idx, data_offset);
@@ -199,9 +199,9 @@ CUDF_KERNEL void extract_fixed_kernel(uint8_t const* message_data,
   if (loc.offset < 0) {
     if (has_default) {
       out[idx] = default_value;
-      if (valid) valid[idx] = true;
+      if (valid) { valid[idx] = true; }
     } else {
-      if (valid) valid[idx] = false;
+      if (valid) { valid[idx] = false; }
     }
     return;
   }
@@ -212,7 +212,7 @@ CUDF_KERNEL void extract_fixed_kernel(uint8_t const* message_data,
   if constexpr (WT == wire_type_value(proto_wire_type::I32BIT)) {
     if (loc.length < 4) {
       set_error_once(error_flag, ERR_FIXED_LEN);
-      if (valid) valid[idx] = false;
+      if (valid) { valid[idx] = false; }
       return;
     }
     uint32_t raw = load_le<uint32_t>(cur);
@@ -220,7 +220,7 @@ CUDF_KERNEL void extract_fixed_kernel(uint8_t const* message_data,
   } else {
     if (loc.length < 8) {
       set_error_once(error_flag, ERR_FIXED_LEN);
-      if (valid) valid[idx] = false;
+      if (valid) { valid[idx] = false; }
       return;
     }
     uint64_t raw = load_le<uint64_t>(cur);
@@ -228,7 +228,7 @@ CUDF_KERNEL void extract_fixed_kernel(uint8_t const* message_data,
   }
 
   out[idx] = value;
-  if (valid) valid[idx] = true;
+  if (valid) { valid[idx] = true; }
 }
 
 // ============================================================================
@@ -257,7 +257,7 @@ CUDF_KERNEL void extract_varint_batched_kernel(uint8_t const* message_data,
 {
   int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   int fi  = static_cast<int>(blockIdx.y);
-  if (row >= num_rows || fi >= num_descs) return;
+  if (row >= num_rows || fi >= num_descs) { return; }
 
   auto const& desc = descs[fi];
   auto loc         = locations[row * num_loc_fields + desc.loc_field_idx];
@@ -310,7 +310,7 @@ CUDF_KERNEL void extract_fixed_batched_kernel(uint8_t const* message_data,
 {
   int row = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   int fi  = static_cast<int>(blockIdx.y);
-  if (row >= num_rows || fi >= num_descs) return;
+  if (row >= num_rows || fi >= num_descs) { return; }
 
   auto const& desc = descs[fi];
   auto loc         = locations[row * num_loc_fields + desc.loc_field_idx];
@@ -365,7 +365,7 @@ CUDF_KERNEL void extract_lengths_kernel(LocationProvider loc_provider,
                                         int32_t default_length = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
+  if (idx >= total_items) { return; }
 
   int32_t data_offset = 0;
   auto loc            = loc_provider.get(idx, data_offset);
@@ -390,7 +390,7 @@ CUDF_KERNEL void copy_varlen_data_kernel(uint8_t const* message_data,
                                          int default_len              = 0)
 {
   auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
+  if (idx >= total_items) { return; }
 
   int32_t data_offset = 0;
   auto loc            = loc_provider.get(idx, data_offset);

@@ -18,8 +18,8 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/detail/utilities/host_vector.hpp>
 #include <cudf/types.hpp>
-#include <cudf/utilities/export.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
@@ -77,21 +77,21 @@ struct protobuf_decode_context {
   std::vector<int64_t> default_ints;
   std::vector<double> default_floats;
   std::vector<bool> default_bools;
-  std::vector<std::vector<uint8_t>> default_strings;
-  std::vector<std::vector<int32_t>> enum_valid_values;
-  std::vector<std::vector<std::vector<uint8_t>>> enum_names;
+  std::vector<cudf::detail::host_vector<uint8_t>> default_strings;
+  std::vector<cudf::detail::host_vector<int32_t>> enum_valid_values;
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> enum_names;
   bool fail_on_errors;
 };
 
 struct protobuf_field_meta_view {
   nested_field_descriptor const& schema;
-  cudf::data_type output_type;
+  cudf::data_type const output_type;
   int64_t default_int;
   double default_float;
   bool default_bool;
-  std::vector<uint8_t> const& default_string;
-  std::vector<int32_t> const& enum_valid_values;
-  std::vector<std::vector<uint8_t>> const& enum_names;
+  cudf::detail::host_vector<uint8_t> const& default_string;
+  cudf::detail::host_vector<int32_t> const& enum_valid_values;
+  std::vector<cudf::detail::host_vector<uint8_t>> const& enum_names;
 };
 
 bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_type const& type);

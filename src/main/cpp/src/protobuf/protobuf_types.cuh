@@ -98,7 +98,7 @@ struct device_nested_field_descriptor {
   int parent_idx;
   int depth;
   int wire_type;
-  cudf::type_id output_type;
+  int output_type_id;
   int encoding;
   bool is_repeated;
   bool is_required;
@@ -114,7 +114,7 @@ struct device_nested_field_descriptor {
       parent_idx(src.parent_idx),
       depth(src.depth),
       wire_type(static_cast<int>(src.wire_type)),
-      output_type(src.output_type),
+      output_type_id(static_cast<int>(src.output_type)),
       encoding(static_cast<int>(src.encoding)),
       is_repeated(src.is_repeated),
       is_required(src.is_required),

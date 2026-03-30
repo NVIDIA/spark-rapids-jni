@@ -259,6 +259,20 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr);
 
+/**
+ * Extract output type from either nested_field_descriptor (.output_type is cudf::type_id)
+ * or device_nested_field_descriptor (.output_type_id is int).
+ */
+template <typename FieldT>
+inline cudf::type_id get_output_type_id(FieldT const& field)
+{
+  if constexpr (std::is_same_v<FieldT, device_nested_field_descriptor>) {
+    return static_cast<cudf::type_id>(field.output_type_id);
+  } else {
+    return field.output_type;
+  }
+}
+
 template <typename SchemaT>
 std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   SchemaT const& schema,
@@ -271,7 +285,7 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
 
   std::vector<std::unique_ptr<cudf::column>> children;
   for (int child_idx : child_indices) {
-    auto child_type = cudf::data_type{schema[child_idx].output_type};
+    auto child_type = cudf::data_type{get_output_type_id(schema[child_idx])};
 
     std::unique_ptr<cudf::column> child_col;
     if (child_type.id() == cudf::type_id::STRUCT) {
@@ -480,7 +494,7 @@ void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_
 
 void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
                                       rmm::device_uvector<bool>& valid,
-                                      std::vector<int32_t> const& valid_enums,
+                                      cudf::detail::host_vector<int32_t> const& valid_enums,
                                       rmm::device_uvector<bool>& row_invalid,
                                       int num_items,
                                       int32_t const* top_row_indices,
@@ -506,8 +520,8 @@ std::unique_ptr<cudf::column> make_null_list_column_with_child(
 std::unique_ptr<cudf::column> build_enum_string_column(
   rmm::device_uvector<int32_t>& enum_values,
   rmm::device_uvector<bool>& valid,
-  std::vector<int32_t> const& valid_enums,
-  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  cudf::detail::host_vector<int32_t> const& valid_enums,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& enum_name_bytes,
   rmm::device_uvector<bool>& d_row_force_null,
   int num_rows,
   rmm::cuda_stream_view stream,
@@ -525,8 +539,8 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
-  std::vector<int32_t> const& valid_enums,
-  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  cudf::detail::host_vector<int32_t> const& valid_enums,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& enum_name_bytes,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -559,9 +573,9 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   int num_rows,
@@ -584,9 +598,9 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -611,10 +625,10 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
   std::vector<nested_field_descriptor> const& schema,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error_top,
   rmm::cuda_stream_view stream,
@@ -629,7 +643,7 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
   CopyProvider const& copy_provider,
   ValidityFn validity_fn,
   bool has_default,
-  std::vector<uint8_t> const& default_bytes,
+  cudf::detail::host_vector<uint8_t> const& default_bytes,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -637,10 +651,8 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
   int32_t def_len = has_default ? static_cast<int32_t>(default_bytes.size()) : 0;
   rmm::device_uvector<uint8_t> d_default(0, stream, mr);
   if (has_default && def_len > 0) {
-    auto h_default = cudf::detail::make_host_vector<uint8_t>(def_len, stream);
-    std::copy(default_bytes.begin(), default_bytes.end(), h_default.begin());
     d_default = cudf::detail::make_device_uvector_async(
-      h_default, stream, rmm::mr::get_current_device_resource());
+      default_bytes, stream, rmm::mr::get_current_device_resource());
   }
 
   rmm::device_uvector<int32_t> lengths(num_rows, stream, mr);
@@ -701,10 +713,10 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
   int64_t default_int,
   double default_float,
   bool default_bool,
-  std::vector<uint8_t> const& default_string,
+  cudf::detail::host_vector<uint8_t> const& default_string,
   int schema_idx,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -866,6 +878,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   rmm::device_async_resource_ref mr)
 {
   auto const input_null_count = binary_input.null_count();
+  auto const field_type_id    = static_cast<cudf::type_id>(field_desc.output_type_id);
 
   if (total_count == 0) {
     // All rows have count=0, but we still need to check input nulls
@@ -876,9 +889,8 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                                       offsets.release(),
                                                       rmm::device_buffer{},
                                                       0);
-    auto elem_type =
-      field_desc.output_type == cudf::type_id::LIST ? cudf::type_id::UINT8 : field_desc.output_type;
-    auto child_col = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
+    auto elem_type   = field_type_id == cudf::type_id::LIST ? cudf::type_id::UINT8 : field_type_id;
+    auto child_col   = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
 
     if (input_null_count > 0) {
       // Copy input null mask - only input nulls produce output nulls
@@ -945,11 +957,8 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                                     list_offs.release(),
                                                     rmm::device_buffer{},
                                                     0);
-  auto child_col   = std::make_unique<cudf::column>(cudf::data_type{field_desc.output_type},
-                                                  total_count,
-                                                  values.release(),
-                                                  rmm::device_buffer{},
-                                                  0);
+  auto child_col   = std::make_unique<cudf::column>(
+    cudf::data_type{field_type_id}, total_count, values.release(), rmm::device_buffer{}, 0);
 
   // Only rows where INPUT is null should produce null output
   // Rows with valid input but count=0 should produce empty array []

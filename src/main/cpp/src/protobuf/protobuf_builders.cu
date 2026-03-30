@@ -247,19 +247,16 @@ struct enum_string_lookup_tables {
 };
 
 enum_string_lookup_tables make_enum_string_lookup_tables(
-  std::vector<int32_t> const& valid_enums,
-  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  cudf::detail::host_vector<int32_t> const& valid_enums,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& enum_name_bytes,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  rmm::device_uvector<int32_t> d_valid_enums(valid_enums.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_valid_enums.data(),
-                                valid_enums.data(),
-                                valid_enums.size() * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  auto d_valid_enums = cudf::detail::make_device_uvector_async(
+    valid_enums, stream, rmm::mr::get_current_device_resource());
 
-  std::vector<int32_t> h_name_offsets(valid_enums.size() + 1, 0);
+  auto h_name_offsets = cudf::detail::make_host_vector<int32_t>(valid_enums.size() + 1, stream);
+  std::fill(h_name_offsets.begin(), h_name_offsets.end(), 0);
   int64_t total_name_chars = 0;
   for (size_t k = 0; k < enum_name_bytes.size(); ++k) {
     total_name_chars += static_cast<int64_t>(enum_name_bytes[k].size());
@@ -268,8 +265,8 @@ enum_string_lookup_tables make_enum_string_lookup_tables(
     h_name_offsets[k + 1] = static_cast<int32_t>(total_name_chars);
   }
 
-  std::vector<uint8_t> h_name_chars(total_name_chars);
-  int32_t cursor = 0;
+  auto h_name_chars = cudf::detail::make_host_vector<uint8_t>(total_name_chars, stream);
+  int32_t cursor    = 0;
   for (auto const& name : enum_name_bytes) {
     if (!name.empty()) {
       std::copy(name.data(), name.data() + name.size(), h_name_chars.data() + cursor);
@@ -277,21 +274,16 @@ enum_string_lookup_tables make_enum_string_lookup_tables(
     }
   }
 
-  rmm::device_uvector<int32_t> d_name_offsets(h_name_offsets.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_offsets.data(),
-                                h_name_offsets.data(),
-                                h_name_offsets.size() * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  auto d_name_offsets = cudf::detail::make_device_uvector_async(
+    h_name_offsets, stream, rmm::mr::get_current_device_resource());
 
-  rmm::device_uvector<uint8_t> d_name_chars(total_name_chars, stream, mr);
-  if (total_name_chars > 0) {
-    CUDF_CUDA_TRY(cudaMemcpyAsync(d_name_chars.data(),
-                                  h_name_chars.data(),
-                                  total_name_chars * sizeof(uint8_t),
-                                  cudaMemcpyHostToDevice,
-                                  stream.value()));
-  }
+  auto d_name_chars = [&]() {
+    if (total_name_chars > 0) {
+      return cudf::detail::make_device_uvector_async(
+        h_name_chars, stream, rmm::mr::get_current_device_resource());
+    }
+    return rmm::device_uvector<uint8_t>(0, stream, mr);
+  }();
 
   return {std::move(d_valid_enums), std::move(d_name_offsets), std::move(d_name_chars)};
 }
@@ -339,8 +331,8 @@ std::unique_ptr<cudf::column> build_enum_string_values_column(
 std::unique_ptr<cudf::column> build_enum_string_column(
   rmm::device_uvector<int32_t>& enum_values,
   rmm::device_uvector<bool>& valid,
-  std::vector<int32_t> const& valid_enums,
-  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  cudf::detail::host_vector<int32_t> const& valid_enums,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& enum_name_bytes,
   rmm::device_uvector<bool>& d_row_force_null,
   int num_rows,
   rmm::cuda_stream_view stream,
@@ -380,8 +372,8 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column(
   int child_idx,
   int num_child_fields,
   int total_count,
-  std::vector<int32_t> const& valid_enums,
-  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  cudf::detail::host_vector<int32_t> const& valid_enums,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& enum_name_bytes,
   rmm::device_uvector<bool>& d_row_force_null,
   int32_t const* top_row_indices,
   bool propagate_invalid_rows,
@@ -442,8 +434,8 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
-  std::vector<int32_t> const& valid_enums,
-  std::vector<std::vector<uint8_t>> const& enum_name_bytes,
+  cudf::detail::host_vector<int32_t> const& valid_enums,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& enum_name_bytes,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -652,9 +644,9 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   int num_rows,
@@ -680,9 +672,9 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -707,10 +699,10 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
   std::vector<nested_field_descriptor> const& schema,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error_top,
   rmm::cuda_stream_view stream,
@@ -1086,9 +1078,9 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   int num_rows,
@@ -1437,9 +1429,9 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   std::vector<int64_t> const& default_ints,
   std::vector<double> const& default_floats,
   std::vector<bool> const& default_bools,
-  std::vector<std::vector<uint8_t>> const& default_strings,
-  std::vector<std::vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<std::vector<uint8_t>>> const& enum_names,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -1459,7 +1451,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   device_nested_field_descriptor rep_desc;
   rep_desc.field_number      = schema[child_schema_idx].field_number;
   rep_desc.wire_type         = static_cast<int>(schema[child_schema_idx].wire_type);
-  rep_desc.output_type       = schema[child_schema_idx].output_type;
+  rep_desc.output_type_id    = static_cast<int>(schema[child_schema_idx].output_type);
   rep_desc.is_repeated       = true;
   rep_desc.parent_idx        = -1;
   rep_desc.depth             = 0;
@@ -1573,7 +1565,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                         0,
                                         0.0,
                                         false,
-                                        std::vector<uint8_t>{},
+                                        cudf::detail::make_host_vector<uint8_t>(0, stream),
                                         child_schema_idx,
                                         enum_valid_values,
                                         enum_names,
@@ -1630,10 +1622,10 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
         child_values = make_null_column(cudf::data_type{elem_type_id}, total_rep_count, stream, mr);
       }
     } else {
-      bool as_bytes = (elem_type_id == cudf::type_id::LIST);
-      auto valid_fn = [] __device__(cudf::size_type) { return true; };
-      std::vector<uint8_t> empty_default;
-      child_values = extract_and_build_string_or_bytes_column(as_bytes,
+      bool as_bytes      = (elem_type_id == cudf::type_id::LIST);
+      auto valid_fn      = [] __device__(cudf::size_type) { return true; };
+      auto empty_default = cudf::detail::make_host_vector<uint8_t>(0, stream);
+      child_values       = extract_and_build_string_or_bytes_column(as_bytes,
                                                               message_data,
                                                               total_rep_count,
                                                               nr_loc,

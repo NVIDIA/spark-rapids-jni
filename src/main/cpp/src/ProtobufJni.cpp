@@ -17,61 +17,70 @@
 #include "cudf_jni_apis.hpp"
 #include "protobuf/protobuf.hpp"
 
+#include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
 namespace {
 
-std::vector<std::vector<uint8_t>> jni_byte_array_of_arrays_to_vectors(JNIEnv* env,
-                                                                      jobjectArray arr,
-                                                                      int num_fields)
+/**
+ * Convert a Java Object[] of primitive arrays into a vector-of-vectors.
+ * @tparam CppT   Element type in the output vectors (e.g. host_vector<uint8_t>,
+ * host_vector<int32_t>).
+ * @param convert Per-element callback: (JNIEnv*, jobject) -> std::vector<CppT>.
+ *                Must return an empty vector on null input.  Returns std::nullopt on JNI error.
+ */
+template <typename CppT, typename ConvertFn>
+std::vector<CppT> jni_array_of_arrays_to_vectors(JNIEnv* env,
+                                                 jobjectArray arr,
+                                                 int num_elements,
+                                                 ConvertFn convert)
 {
-  std::vector<std::vector<uint8_t>> result;
-  result.reserve(num_fields);
-  for (int i = 0; i < num_fields; ++i) {
-    jbyteArray byte_arr = static_cast<jbyteArray>(env->GetObjectArrayElement(arr, i));
+  std::vector<CppT> result;
+  result.reserve(num_elements);
+  for (int i = 0; i < num_elements; ++i) {
+    jobject elem = env->GetObjectArrayElement(arr, i);
     if (env->ExceptionCheck()) { return {}; }
-    if (byte_arr == nullptr) {
-      result.emplace_back();
-    } else {
-      jsize len    = env->GetArrayLength(byte_arr);
-      jbyte* bytes = env->GetByteArrayElements(byte_arr, nullptr);
-      if (bytes == nullptr) {
-        env->DeleteLocalRef(byte_arr);
-        return {};
-      }
-      result.emplace_back(reinterpret_cast<uint8_t*>(bytes),
-                          reinterpret_cast<uint8_t*>(bytes) + len);
-      env->ReleaseByteArrayElements(byte_arr, bytes, JNI_ABORT);
-      env->DeleteLocalRef(byte_arr);
-    }
+    auto vec = convert(env, elem);
+    if (elem != nullptr) { env->DeleteLocalRef(elem); }
+    if (env->ExceptionCheck()) { return {}; }
+    result.push_back(std::move(vec));
   }
   return result;
 }
 
-std::vector<std::vector<int32_t>> jni_int_array_of_arrays_to_vectors(JNIEnv* env,
-                                                                     jobjectArray arr,
-                                                                     int num_fields)
+cudf::detail::host_vector<uint8_t> jni_byte_array_to_vector(JNIEnv* env, jobject obj)
 {
-  std::vector<std::vector<int32_t>> result;
-  result.reserve(num_fields);
-  for (int i = 0; i < num_fields; ++i) {
-    jintArray int_arr = static_cast<jintArray>(env->GetObjectArrayElement(arr, i));
-    if (env->ExceptionCheck()) { return {}; }
-    if (int_arr == nullptr) {
-      result.emplace_back();
-    } else {
-      jsize len  = env->GetArrayLength(int_arr);
-      jint* ints = env->GetIntArrayElements(int_arr, nullptr);
-      if (ints == nullptr) {
-        env->DeleteLocalRef(int_arr);
-        return {};
-      }
-      result.emplace_back(ints, ints + len);
-      env->ReleaseIntArrayElements(int_arr, ints, JNI_ABORT);
-      env->DeleteLocalRef(int_arr);
-    }
+  if (obj == nullptr) {
+    return cudf::detail::make_host_vector<uint8_t>(0, cudf::get_default_stream());
   }
-  return result;
+  auto byte_arr = static_cast<jbyteArray>(obj);
+  jsize len     = env->GetArrayLength(byte_arr);
+  jbyte* bytes  = env->GetByteArrayElements(byte_arr, nullptr);
+  if (bytes == nullptr) {
+    return cudf::detail::make_host_vector<uint8_t>(0, cudf::get_default_stream());
+  }
+  auto vec = cudf::detail::make_host_vector<uint8_t>(len, cudf::get_default_stream());
+  std::copy(
+    reinterpret_cast<uint8_t*>(bytes), reinterpret_cast<uint8_t*>(bytes) + len, vec.begin());
+  env->ReleaseByteArrayElements(byte_arr, bytes, JNI_ABORT);
+  return vec;
+}
+
+cudf::detail::host_vector<int32_t> jni_int_array_to_vector(JNIEnv* env, jobject obj)
+{
+  if (obj == nullptr) {
+    return cudf::detail::make_host_vector<int32_t>(0, cudf::get_default_stream());
+  }
+  auto int_arr = static_cast<jintArray>(obj);
+  jsize len    = env->GetArrayLength(int_arr);
+  jint* ints   = env->GetIntArrayElements(int_arr, nullptr);
+  if (ints == nullptr) {
+    return cudf::detail::make_host_vector<int32_t>(0, cudf::get_default_stream());
+  }
+  auto vec = cudf::detail::make_host_vector<int32_t>(len, cudf::get_default_stream());
+  std::copy(ints, ints + len, vec.begin());
+  env->ReleaseIntArrayElements(int_arr, ints, JNI_ABORT);
+  return vec;
 }
 
 }  // namespace
@@ -168,28 +177,27 @@ Java_com_nvidia_spark_rapids_jni_Protobuf_decodeToStruct(JNIEnv* env,
     std::vector<int64_t> default_int_values(n_default_ints.begin(), n_default_ints.end());
     std::vector<double> default_float_values(n_default_floats.begin(), n_default_floats.end());
 
-    auto default_string_values =
-      jni_byte_array_of_arrays_to_vectors(env, default_strings, num_fields);
+    auto default_string_values = jni_array_of_arrays_to_vectors<cudf::detail::host_vector<uint8_t>>(
+      env, default_strings, num_fields, jni_byte_array_to_vector);
     if (env->ExceptionCheck()) { return 0; }
 
-    auto enum_values = jni_int_array_of_arrays_to_vectors(env, enum_valid_values, num_fields);
+    auto enum_values = jni_array_of_arrays_to_vectors<cudf::detail::host_vector<int32_t>>(
+      env, enum_valid_values, num_fields, jni_int_array_to_vector);
     if (env->ExceptionCheck()) { return 0; }
 
-    std::vector<std::vector<std::vector<uint8_t>>> enum_name_values;
-    enum_name_values.reserve(num_fields);
-    for (int i = 0; i < num_fields; ++i) {
-      jobjectArray names_arr = static_cast<jobjectArray>(env->GetObjectArrayElement(enum_names, i));
-      if (env->ExceptionCheck()) { return 0; }
-      if (names_arr == nullptr) {
-        enum_name_values.emplace_back();
-      } else {
-        jsize num_names      = env->GetArrayLength(names_arr);
-        auto names_for_field = jni_byte_array_of_arrays_to_vectors(env, names_arr, num_names);
-        env->DeleteLocalRef(names_arr);
-        if (env->ExceptionCheck()) { return 0; }
-        enum_name_values.push_back(std::move(names_for_field));
-      }
-    }
+    auto enum_name_values =
+      jni_array_of_arrays_to_vectors<std::vector<cudf::detail::host_vector<uint8_t>>>(
+        env,
+        enum_names,
+        num_fields,
+        [](JNIEnv* e, jobject obj) -> std::vector<cudf::detail::host_vector<uint8_t>> {
+          if (obj == nullptr) { return {}; }
+          auto inner_arr = static_cast<jobjectArray>(obj);
+          jsize num      = e->GetArrayLength(inner_arr);
+          return jni_array_of_arrays_to_vectors<cudf::detail::host_vector<uint8_t>>(
+            e, inner_arr, num, jni_byte_array_to_vector);
+        });
+    if (env->ExceptionCheck()) { return 0; }
 
     spark_rapids_jni::protobuf::protobuf_decode_context context{std::move(schema),
                                                                 std::move(default_int_values),

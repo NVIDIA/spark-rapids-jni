@@ -580,7 +580,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         bool zz  = (enc == proto_encoding::ZIGZAG);
 
         // STRING, LIST, and enum-as-string go to per-field path
-        if (tid == cudf::type_id::STRING || tid == cudf::type_id::LIST) continue;
+        if (tid == cudf::type_id::STRING || tid == cudf::type_id::LIST) { continue; }
 
         bool is_fixed = (enc == proto_encoding::FIXED);
 
@@ -592,39 +592,40 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         }
 
         int g = GRP_FALLBACK;
-        if (tid == cudf::type_id::INT32 && is_fixed)
+        if (tid == cudf::type_id::INT32 && is_fixed) {
           g = 9;
-        else if (tid == cudf::type_id::INT64 && is_fixed)
+        } else if (tid == cudf::type_id::INT64 && is_fixed) {
           g = 10;
-        else if (tid == cudf::type_id::UINT32 && is_fixed)
+        } else if (tid == cudf::type_id::UINT32 && is_fixed) {
           g = 9;
-        else if (tid == cudf::type_id::UINT64 && is_fixed)
+        } else if (tid == cudf::type_id::UINT64 && is_fixed) {
           g = 10;
-        else if (tid == cudf::type_id::INT32 && !zz)
+        } else if (tid == cudf::type_id::INT32 && !zz) {
           g = 0;
-        else if (tid == cudf::type_id::UINT32)
+        } else if (tid == cudf::type_id::UINT32) {
           g = 1;
-        else if (tid == cudf::type_id::INT64 && !zz)
+        } else if (tid == cudf::type_id::INT64 && !zz) {
           g = 2;
-        else if (tid == cudf::type_id::UINT64)
+        } else if (tid == cudf::type_id::UINT64) {
           g = 3;
-        else if (tid == cudf::type_id::BOOL8)
+        } else if (tid == cudf::type_id::BOOL8) {
           g = 4;
-        else if (tid == cudf::type_id::INT32 && zz)
+        } else if (tid == cudf::type_id::INT32 && zz) {
           g = 5;
-        else if (tid == cudf::type_id::INT64 && zz)
+        } else if (tid == cudf::type_id::INT64 && zz) {
           g = 6;
-        else if (tid == cudf::type_id::FLOAT32)
+        } else if (tid == cudf::type_id::FLOAT32) {
           g = 7;
-        else if (tid == cudf::type_id::FLOAT64)
+        } else if (tid == cudf::type_id::FLOAT64) {
           g = 8;
+        }
         group_lists[g].push_back(i);
       }
 
       // Helper: batch-extract one group using a 2D kernel, then build columns.
       auto do_batch = [&](std::vector<int> const& idxs, auto kernel_launcher) {
         int nf = static_cast<int>(idxs.size());
-        if (nf == 0) return;
+        if (nf == 0) { return; }
 
         std::vector<std::unique_ptr<scalar_buf_pair>> bufs;
         bufs.reserve(nf);
@@ -753,7 +754,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       int schema_idx        = scalar_field_indices[i];
       auto const field_meta = make_field_meta_view(context, schema_idx);
       auto const dt         = field_meta.output_type;
-      if (dt.id() != cudf::type_id::STRING && dt.id() != cudf::type_id::LIST) continue;
+      if (dt.id() != cudf::type_id::STRING && dt.id() != cudf::type_id::LIST) { continue; }
       auto const enc = field_meta.schema.encoding;
       bool has_def   = field_meta.schema.has_default_value;
 
@@ -988,7 +989,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         auto& d_occurrences = *w.occurrences;
 
         // Build the appropriate column type based on element type
-        auto child_type_id = h_device_schema[schema_idx].output_type;
+        auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
 
         // The output_type in schema is the LIST type, but we need element type
         // For repeated int32, output_type should indicate the element is INT32
@@ -1209,7 +1210,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
         // Build appropriate empty child column
         std::unique_ptr<cudf::column> child_col;
-        auto child_type_id = h_device_schema[schema_idx].output_type;
+        auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
         if (child_type_id == cudf::type_id::STRUCT) {
           // Use helper to build empty struct with proper nested structure
           child_col =
