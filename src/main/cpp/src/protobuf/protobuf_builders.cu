@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "protobuf/protobuf_host_helpers.cuh"
+#include "protobuf/protobuf_kernels.cuh"
 
 #include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/strings/detail/strings_column_factories.cuh>
