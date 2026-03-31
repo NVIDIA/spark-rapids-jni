@@ -22,12 +22,12 @@
 #include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 
+#include <cuda/std/cmath>
 #include <cuda/std/functional>
+#include <cuda/std/type_traits>
 #include <cuda/std/utility>
 #include <thrust/count.h>
 #include <thrust/for_each.h>
-
-#include <cstdlib>  // For abs() function
 
 /**
  * This file is ported from Spark 3.5.0 org.apache.spark.sql.catalyst.util.NumberConverter
@@ -54,8 +54,8 @@ enum class ansi_mode {
 
 CUDF_HOST_DEVICE bool is_invalid_base_range(int from_base, int to_base)
 {
-  return from_base < MIN_BASE || from_base > MAX_BASE || std::abs(to_base) < MIN_BASE ||
-         std::abs(to_base) > MAX_BASE;
+  return from_base < MIN_BASE || from_base > MAX_BASE || cuda::std::abs(to_base) < MIN_BASE ||
+         cuda::std::abs(to_base) > MAX_BASE;
 }
 
 /**
@@ -218,7 +218,7 @@ __device__ cuda::std::pair<result_type, int> convert(
   }
 
   // write out string representation
-  auto to_base_abs = std::abs(to_base);
+  auto to_base_abs = cuda::std::abs(to_base);
   int out_idx      = out_len - 1;
   uint64_t uv      = static_cast<uint64_t>(v);
 
@@ -279,8 +279,8 @@ struct const_base {
 
 template <typename STR_ITERATOR, typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR>
 struct convert_fn {
-  static constexpr bool IS_CONST_BASES =
-    std::is_same_v<const_base, FROM_BASE_ITERATOR> && std::is_same_v<const_base, TO_BASE_ITERATOR>;
+  static constexpr bool IS_CONST_BASES = cuda::std::is_same_v<const_base, FROM_BASE_ITERATOR> &&
+                                         cuda::std::is_same_v<const_base, TO_BASE_ITERATOR>;
 
   STR_ITERATOR input;
   FROM_BASE_ITERATOR from_base_iter;
@@ -370,8 +370,8 @@ std::unique_ptr<cudf::column> convert_impl(cudf::size_type num_rows,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
 {
-  static constexpr bool IS_CONST_BASES =
-    std::is_same_v<const_base, FROM_BASE_ITERATOR> && std::is_same_v<const_base, TO_BASE_ITERATOR>;
+  static constexpr bool IS_CONST_BASES = cuda::std::is_same_v<const_base, FROM_BASE_ITERATOR> &&
+                                         cuda::std::is_same_v<const_base, TO_BASE_ITERATOR>;
   if (num_rows == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
   // check base is in range: [2, 36]
@@ -418,8 +418,8 @@ __device__ bool is_convert_overflow(char const* ptr, int len, int from_base, int
 
 template <typename STR_ITERATOR, typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR>
 struct is_overflow_fn {
-  static constexpr bool IS_CONST_BASES =
-    std::is_same_v<const_base, FROM_BASE_ITERATOR> && std::is_same_v<const_base, TO_BASE_ITERATOR>;
+  static constexpr bool IS_CONST_BASES = cuda::std::is_same_v<const_base, FROM_BASE_ITERATOR> &&
+                                         cuda::std::is_same_v<const_base, TO_BASE_ITERATOR>;
   STR_ITERATOR input;
   FROM_BASE_ITERATOR from_base_iter;
   TO_BASE_ITERATOR to_base_iter;
@@ -456,8 +456,8 @@ bool is_convert_overflow_impl(cudf::size_type num_rows,
                               rmm::cuda_stream_view stream,
                               rmm::device_async_resource_ref mr)
 {
-  static constexpr bool IS_CONST_BASES =
-    std::is_same_v<const_base, FROM_BASE_ITERATOR> && std::is_same_v<const_base, TO_BASE_ITERATOR>;
+  static constexpr bool IS_CONST_BASES = cuda::std::is_same_v<const_base, FROM_BASE_ITERATOR> &&
+                                         cuda::std::is_same_v<const_base, TO_BASE_ITERATOR>;
   if (IS_CONST_BASES) {
     // const bases, check bases only once
     if (is_invalid_base_range(from_base.get(0), to_base.get(0))) {

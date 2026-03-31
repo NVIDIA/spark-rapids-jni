@@ -31,17 +31,17 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuco/detail/hash_functions/murmurhash3.cuh>
+#include <cuda/std/limits>
 #include <thrust/tabulate.h>
 
 #include <cstdint>
-#include <limits>
 
 namespace spark_rapids_jni {
 
 namespace {
 
 // Constants for bucket computation
-constexpr int32_t INT_MAX_VALUE = std::numeric_limits<int32_t>::max();
+constexpr int32_t INT_MAX_VALUE = cuda::std::numeric_limits<int32_t>::max();
 
 /**
  * @brief Iceberg MurmurHash3_32 implementation that matches Java Guava's Murmur3_32HashFunction.

@@ -35,6 +35,7 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_select.cuh>
 #include <cuda/functional>
+#include <cuda/std/limits>
 #include <cuda/std/utility>
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
@@ -46,8 +47,6 @@
 #include <thrust/scan.h>
 #include <thrust/sequence.h>
 #include <thrust/transform.h>
-
-#include <limits>
 
 namespace spark_rapids_jni {
 
@@ -619,7 +618,7 @@ std::unique_ptr<cudf::column> compute_list_offsets(
     parent_node_ids.end(),
     node_child_counts.begin(),
     cuda::proclaim_return_type<NodeIndexT>([] __device__(auto const parent_id) -> NodeIndexT {
-      return parent_id < 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
+      return parent_id < 0 ? 0 : cuda::std::numeric_limits<NodeIndexT>::lowest();
     }));
 
   auto const is_key = cuda::proclaim_return_type<bool>(

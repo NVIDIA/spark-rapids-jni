@@ -123,9 +123,9 @@ struct value_generator {
     engine.discard(n);
     if constexpr (cuda::std::is_integral_v<T> &&
                   cuda::std::is_floating_point_v<decltype(dist(engine))>) {
-      return std::clamp(static_cast<T>(std::round(dist(engine))), lower_bound, upper_bound);
+      return cuda::std::clamp(static_cast<T>(std::round(dist(engine))), lower_bound, upper_bound);
     } else {
-      return std::clamp(dist(engine), lower_bound, upper_bound);
+      return cuda::std::clamp(dist(engine), lower_bound, upper_bound);
     }
     // Note: uniform does not need clamp, because already range is guaranteed to be within bounds.
   }

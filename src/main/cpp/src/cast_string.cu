@@ -27,8 +27,10 @@
 
 #include <cooperative_groups.h>
 #include <cub/warp/warp_reduce.cuh>
+#include <cuda/std/algorithm>
 #include <cuda/std/optional>
 #include <cuda/std/tuple>
+#include <cuda/std/type_traits>
 #include <cuda/std/utility>
 #include <thrust/find.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -47,7 +49,7 @@ constexpr auto NUM_THREADS{256};
  * @param chr character to test
  * @return true if character is a whitespace character
  */
-constexpr bool is_whitespace(char const chr)
+__host__ __device__ constexpr bool is_whitespace(char const chr)
 {
   // Whitespace characters include:
   // - Space (0x20, ' ')
@@ -83,7 +85,7 @@ constexpr T __device__ generic_abs(T value)
 template <typename T>
 bool __device__ will_overflow(T const val, bool adding)
 {
-  if constexpr (std::is_signed_v<T>) {
+  if constexpr (cuda::std::is_signed_v<T>) {
     if (!adding) {
       auto constexpr minval = cuda::std::numeric_limits<T>::min() / 10;
       return val < minval;
@@ -106,7 +108,7 @@ bool __device__ will_overflow(T const val, bool adding)
 template <typename T>
 bool __device__ will_overflow(T const lhs, T const rhs, bool adding)
 {
-  if constexpr (std::is_signed_v<T>) {
+  if constexpr (cuda::std::is_signed_v<T>) {
     if (!adding) {
       auto const minval = cuda::std::numeric_limits<T>::min() + rhs;
       return lhs < minval;
@@ -184,7 +186,7 @@ CUDF_KERNEL void string_to_integer_kernel(T* out,
   T thread_val           = 0;
   int i                  = 0;
   T sign                 = 1;
-  constexpr bool is_signed_type = std::is_signed_v<T>;
+  constexpr bool is_signed_type = cuda::std::is_signed_v<T>;
 
   if (valid) {
     if (strip) {
@@ -534,7 +536,7 @@ CUDF_KERNEL void string_to_decimal_kernel(T* out,
     }
 
     auto const significant_preceding_zeros = decimal_location < 0 ? -decimal_location : 0;
-    auto const zeros_to_decimal            = std::max(
+    auto const zeros_to_decimal            = cuda::std::max(
       0, scale > 0 ? decimal_location - total_digits - scale : decimal_location - total_digits);
     auto const significant_digits_before_decimal =
       significant_digits_before_decimal_in_string + zeros_to_decimal + rounding_digits;

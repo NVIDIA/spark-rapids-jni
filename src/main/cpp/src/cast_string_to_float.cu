@@ -28,6 +28,8 @@
 #include <rmm/resource_ref.hpp>
 
 #include <cub/warp/warp_reduce.cuh>
+#include <cuda/std/cmath>
+#include <cuda/std/limits>
 #include <cuda/std/utility>
 
 using namespace cudf;
@@ -44,7 +46,7 @@ __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
  * @param chr character to test
  * @return true if character is a whitespace character
  */
-constexpr bool is_whitespace(char const chr)
+__host__ __device__ constexpr bool is_whitespace(char const chr)
 {
   // Whitespace characters include:
   // - Space (0x20, ' ')
@@ -113,8 +115,8 @@ class string_to_float {
     // check for inf / infinity
     if (check_for_inf()) {
       if (_warp_lane == 0) {
-        _out[_row] =
-          sign >= 0 ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
+        _out[_row] = sign >= 0 ? cuda::std::numeric_limits<T>::infinity()
+                               : -cuda::std::numeric_limits<T>::infinity();
       }
       compute_validity(_valid, _except);
       return;
@@ -164,9 +166,9 @@ class string_to_float {
       int exp_ten = exp_base + manual_exp;
 
       // final value
-      if (exp_ten > std::numeric_limits<double>::max_exponent10) {
-        _out[_row] = sign >= 0 ? std::numeric_limits<double>::infinity()
-                               : -std::numeric_limits<double>::infinity();
+      if (exp_ten > cuda::std::numeric_limits<double>::max_exponent10) {
+        _out[_row] = sign >= 0 ? cuda::std::numeric_limits<double>::infinity()
+                               : -cuda::std::numeric_limits<double>::infinity();
       } else {
         // make sure we don't produce a subnormal number.
         // - a normal number is one where the leading digit of the floating point rep is not zero.
@@ -182,7 +184,7 @@ class string_to_float {
         // https://en.wikipedia.org/wiki/Denormal_number
         //
 
-        auto const subnormal_shift = std::numeric_limits<double>::min_exponent10 - exp_ten;
+        auto const subnormal_shift = cuda::std::numeric_limits<double>::min_exponent10 - exp_ten;
         if (subnormal_shift > 0) {
           // Handle subnormal values. Ensure that both base and exponent are
           // normal values before computing their product.
@@ -192,7 +194,7 @@ class string_to_float {
           auto const exponent = exp10(static_cast<double>(exp_ten + subnormal_shift));
           _out[_row]          = static_cast<T>(digitsf * exponent);
         } else {
-          double const exponent = exp10(static_cast<double>(std::abs(exp_ten)));
+          double const exponent = exp10(static_cast<double>(cuda::std::abs(exp_ten)));
           double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
 
           _out[_row] = static_cast<T>(result);
@@ -426,7 +428,7 @@ class string_to_float {
       //        1,844,674,407,370,955,160 + 1X   -> 18,446,744,073,709,551,61X  -> potentially rolls
       //        past the limit
       //
-      constexpr uint64_t max_holding = (std::numeric_limits<uint64_t>::max() - 9) / 10;
+      constexpr uint64_t max_holding = (cuda::std::numeric_limits<uint64_t>::max() - 9) / 10;
       // if we're already past the max_holding, just truncate.
       // eg:    9,999,999,999,999,999,999
       if (digits > max_holding) {

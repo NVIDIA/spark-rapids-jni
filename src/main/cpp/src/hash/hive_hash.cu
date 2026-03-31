@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <cuda/std/type_traits>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/tabulate.h>
 
@@ -57,7 +58,7 @@ hive_hash_value_t __device__ inline compute_bytes(int8_t const* data, cudf::size
 template <typename Key>
 struct hive_hash_function {
   // 'seed' is not used in 'hive_hash_function', but required by 'element_hasher'.
-  constexpr hive_hash_function(uint32_t) {}
+  __host__ __device__ constexpr hive_hash_function(uint32_t) {}
 
   [[nodiscard]] hive_hash_value_t __device__ inline operator()(Key const& key) const
   {
@@ -165,7 +166,7 @@ class hive_device_row_hasher {
     : _check_nulls{check_nulls}, _table{t}
   {
     // Error out if passed an unsupported hash_function
-    static_assert(std::is_base_of_v<hive_hash_function<int>, hash_function<int>>,
+    static_assert(cuda::std::is_base_of_v<hive_hash_function<int>, hash_function<int>>,
                   "hive_device_row_hasher only supports the 'hive_hash_function' hash function");
   }
 
@@ -223,7 +224,7 @@ class hive_device_row_hasher {
         delete;  // Because the default constructor of `cudf::column_device_view` is deleted
 
       __device__ col_stack_frame(cudf::column_device_view col)
-        : _column(std::move(col)), _idx_to_process(0), _cur_hash(HIVE_INIT_HASH)
+        : _column(cuda::std::move(col)), _idx_to_process(0), _cur_hash(HIVE_INIT_HASH)
       {
       }
 

@@ -40,6 +40,8 @@
 
 #include <cub/device/device_memcpy.cuh>
 #include <cuda/functional>
+#include <cuda/std/type_traits>
+#include <cuda/std/utility>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
@@ -237,8 +239,8 @@ __global__ void compute_offset_child_row_counts(
       // if I'm a root column, use the base partition row info
       // otherwise use the row info computed for me by my parent
       return offset_info.parent < 0 || base_num_rows == 0
-               ? std::pair<size_type, size_type>{base_num_rows, base_src_row_index}
-               : std::pair<size_type, size_type>{
+               ? cuda::std::pair<size_type, size_type>{base_num_rows, base_src_row_index}
+               : cuda::std::pair<size_type, size_type>{
                    column_instances[offset_info.parent + base_col_index].child_num_rows,
                    column_instances[offset_info.parent + base_col_index].child_src_row_index};
     }();
@@ -499,7 +501,8 @@ namespace {
  *
  * @return Size of the required allocation in bytes
  */
-constexpr size_t bitmask_allocation_size_bytes(size_type number_of_bits, int pad)
+__host__ __device__ constexpr size_t bitmask_allocation_size_bytes(size_type number_of_bits,
+                                                                   int pad)
 {
   return cudf::util::round_up_safe((number_of_bits + 7) / 8, pad);
 }
@@ -537,7 +540,9 @@ struct assemble_src_buffer_size_functor {
     *data_out = cudf::type_dispatcher(data_type{col.type}, size_of_helper{}) * col.num_rows;
   }
 
-  template <typename T, typename OutputIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
+  template <typename T,
+            typename OutputIter,
+            CUDF_ENABLE_IF(cuda::std::is_same_v<T, cudf::list_view>)>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
                              OutputIter offsets_out,
@@ -553,7 +558,9 @@ struct assemble_src_buffer_size_functor {
     *data_out = 0;
   }
 
-  template <typename T, typename OutputIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
+  template <typename T,
+            typename OutputIter,
+            CUDF_ENABLE_IF(cuda::std::is_same_v<T, cudf::struct_view>)>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
                              OutputIter offsets_out,
@@ -567,7 +574,9 @@ struct assemble_src_buffer_size_functor {
     *data_out    = 0;
   }
 
-  template <typename T, typename OutputIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
+  template <typename T,
+            typename OutputIter,
+            CUDF_ENABLE_IF(cuda::std::is_same_v<T, cudf::string_view>)>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
                              OutputIter offsets_out,
@@ -585,9 +594,10 @@ struct assemble_src_buffer_size_functor {
 
   template <typename T,
             typename OutputIter,
-            CUDF_ENABLE_IF(!std::is_same_v<T, cudf::struct_view> &&
-                           !std::is_same_v<T, cudf::list_view> &&
-                           !std::is_same_v<T, cudf::string_view> && !cudf::is_fixed_width<T>())>
+            CUDF_ENABLE_IF(!cuda::std::is_same_v<T, cudf::struct_view> &&
+                           !cuda::std::is_same_v<T, cudf::list_view> &&
+                           !cuda::std::is_same_v<T, cudf::string_view> &&
+                           !cudf::is_fixed_width<T>())>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
                              OutputIter offsets_out,
@@ -787,7 +797,7 @@ constexpr std::size_t desired_assemble_batch_size = 1 * 1024 * 1024;
 /**
  * @brief Return the number of batches the specified number of bytes should be split into.
  */
-constexpr size_t size_to_batch_count(size_t bytes)
+__host__ __device__ constexpr size_t size_to_batch_count(size_t bytes)
 {
   return util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size;
 }
@@ -1232,7 +1242,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
           switch (btype) {
             // validity gets batched
             case buffer_type::VALIDITY:
-              return std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
+              return cuda::std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
 
             // for offsets, all source buffers have an extra offset per partition (the terminating
             // offset for that partition) that we need to ignore, except in the case of the final
@@ -1260,7 +1270,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
                   cinfo_inst.row_index + cinfo_inst.num_rows == last_row_index;
 
                 auto const size =
-                  std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
+                  cuda::std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
                 return is_terminating_partition ? size : size - 4;
               }
             }
