@@ -16,9 +16,11 @@
 #include "hyper_log_log_plus_plus.hpp"
 #include "hyper_log_log_plus_plus_const.hpp"
 #include "hyper_log_log_plus_plus_host_udf.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/iterator.cuh>
+#include <cudf/scalar/scalar.hpp>
+#include <cudf/table/table.hpp>
 
 namespace spark_rapids_jni {
 
@@ -55,7 +57,7 @@ struct hllpp_groupby_udf : cudf::groupby_host_udf {
   {
     int num_registers       = 1 << precision;
     int num_long_cols       = num_registers / REGISTERS_PER_LONG + 1;
-    auto const results_iter = cudf::detail::make_counting_transform_iterator(
+    auto const results_iter = spark_rapids_jni::util::make_counting_transform_iterator(
       0, [&](int i) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT64}); });
     auto children =
       std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
@@ -99,7 +101,7 @@ struct hllpp_reduct_udf : cudf::reduce_host_udf {
   {
     int num_registers       = 1 << precision;
     int num_long_cols       = num_registers / REGISTERS_PER_LONG + 1;
-    auto const results_iter = cudf::detail::make_counting_transform_iterator(
+    auto const results_iter = spark_rapids_jni::util::make_counting_transform_iterator(
       0, [&](int i) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT64}); });
     auto children =
       std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);

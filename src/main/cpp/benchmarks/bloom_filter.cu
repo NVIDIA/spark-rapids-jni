@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,17 +22,18 @@
 #include <hash/hash.hpp>
 #include <nvbench/nvbench.cuh>
 
-static void bloom_filter_put(nvbench::state& state)
+namespace {
+
+void bloom_filter_put_impl(nvbench::state& state, int version)
 {
   constexpr int num_rows   = 150'000'000;
   constexpr int num_hashes = 3;
 
-  // create the bloom filter
   cudf::size_type const bloom_filter_bytes = state.get_int64("bloom_filter_bytes");
   cudf::size_type const bloom_filter_longs = bloom_filter_bytes / sizeof(int64_t);
-  auto bloom_filter = spark_rapids_jni::bloom_filter_create(num_hashes, bloom_filter_longs);
+  auto bloom_filter =
+    spark_rapids_jni::bloom_filter_create(version, num_hashes, bloom_filter_longs);
 
-  // create a column of hashed values
   data_profile_builder builder;
   builder.no_validity();
   auto const src   = create_random_table({{cudf::type_id::INT64}}, row_count{num_rows}, builder);
@@ -41,7 +42,7 @@ static void bloom_filter_put(nvbench::state& state)
   auto const stream = cudf::get_default_stream();
   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
   state.exec(nvbench::exec_tag::timer | nvbench::exec_tag::sync,
-             [&](nvbench::launch& launch, auto& timer) {
+             [&](nvbench::launch&, auto& timer) {
                timer.start();
                spark_rapids_jni::bloom_filter_put(*bloom_filter, *input);
                stream.synchronize();
@@ -57,7 +58,24 @@ static void bloom_filter_put(nvbench::state& state)
   state.add_element_count(static_cast<double>(bytes_written) / time, "Write bytes/sec");
 }
 
-NVBENCH_BENCH(bloom_filter_put)
-  .set_name("Bloom Filter Put")
+void bloom_filter_put_v1(nvbench::state& state)
+{
+  bloom_filter_put_impl(state, spark_rapids_jni::bloom_filter_version_1);
+}
+
+void bloom_filter_put_v2(nvbench::state& state)
+{
+  bloom_filter_put_impl(state, spark_rapids_jni::bloom_filter_version_2);
+}
+
+}  // namespace
+
+NVBENCH_BENCH(bloom_filter_put_v1)
+  .set_name("Bloom Filter Put V1")
+  .add_int64_axis("bloom_filter_bytes",
+                  {512 * 1024, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024});
+
+NVBENCH_BENCH(bloom_filter_put_v2)
+  .set_name("Bloom Filter Put V2")
   .add_int64_axis("bloom_filter_bytes",
                   {512 * 1024, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024});

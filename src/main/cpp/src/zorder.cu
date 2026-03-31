@@ -212,13 +212,8 @@ std::unique_ptr<cudf::column> interleave_bits(cudf::table_view const& tbl,
   auto offsets_column = std::get<0>(
     cudf::detail::make_offsets_child_column(offset_begin, offset_begin + num_rows, stream, mr));
 
-  return cudf::make_lists_column(num_rows,
-                                 std::move(offsets_column),
-                                 std::move(output_data_col),
-                                 0,
-                                 rmm::device_buffer(),
-                                 stream,
-                                 mr);
+  return cudf::make_lists_column(
+    num_rows, std::move(offsets_column), std::move(output_data_col), 0, rmm::device_buffer());
 }
 
 std::unique_ptr<cudf::column> hilbert_index(int32_t const num_bits_per_entry,

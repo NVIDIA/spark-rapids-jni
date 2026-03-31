@@ -16,6 +16,7 @@
 
 #include "shuffle_split.hpp"
 #include "test_utilities.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
@@ -56,7 +57,7 @@ spark_rapids_jni::shuffle_split_result reshape_partitions(
   auto d_remaps = cudf::detail::make_device_uvector_async(remaps, stream, temp_mr);
   rmm::device_uvector<size_t> remapped_offsets(partition_offsets.size(), stream, mr);
   auto const num_partitions = partition_offsets.size() - 1;
-  auto remapped_size_iter   = cudf::detail::make_counting_transform_iterator(
+  auto remapped_size_iter   = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<size_t>([partition_offsets = partition_offsets.begin(),
                                         remaps            = d_remaps.begin(),
@@ -71,7 +72,7 @@ spark_rapids_jni::shuffle_split_result reshape_partitions(
 
   // swizzle the data
   rmm::device_buffer remapped_partitions(partitions.size(), stream, mr);
-  auto input_iter = cudf::detail::make_counting_transform_iterator(
+  auto input_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<void*>([partitions        = partitions.data(),
                                        partition_offsets = partition_offsets.begin(),
@@ -79,14 +80,14 @@ spark_rapids_jni::shuffle_split_result reshape_partitions(
       return reinterpret_cast<void*>(const_cast<uint8_t*>(partitions) +
                                      partition_offsets[remaps[i]]);
     }));
-  auto size_iter = cudf::detail::make_counting_transform_iterator(
+  auto size_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<size_t>([partition_offsets = partition_offsets.begin(),
                                         remaps            = d_remaps.begin()] __device__(size_t i) {
       auto const ri = remaps[i];
       return partition_offsets[ri + 1] - partition_offsets[ri];
     }));
-  auto output_iter = cudf::detail::make_counting_transform_iterator(
+  auto output_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<void*>(
       [remapped_partitions = remapped_partitions.data(),
@@ -294,24 +295,12 @@ TEST_F(ShuffleSplitTests, Lists)
     cudf::test::strings_column_wrapper strings0{{"*", "*", "****", "", "*", ""},
                                                 {1, 1, 1, 1, 1, 0}};
     cudf::test::fixed_width_column_wrapper<int> offsets0{0, 1, 2, 3, 6};
-    auto col0 = cudf::make_lists_column(4,
-                                        offsets0.release(),
-                                        strings0.release(),
-                                        0,
-                                        {},
-                                        cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource_ref());
+    auto col0 = cudf::make_lists_column(4, offsets0.release(), strings0.release(), 0, {});
 
     cudf::test::strings_column_wrapper strings1{{"", "", "", "", "", "", ""},
                                                 {0, 0, 0, 0, 0, 0, 0}};
     cudf::test::fixed_width_column_wrapper<int> offsets1{0, 4, 4, 7, 7};
-    auto col1 = cudf::make_lists_column(4,
-                                        offsets1.release(),
-                                        strings1.release(),
-                                        0,
-                                        {},
-                                        cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource_ref());
+    auto col1 = cudf::make_lists_column(4, offsets1.release(), strings1.release(), 0, {});
 
     cudf::table_view tbl{{*col0, *col1}};
     run_split(tbl, {});
@@ -355,8 +344,8 @@ TEST_F(ShuffleSplitTests, Nulls)
 {
   cudf::size_type const num_rows = 10000;
   auto iter                      = thrust::make_counting_iterator(0);
-  auto validity =
-    cudf::detail::make_counting_transform_iterator(0, [](cudf::size_type i) { return i % 3; });
+  auto validity                  = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](cudf::size_type i) { return i % 3; });
 
   cudf::test::fixed_width_column_wrapper<int> col(iter, iter + num_rows, validity);
   cudf::table_view tbl{{static_cast<cudf::column_view>(col)}};
@@ -456,26 +445,14 @@ TEST_F(ShuffleSplitTests, EmptyOffsets)
   // list<string> with empty strings
   cudf::test::strings_column_wrapper strings0{};
   cudf::test::fixed_width_column_wrapper<int> offsets0{0, 0, 0};
-  auto col0 = cudf::make_lists_column(2,
-                                      offsets0.release(),
-                                      strings0.release(),
-                                      0,
-                                      {},
-                                      cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource_ref());
+  auto col0 = cudf::make_lists_column(2, offsets0.release(), strings0.release(), 0, {});
   cudf::lists_column_view lcv(*col0);
   CUDF_EXPECTS(lcv.child().num_children() == 0, "String column is expected to have no offsets");
 
   // list<list<int>> with empty inner list
   cudf::test::lists_column_wrapper<int> list0{};
   cudf::test::fixed_width_column_wrapper<int> offsets1{0, 0, 0};
-  auto col1 = cudf::make_lists_column(2,
-                                      offsets1.release(),
-                                      list0.release(),
-                                      0,
-                                      {},
-                                      cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource_ref());
+  auto col1 = cudf::make_lists_column(2, offsets1.release(), list0.release(), 0, {});
 
   // list<struct<int, int>>
   cudf::test::fixed_width_column_wrapper<int> ints0{-210, 311};
@@ -485,13 +462,7 @@ TEST_F(ShuffleSplitTests, EmptyOffsets)
   inner_children.push_back(ints1.release());
   cudf::test::structs_column_wrapper inner_struct(std::move(inner_children));
   cudf::test::fixed_width_column_wrapper<int> offsets2{0, 1, 2};
-  auto col2 = cudf::make_lists_column(2,
-                                      offsets2.release(),
-                                      inner_struct.release(),
-                                      0,
-                                      {},
-                                      cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource_ref());
+  auto col2 = cudf::make_lists_column(2, offsets2.release(), inner_struct.release(), 0, {});
 
   cudf::table_view tbl{{*col0, *col1, *col2, *col1}};
   auto result = run_split(tbl, {});
@@ -740,8 +711,8 @@ TEST_F(ShuffleSplitTests, LargeBatchSimple)
   constexpr size_t rows_per_column = 32 * 1024 * 1024;
 
   srand(31337);
-  auto validity_iter =
-    cudf::detail::make_counting_transform_iterator(0, [](int i) { return rand() % 2 == 0; });
+  auto validity_iter = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](int i) { return rand() % 2 == 0; });
   auto iter = thrust::make_counting_iterator(0);
 
   cudf::test::fixed_width_column_wrapper<int> col0(iter, iter + rows_per_column, validity_iter);
@@ -778,8 +749,8 @@ TEST_F(ShuffleSplitTests, FixedPoint)
     vals2.begin(), vals2.end(), no_nulls(), numeric::scale_type{-6});
 
   srand(31337);
-  auto validity_iter =
-    cudf::detail::make_counting_transform_iterator(0, [](int i) { return rand() % 2 == 0; });
+  auto validity_iter = spark_rapids_jni::util::make_counting_transform_iterator(
+    0, [](int i) { return rand() % 2 == 0; });
   cudf::test::fixed_point_column_wrapper<numeric::decimal32::rep> col3(
     vals0.begin(), vals0.end(), validity_iter, numeric::scale_type{5});
   cudf::test::fixed_point_column_wrapper<numeric::decimal64::rep> col4(
@@ -869,9 +840,10 @@ TEST_F(ShuffleSplitTests, MixedValidity)
       CUDF_EXPECTS(has_nulls.size() == splits.size() + 1,
                    "Invalid set of splits and has_nulls vectors");
 
-      auto value_iter = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i; });
+      auto value_iter =
+        spark_rapids_jni::util::make_counting_transform_iterator(0, [](int i) { return i; });
       auto valid_iter =
-        cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 2; });
+        spark_rapids_jni::util::make_counting_transform_iterator(0, [](int i) { return i % 2; });
       cudf::test::fixed_width_column_wrapper<int> base(value_iter, value_iter + num_rows);
 
       // make the column with a specified series of nullable partitions. all other partitions will

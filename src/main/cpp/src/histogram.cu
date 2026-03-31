@@ -23,7 +23,6 @@
 #include <cudf/detail/labeling/label_segments.cuh>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/null_mask.hpp>
 #include <cudf/reduction/detail/histogram.hpp>
@@ -260,20 +259,13 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column>&& input
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
 {
-  if (input->size() == 0) {
-    return cudf::lists::detail::make_empty_lists_column(input->type(), stream, mr);
-  }
+  if (input->size() == 0) { return cudf::make_empty_lists_column(input->type()); }
 
   auto const sizes_itr = thrust::make_constant_iterator(num_percentages);
   auto offsets         = std::get<0>(
     cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + num_histograms, stream, mr));
-  auto output = cudf::make_lists_column(num_histograms,
-                                        std::move(offsets),
-                                        std::move(input),
-                                        null_count,
-                                        std::move(null_mask),
-                                        stream,
-                                        mr);
+  auto output = cudf::make_lists_column(
+    num_histograms, std::move(offsets), std::move(input), null_count, std::move(null_mask));
   if (null_count > 0) { return cudf::purge_nonempty_nulls(output->view(), stream, mr); }
 
   return output;
@@ -387,13 +379,8 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     auto const sizes_itr = thrust::make_constant_iterator(1);
     auto offsets         = std::get<0>(
       cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + num_elements, stream, mr));
-    return cudf::make_lists_column(num_elements,
-                                   std::move(offsets),
-                                   std::move(structs_histogram),
-                                   0,
-                                   rmm::device_buffer{},
-                                   stream,
-                                   mr);
+    return cudf::make_lists_column(
+      num_elements, std::move(offsets), std::move(structs_histogram), 0, rmm::device_buffer{});
   };
 
   if (output_as_lists) {
