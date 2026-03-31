@@ -18,7 +18,7 @@
 #include "nvtx_ranges.hpp"
 #include "parse_uri.hpp"
 
-#include <cudf/detail/get_value.cuh>
+#include <cudf/copying.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
@@ -84,13 +84,16 @@ namespace {
 // By contrast, the URI https://[15:6:g:invalid] will not return https for the
 // scheme and is considered completely invalid.
 
-constexpr bool is_alpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+__host__ __device__ constexpr bool is_alpha(char c)
+{
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
 
-constexpr bool is_numeric(char c) { return c >= '0' && c <= '9'; }
+__host__ __device__ constexpr bool is_numeric(char c) { return c >= '0' && c <= '9'; }
 
-constexpr bool is_alphanum(char c) { return is_alpha(c) || is_numeric(c); }
+__host__ __device__ constexpr bool is_alphanum(char c) { return is_alpha(c) || is_numeric(c); }
 
-constexpr bool is_hex(char c)
+__host__ __device__ constexpr bool is_hex(char c)
 {
   return is_numeric(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
@@ -142,7 +145,7 @@ __device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_e
   auto iter = s.begin();
   {
     auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
-    iter                = std::move(iter_);
+    iter                = cuda::std::move(iter_);
     if (!valid) { return false; }
   }
   while (iter != s.end()) {
@@ -150,7 +153,7 @@ __device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_e
 
     iter++;
     auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
-    iter                = std::move(iter_);
+    iter                = cuda::std::move(iter_);
     if (!valid) { return false; }
   }
   return true;
@@ -498,7 +501,8 @@ bool __device__ validate_fragment(string_view fragment)
     }));
 }
 
-__device__ std::pair<string_view, bool> find_query_part(string_view haystack, string_view needle)
+__device__ cuda::std::pair<string_view, bool> find_query_part(string_view haystack,
+                                                              string_view needle)
 {
   auto const n_bytes = needle.size_bytes();
   auto h             = haystack.data();
@@ -932,7 +936,10 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
 
   // copy the total number of characters of all strings combined (last element of the offset column)
   // to the host memory
-  auto out_chars_bytes = cudf::detail::get_value<size_type>(offsets_view, offset_count - 1, stream);
+  using offsets_t = cudf::scalar_type_t<cudf::size_type>;
+  auto out_chars_bytes =
+    static_cast<offsets_t const&>(*cudf::get_element(offsets_view, offset_count - 1, stream))
+      .value(stream);
 
   // create the chars buffer
   auto d_out_chars = rmm::device_buffer(out_chars_bytes, stream, mr);

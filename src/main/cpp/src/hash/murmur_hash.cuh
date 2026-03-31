@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,8 +36,8 @@ template <typename Key, CUDF_ENABLE_IF(not cudf::is_nested<Key>())>
 struct MurmurHash3_32 {
   using result_type = murmur_hash_value_type;
 
-  constexpr MurmurHash3_32() = delete;
-  constexpr MurmurHash3_32(uint32_t seed) : m_seed(seed) {}
+  __host__ __device__ constexpr MurmurHash3_32() = delete;
+  __host__ __device__ constexpr MurmurHash3_32(uint32_t seed) : m_seed(seed) {}
 
   [[nodiscard]] __device__ inline uint32_t fmix32(uint32_t h) const
   {
@@ -49,7 +49,7 @@ struct MurmurHash3_32 {
     return h;
   }
 
-  [[nodiscard]] __device__ inline uint32_t getblock32(std::byte const* data,
+  [[nodiscard]] __device__ inline uint32_t getblock32(cuda::std::byte const* data,
                                                       cudf::size_type offset) const
   {
     // Read a 4-byte value from the data pointer as individual bytes for safe
@@ -66,10 +66,10 @@ struct MurmurHash3_32 {
   template <typename T>
   result_type __device__ inline compute(T const& key) const
   {
-    return compute_bytes(reinterpret_cast<std::byte const*>(&key), sizeof(T));
+    return compute_bytes(reinterpret_cast<cuda::std::byte const*>(&key), sizeof(T));
   }
 
-  result_type __device__ inline compute_remaining_bytes(std::byte const* data,
+  result_type __device__ inline compute_remaining_bytes(cuda::std::byte const* data,
                                                         cudf::size_type len,
                                                         cudf::size_type tail_offset,
                                                         result_type h) const
@@ -81,7 +81,7 @@ struct MurmurHash3_32 {
       // we must cast to a signed int8_t. Then, the sign bit is preserved when
       // casting to uint32_t under 2's complement. Java preserves the sign when
       // casting byte-to-int, but C++ does not.
-      uint32_t k1 = static_cast<uint32_t>(std::to_integer<int8_t>(data[i]));
+      uint32_t k1 = static_cast<uint32_t>(cuda::std::to_integer<int8_t>(data[i]));
       k1 *= c1;
       k1 = spark_rapids_jni::rotate_bits_left(k1, rot_c1);
       k1 *= c2;
@@ -92,7 +92,7 @@ struct MurmurHash3_32 {
     return h;
   }
 
-  result_type __device__ compute_bytes(std::byte const* data, cudf::size_type const len) const
+  result_type __device__ compute_bytes(cuda::std::byte const* data, cudf::size_type const len) const
   {
     constexpr cudf::size_type BLOCK_SIZE = 4;
     cudf::size_type const nblocks        = len / BLOCK_SIZE;
@@ -176,7 +176,7 @@ template <>
 murmur_hash_value_type __device__ inline MurmurHash3_32<cudf::string_view>::operator()(
   cudf::string_view const& key) const
 {
-  auto const data = reinterpret_cast<std::byte const*>(key.data());
+  auto const data = reinterpret_cast<cuda::std::byte const*>(key.data());
   auto const len  = key.size_bytes();
   return compute_bytes(data, len);
 }
@@ -200,7 +200,7 @@ murmur_hash_value_type __device__ inline MurmurHash3_32<numeric::decimal128>::op
   numeric::decimal128 const& key) const
 {
   auto [java_d, length] = to_java_bigdecimal(key);
-  auto bytes            = reinterpret_cast<std::byte*>(&java_d);
+  auto bytes            = reinterpret_cast<cuda::std::byte*>(&java_d);
   return compute_bytes(bytes, length);
 }
 

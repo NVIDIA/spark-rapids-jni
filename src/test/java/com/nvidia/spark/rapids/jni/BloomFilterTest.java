@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,99 +16,97 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import com.nvidia.spark.rapids.jni.BloomFilter;
-
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.Cuda;
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.Scalar;
-import ai.rapids.cudf.DeviceMemoryBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class BloomFilterTest {
-  @Test
-  void testBuildAndProbe(){
+  @ParameterizedTest
+  @ValueSource(ints = {BloomFilter.VERSION_1, BloomFilter.VERSION_2})
+  void testBuildAndProbe(int version) {
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
-         Scalar bloomFilter = BloomFilter.create(numHashes, bloomFilterBits)){
-      
+         Scalar bloomFilter = BloomFilter.create(version, numHashes, bloomFilterBits, 0)) {
       BloomFilter.put(bloomFilter, input);
-      try(ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
-          ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
-          ColumnVector result = BloomFilter.probe(bloomFilter, probe)){
+      try (ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
+           ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
+           ColumnVector result = BloomFilter.probe(bloomFilter, probe)) {
         AssertUtils.assertColumnsAreEqual(expected, result);
       }
     }
   }
 
-  @Test
-  void testBuildAndProbeBuffer(){
+  @ParameterizedTest
+  @ValueSource(ints = {BloomFilter.VERSION_1, BloomFilter.VERSION_2})
+  void testBuildAndProbeBuffer(int version) {
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
-         Scalar bloomFilter = BloomFilter.create(numHashes, bloomFilterBits)){
-      
+         Scalar bloomFilter = BloomFilter.create(version, numHashes, bloomFilterBits, 0)) {
       BloomFilter.put(bloomFilter, input);
-
-      try(ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
-          ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
-          ColumnVector result = BloomFilter.probe(bloomFilter.getListAsColumnView().getData(), probe)){
+      try (ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
+           ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
+           ColumnVector result = BloomFilter.probe(bloomFilter.getListAsColumnView().getData(), probe)) {
         AssertUtils.assertColumnsAreEqual(expected, result);
       }
     }
   }
 
-  @Test
-  void testBuildWithNullsAndProbe(){
+  @ParameterizedTest
+  @ValueSource(ints = {BloomFilter.VERSION_1, BloomFilter.VERSION_2})
+  void testBuildWithNullsAndProbe(int version) {
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector input = ColumnVector.fromBoxedLongs(null, 80L, 100L, null, 47L, -9L, 234000000L);
-         Scalar bloomFilter = BloomFilter.create(numHashes, bloomFilterBits)){
-      
+         Scalar bloomFilter = BloomFilter.create(version, numHashes, bloomFilterBits, 0)) {
       BloomFilter.put(bloomFilter, input);
-      try(ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
-          ColumnVector expected = ColumnVector.fromBooleans(false, true, true, false, true, true, true, false, false, false, false);
-          ColumnVector result = BloomFilter.probe(bloomFilter, probe)){
+      try (ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
+           ColumnVector expected = ColumnVector.fromBooleans(false, true, true, false, true, true, true, false, false, false, false);
+           ColumnVector result = BloomFilter.probe(bloomFilter, probe)) {
         AssertUtils.assertColumnsAreEqual(expected, result);
       }
     }
   }
 
-  @Test
-  void testBuildAndProbeWithNulls(){
+  @ParameterizedTest
+  @ValueSource(ints = {BloomFilter.VERSION_1, BloomFilter.VERSION_2})
+  void testBuildAndProbeWithNulls(int version) {
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
-         Scalar bloomFilter = BloomFilter.create(numHashes, bloomFilterBits)){
-      
+         Scalar bloomFilter = BloomFilter.create(version, numHashes, bloomFilterBits, 0)) {
       BloomFilter.put(bloomFilter, input);
-      try(ColumnVector probe = ColumnVector.fromBoxedLongs(null, null, null, 99L, 47L, -9L, 234000000L, null, null, 2L, 3L);
-          ColumnVector expected = ColumnVector.fromBoxedBooleans(null, null, null, true, true, true, true, null, null, false, false);
-          ColumnVector result = BloomFilter.probe(bloomFilter, probe)){
+      try (ColumnVector probe = ColumnVector.fromBoxedLongs(null, null, null, 99L, 47L, -9L, 234000000L, null, null, 2L, 3L);
+           ColumnVector expected = ColumnVector.fromBoxedBooleans(null, null, null, true, true, true, true, null, null, false, false);
+           ColumnVector result = BloomFilter.probe(bloomFilter, probe)) {
         AssertUtils.assertColumnsAreEqual(expected, result);
       }
     }
   }
-  
-  @Test
-  void testBuildMergeProbe(){
+
+  @ParameterizedTest
+  @ValueSource(ints = {BloomFilter.VERSION_1, BloomFilter.VERSION_2})
+  void testBuildMergeProbe(int version) {
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector colA = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
          ColumnVector colB = ColumnVector.fromLongs(100, 200, 300, 400);
          ColumnVector colC = ColumnVector.fromLongs(-100, -200, -300, -400);
-         Scalar bloomFilterA = BloomFilter.create(numHashes, bloomFilterBits);
-         Scalar bloomFilterB = BloomFilter.create(numHashes, bloomFilterBits);
-         Scalar bloomFilterC = BloomFilter.create(numHashes, bloomFilterBits)){
+         Scalar bloomFilterA = BloomFilter.create(version, numHashes, bloomFilterBits, 0);
+         Scalar bloomFilterB = BloomFilter.create(version, numHashes, bloomFilterBits, 0);
+         Scalar bloomFilterC = BloomFilter.create(version, numHashes, bloomFilterBits, 0)) {
 
       BloomFilter.put(bloomFilterA, colA);
       BloomFilter.put(bloomFilterB, colB);
@@ -123,8 +121,8 @@ public class BloomFilterTest {
                   65535, 0, -100, -200, -300, -400);
                ColumnVector expected = ColumnVector.fromBooleans(true, true, true,
                   false, false, true, false, false, true, true, true, true);
-              Scalar merged = BloomFilter.merge(premerge);
-              ColumnVector result = BloomFilter.probe(merged, probe)) {
+               Scalar merged = BloomFilter.merge(premerge);
+               ColumnVector result = BloomFilter.probe(merged, probe)) {
             AssertUtils.assertColumnsAreEqual(expected, result);
           }
         }
@@ -132,60 +130,97 @@ public class BloomFilterTest {
     }
   }
 
-  @Test
-  void testBuildTrivialMergeProbe(){
+  @ParameterizedTest
+  @ValueSource(ints = {BloomFilter.VERSION_1, BloomFilter.VERSION_2})
+  void testBuildTrivialMergeProbe(int version) {
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector colA = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
-         Scalar bloomFilter = BloomFilter.create(numHashes, bloomFilterBits)){
+         Scalar bloomFilter = BloomFilter.create(version, numHashes, bloomFilterBits, 0)) {
 
       BloomFilter.put(bloomFilter, colA);
 
-      try(ColumnVector premerge = ColumnVector.fromScalar(bloomFilter, 1);
-          ColumnVector probe = ColumnVector.fromLongs(-9, 200, 300, 6000, -2546, 99, 65535, 0, -100, -200, -300, -400);
-          ColumnVector expected = ColumnVector.fromBooleans(true, false, false, false, false, true, false, false, false, false, false, false);
-          Scalar merged = BloomFilter.merge(premerge);
-          ColumnVector result = BloomFilter.probe(merged, probe)){
-          AssertUtils.assertColumnsAreEqual(expected, result);
+      try (ColumnVector premerge = ColumnVector.fromScalar(bloomFilter, 1);
+           ColumnVector probe = ColumnVector.fromLongs(-9, 200, 300, 6000, -2546, 99, 65535, 0, -100, -200, -300, -400);
+           ColumnVector expected = ColumnVector.fromBooleans(true, false, false, false, false, true, false, false, false, false, false, false);
+           Scalar merged = BloomFilter.merge(premerge);
+           ColumnVector result = BloomFilter.probe(merged, probe)) {
+        AssertUtils.assertColumnsAreEqual(expected, result);
       }
     }
   }
 
   @Test
-  void testBuildExpectedFailures(){
+  void testBuildAndProbeV2WithSeed() {
+    int numHashes = 3;
+    long bloomFilterBits = 4 * 1024 * 1024;
+    int seed = 42;
+
+    try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
+         Scalar bloomFilter = BloomFilter.create(BloomFilter.VERSION_2, numHashes, bloomFilterBits, seed)) {
+      BloomFilter.put(bloomFilter, input);
+      try (ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
+           ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
+           ColumnVector result = BloomFilter.probe(bloomFilter, probe)) {
+        AssertUtils.assertColumnsAreEqual(expected, result);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {BloomFilter.VERSION_1, BloomFilter.VERSION_2})
+  void testBuildExpectedFailures(int version) {
     // bloom filter with no hashes
     assertThrows(IllegalArgumentException.class, () -> {
-      try (Scalar bloomFilter = BloomFilter.create(0, 64)){}
+      try (Scalar bloomFilter = BloomFilter.create(version, 0, 64, 0)) {}
     });
 
     // bloom filter with no size
     assertThrows(IllegalArgumentException.class, () -> {
-      try (Scalar bloomFilter = BloomFilter.create(3, 0)){}
-    });
-    
-    // merge with mixed hash counts
-    assertThrows(CudfException.class, () -> {
-      try (Scalar bloomFilterA = BloomFilter.create(3, 1024);
-           Scalar bloomFilterB = BloomFilter.create(4, 1024);
-           Scalar bloomFilterC = BloomFilter.create(4, 1024);
-           ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
-           ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
-           ColumnVector bloomC = ColumnVector.fromScalar(bloomFilterC, 1);
-           ColumnVector premerge = ColumnVector.concatenate(bloomA, bloomB, bloomC);
-           Scalar merged = BloomFilter.merge(premerge)){}
+      try (Scalar bloomFilter = BloomFilter.create(version, 3, 0, 0)) {}
     });
 
-    // merge with mixed hash bit sizes
+    // merge with mixed hash counts
     assertThrows(CudfException.class, () -> {
-      try (Scalar bloomFilterA = BloomFilter.create(3, 1024);
-           Scalar bloomFilterB = BloomFilter.create(3, 1024);
-           Scalar bloomFilterC = BloomFilter.create(3, 2048);
+      try (Scalar bloomFilterA = BloomFilter.create(version, 3, 1024, 0);
+           Scalar bloomFilterB = BloomFilter.create(version, 4, 1024, 0);
+           Scalar bloomFilterC = BloomFilter.create(version, 4, 1024, 0);
            ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
            ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
            ColumnVector bloomC = ColumnVector.fromScalar(bloomFilterC, 1);
            ColumnVector premerge = ColumnVector.concatenate(bloomA, bloomB, bloomC);
-           Scalar merged = BloomFilter.merge(premerge)){}
+           Scalar merged = BloomFilter.merge(premerge)) {}
+    });
+
+    // merge with mixed bit sizes
+    assertThrows(CudfException.class, () -> {
+      try (Scalar bloomFilterA = BloomFilter.create(version, 3, 1024, 0);
+           Scalar bloomFilterB = BloomFilter.create(version, 3, 1024, 0);
+           Scalar bloomFilterC = BloomFilter.create(version, 3, 2048, 0);
+           ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
+           ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
+           ColumnVector bloomC = ColumnVector.fromScalar(bloomFilterC, 1);
+           ColumnVector premerge = ColumnVector.concatenate(bloomA, bloomB, bloomC);
+           Scalar merged = BloomFilter.merge(premerge)) {}
+    });
+  }
+
+  @Test
+  void testBuildExpectedFailuresVersionIndependent() {
+    // invalid version
+    assertThrows(IllegalArgumentException.class, () -> {
+      try (Scalar bloomFilter = BloomFilter.create(3, 3, 64, 0)) {}
+    });
+
+    // merge with mixed versions (V1 + V2)
+    assertThrows(CudfException.class, () -> {
+      try (Scalar bloomFilterA = BloomFilter.create(BloomFilter.VERSION_1, 3, 1024, 0);
+           Scalar bloomFilterB = BloomFilter.create(BloomFilter.VERSION_2, 3, 1024, 0);
+           ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
+           ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
+           ColumnVector premerge = ColumnVector.concatenate(bloomA, bloomB);
+           Scalar merged = BloomFilter.merge(premerge)) {}
     });
   }
 }

@@ -161,7 +161,10 @@ class char_range {
  */
 class char_range_reader : public char_range {
  public:
-  __device__ inline explicit char_range_reader(char_range range) : char_range(std::move(range)) {}
+  __device__ inline explicit char_range_reader(char_range range)
+    : char_range(cuda::std::move(range))
+  {
+  }
   __device__ inline void next()
   {
     _data++;
@@ -1212,7 +1215,7 @@ class json_parser {
     current_token_start_pos = curr_pos;
     auto const [success, matched, end] =
       try_parse_string(char_range_reader{chars.slice(curr_pos, chars.size() - curr_pos)},
-                       char_range_reader{std::move(to_match_field_name)});
+                       char_range_reader{cuda::std::move(to_match_field_name)});
     if (success) {
       matched_field_name = matched;
       curr_pos           = static_cast<cudf::size_type>(cuda::std::distance(chars.data(), end));

@@ -19,7 +19,6 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
@@ -29,6 +28,7 @@
 
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/algorithm>
 #include <thrust/tabulate.h>
 
 #include <cstdint>
@@ -116,7 +116,7 @@ struct truncate_binary_fn {
     if (!d_chars) {
       // first phase
       int binary_len = input_offsets[idx + 1] - input_offsets[idx];
-      d_sizes[idx]   = std::min(binary_len, truncate_length);
+      d_sizes[idx]   = cuda::std::min(binary_len, truncate_length);
     } else {
       // second phase
       auto binary_ptr = input_chars + input_offsets[idx];
@@ -208,7 +208,7 @@ std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& inpu
 
   auto const num_rows = input.size();
   if (num_rows == 0) {
-    return cudf::lists::detail::make_empty_lists_column(cudf::data_type{cudf::type_id::UINT8});
+    return cudf::make_empty_lists_column(cudf::data_type{cudf::type_id::UINT8});
   }
   CUDF_EXPECTS(!binary_col_child.nullable(), "Child column of binary column must be non-nullable");
 

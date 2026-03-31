@@ -1,6 +1,6 @@
 /*
  * Copyright 2018 Ulf Adams
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -151,7 +151,7 @@ __constant__ uint64_t const DOUBLE_POW5_TABLE[POW5_TABLE_SIZE] = {1ull,
 template <typename T>
 __device__ inline uint32_t decimal_length(T const v)
 {
-  static_assert(std::is_integral_v<T> && !std::is_signed_v<T>);
+  static_assert(cuda::std::is_integral_v<T> && !cuda::std::is_signed_v<T>);
   if constexpr (sizeof(T) == sizeof(int64_t)) {
     // The average output length is 16.38 digits, so we check high-to-low.
     // Function precondition: v is not an 18, 19, or 20-digit number.
@@ -1270,8 +1270,10 @@ __device__ inline T round_half_even(T const input, int const olength, int const 
 template <typename T>
 __device__ inline int to_formatted_chars(T const v, bool const sign, char* const result, int digits)
 {
-  static_assert(std::is_same_v<T, floating_decimal_32> || std::is_same_v<T, floating_decimal_64>);
-  using U   = std::conditional_t<std::is_same_v<T, floating_decimal_32>, uint32_t, uint64_t>;
+  static_assert(cuda::std::is_same_v<T, floating_decimal_32> ||
+                cuda::std::is_same_v<T, floating_decimal_64>);
+  using U =
+    cuda::std::conditional_t<cuda::std::is_same_v<T, floating_decimal_32>, uint32_t, uint64_t>;
   int index = 0;
   if (sign) { result[index++] = '-'; }
   U output              = v.mantissa;
@@ -1293,7 +1295,7 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
         break;
       }
     }
-    int actual_olength = fmin(int(olength), actual_round);
+    int actual_olength = int(olength) < actual_round ? int(olength) : actual_round;
     U rounded_output   = round_half_even(output, olength, actual_round);
     // check if carry
     if (rounded_output >= POW10_TABLE[actual_olength]) {
@@ -1385,8 +1387,10 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
 template <typename T>
 __device__ inline int format_size(T const v, bool const sign, int digits)
 {
-  static_assert(std::is_same_v<T, floating_decimal_32> || std::is_same_v<T, floating_decimal_64>);
-  using U   = std::conditional_t<std::is_same_v<T, floating_decimal_32>, uint32_t, uint64_t>;
+  static_assert(cuda::std::is_same_v<T, floating_decimal_32> ||
+                cuda::std::is_same_v<T, floating_decimal_64>);
+  using U =
+    cuda::std::conditional_t<cuda::std::is_same_v<T, floating_decimal_32>, uint32_t, uint64_t>;
   int index = 0;
   if (sign) { index++; }
   U output              = v.mantissa;

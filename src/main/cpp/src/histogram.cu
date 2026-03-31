@@ -23,7 +23,6 @@
 #include <cudf/detail/labeling/label_segments.cuh>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/null_mask.hpp>
 #include <cudf/reduction/detail/histogram.hpp>
@@ -260,7 +259,7 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column>&& input
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
 {
-  if (input->size() == 0) { return cudf::lists::detail::make_empty_lists_column(input->type()); }
+  if (input->size() == 0) { return cudf::make_empty_lists_column(input->type()); }
 
   auto const sizes_itr = thrust::make_constant_iterator(num_percentages);
   auto offsets         = std::get<0>(

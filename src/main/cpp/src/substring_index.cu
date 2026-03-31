@@ -19,7 +19,6 @@
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/indexalator.cuh>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/scalar/scalar_device_view.cuh>
 #include <cudf/strings/detail/strings_children.cuh>

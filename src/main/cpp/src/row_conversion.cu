@@ -19,10 +19,10 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/offsets_iterator_factory.cuh>
-#include <cudf/detail/sequence.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/filling.hpp>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
@@ -43,6 +43,8 @@
 #include <cuda/barrier>
 #include <cuda/functional>
 #include <cuda/std/functional>
+#include <cuda/std/iterator>
+#include <cuda/std/limits>
 #include <thrust/binary_search.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
@@ -348,9 +350,9 @@ CUDF_KERNEL void copy_from_rows_fixed_width_optimized(const size_type num_rows,
 
     auto const shared_output_index  = threadIdx.x + (threadIdx.y * blockDim.x);
     auto const shared_output_stride = blockDim.x * blockDim.y;
-    auto const row_index_end        = std::min(num_rows, ((row_group_index + 1) * rows_per_group));
-    auto const num_rows_in_group    = row_index_end - (row_group_index * rows_per_group);
-    auto const shared_length        = row_size * num_rows_in_group;
+    auto const row_index_end = cuda::std::min(num_rows, ((row_group_index + 1) * rows_per_group));
+    auto const num_rows_in_group = row_index_end - (row_group_index * rows_per_group);
+    auto const shared_length     = row_size * num_rows_in_group;
 
     size_type const shared_output_end = shared_length / sizeof(int64_t);
 
@@ -757,7 +759,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
     if (participating) {
       auto my_data = input_nm[absolute_col] != nullptr
                        ? input_nm[absolute_col][word_index(absolute_row)]
-                       : std::numeric_limits<uint32_t>::max();
+                       : cuda::std::numeric_limits<uint32_t>::max();
 
       // every thread that is participating in the warp has 4 bytes, but it's column-based data and
       // we need it in row-based. So we shuffle the bits around with ballot_sync to make the bytes
@@ -837,7 +839,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
   auto const start_row =
     blockIdx.x * NUM_STRING_ROWS_PER_BLOCK_TO_ROWS + warp.meta_group_rank() + batch_row_offset;
   auto const end_row =
-    std::min(num_rows, static_cast<size_type>(start_row + NUM_STRING_ROWS_PER_BLOCK_TO_ROWS));
+    cuda::std::min(num_rows, static_cast<size_type>(start_row + NUM_STRING_ROWS_PER_BLOCK_TO_ROWS));
 
   for (int row = start_row; row < end_row; row += warp.meta_group_size()) {
     auto offset                = fixed_width_row_size;  // initial offset to variable-width data
@@ -1234,7 +1236,7 @@ static std::unique_ptr<column> fixed_width_convert_to_rows(
 
   // Allocate and set the offsets row for the byte array
   std::unique_ptr<column> offsets =
-    cudf::detail::sequence(num_rows + 1, zero, scalar_size_per_row, stream, mr);
+    cudf::sequence(num_rows + 1, zero, scalar_size_per_row, stream, mr);
 
   std::unique_ptr<column> data = make_numeric_column(data_type(type_id::INT8),
                                                      static_cast<size_type>(total_allocation),
@@ -1651,7 +1653,7 @@ size_type build_tiles(
         // what batch this tile falls in
         auto const batch_index_iter =
           thrust::upper_bound(thrust::seq, tile_starts, tile_starts + num_batches, tile_index);
-        auto const batch_index = std::distance(tile_starts, batch_index_iter) - 1;
+        auto const batch_index = cuda::std::distance(tile_starts, batch_index_iter) - 1;
         // local index within the tile
         int const local_tile_index = tile_index - tile_starts[batch_index];
         // the start row for this batch.
@@ -1660,12 +1662,12 @@ size_type build_tiles(
         int const tile_row_start = batch_row_start + (local_tile_index * desired_tile_height);
         // the end row for this tile
         int const max_row =
-          std::min(total_number_of_rows - 1,
-                   batch_index + 1 > num_batches
-                     ? std::numeric_limits<size_type>::max()
-                     : static_cast<int>(batch_row_boundaries[batch_index + 1]) - 1);
-        int const tile_row_end =
-          std::min(batch_row_start + ((local_tile_index + 1) * desired_tile_height) - 1, max_row);
+          cuda::std::min(total_number_of_rows - 1,
+                         batch_index + 1 > num_batches
+                           ? cuda::std::numeric_limits<size_type>::max()
+                           : static_cast<int>(batch_row_boundaries[batch_index + 1]) - 1);
+        int const tile_row_end = cuda::std::min(
+          batch_row_start + ((local_tile_index + 1) * desired_tile_height) - 1, max_row);
 
         // stuff the tile
         return tile_info{
