@@ -17,6 +17,7 @@
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 #include "nvtx_ranges.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -1098,7 +1099,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
       // The string sizes computed in the previous kernel call will be used to allocate a new char
       // buffer to store the output.
-      auto const size_it = cudf::detail::make_counting_transform_iterator(
+      auto const size_it = spark_rapids_jni::util::make_counting_transform_iterator(
         0,
         cuda::proclaim_return_type<cudf::size_type>(
           [string_pairs = out_sview.data()] __device__(auto const idx) {

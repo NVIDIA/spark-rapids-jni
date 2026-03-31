@@ -19,7 +19,6 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/concatenate.hpp>
-#include <cudf/detail/iterator.cuh>
 #include <cudf/groupby.hpp>
 #include <cudf/reduction.hpp>
 #include <cudf/structs/structs_column_view.hpp>
@@ -33,6 +32,7 @@
 
 #include <hyper_log_log_plus_plus.hpp>
 #include <hyper_log_log_plus_plus_host_udf.hpp>
+#include <utilities/iterator.cuh>
 
 using doubles_col = cudf::test::fixed_width_column_wrapper<double>;
 using int64_col   = cudf::test::fixed_width_column_wrapper<int64_t>;
@@ -105,7 +105,7 @@ std::unique_ptr<cudf::column> make_struct_column_from_scalars(
   auto d_col_ptrs = cudf::detail::make_device_uvector(col_ptrs, stream, mr);
 
   // create output columns
-  auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
+  auto const results_iter = spark_rapids_jni::util::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT64},
                                      scalars.size(),  // num_rows
                                      cudf::mask_state::UNALLOCATED,
