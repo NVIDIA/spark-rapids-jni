@@ -96,28 +96,9 @@ public class GpuTimeZoneDB {
   private static volatile HostColumnVector tzNameToIndexMap;
 
   /**
-   * This is deprecated, will be removed.
-   */
-  public static void cacheDatabaseAsync(int maxYear) {
-    // start a new thread to load
-    Runnable runnable = () -> {
-      try {
-        cacheDatabaseImpl();
-      } catch (Exception e) {
-        log.error("cache timezone info cache failed", e);
-      }
-    };
-    Thread thread = Executors.defaultThreadFactory().newThread(runnable);
-    thread.setName("gpu-timezone-database-0");
-    thread.setDaemon(true);
-    thread.start();
-  }
-
-  /**
-   * This is the replacement of the above function.
+   * Load the timezone database asynchronously.
    * This should be called on startup of an executor.
-   * Runs in a thread asynchronously.
-   * If `shutdown` was called ever, then will not load the cache
+   * If `shutdown` was called ever, then this will not reload the cache.
    */
   public static void cacheDatabaseAsync() {
     // start a new thread to load
@@ -154,14 +135,6 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * This is deprecated, will be removed.
-   */
-  public static void cacheDatabase(int maxYear) {
-    cacheDatabaseImpl();
-  }
-
-  /**
-   * This is the replacement of the above function
    * Cache the database. This will take some time like several seconds.
    * If one `cacheDatabase` is running, other `cacheDatabase` will wait until
    * caching is done.
@@ -421,18 +394,6 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * This is deprecated, will be removed.
-   * Renamed to `getTimezoneInfo`.
-   */
-  public static synchronized Table getTransitions() {
-    verifyDatabaseCached();
-    try (ColumnVector fixedInfo = fixedTransitions.copyToDevice();
-        ColumnVector dstInfo = dstRules.copyToDevice()) {
-      return new Table(fixedInfo, dstInfo);
-    }
-  }
-
-   /**
    * Get the timezone info table, which contains two columns:
    * - fixed transitions: LIST<STRUCT<utcInstant: int64, localInstant: int64,
    * offset: int32>>
