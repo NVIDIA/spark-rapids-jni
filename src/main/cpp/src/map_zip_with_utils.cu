@@ -27,6 +27,7 @@
 #include <cudf/unary.hpp>
 #include <cudf/utilities/span.hpp>
 
+#include <cuda/functional>
 #include <thrust/scan.h>
 
 using namespace cudf;
