@@ -139,16 +139,14 @@ void maybe_check_required_fields(field_location const* locations,
                                  bool* row_force_null,
                                  int32_t const* top_row_indices,
                                  int* error_flag,
-                                 rmm::cuda_stream_view stream,
-                                 rmm::device_async_resource_ref mr);
+                                 rmm::cuda_stream_view stream);
 
 void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
                                           rmm::device_uvector<bool>& row_invalid,
                                           int num_items,
                                           int32_t const* top_row_indices,
                                           bool propagate_to_rows,
-                                          rmm::cuda_stream_view stream,
-                                          rmm::device_async_resource_ref mr);
+                                          rmm::cuda_stream_view stream);
 
 void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
                                       rmm::device_uvector<bool>& valid,
@@ -157,8 +155,7 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
                                       int num_items,
                                       int32_t const* top_row_indices,
                                       bool propagate_to_rows,
-                                      rmm::cuda_stream_view stream,
-                                      rmm::device_async_resource_ref mr);
+                                      rmm::cuda_stream_view stream);
 
 // ============================================================================
 // Forward declarations of builder/utility functions

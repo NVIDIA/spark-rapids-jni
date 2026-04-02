@@ -25,10 +25,7 @@
 #include <thrust/fill.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/remove.h>
-#include <thrust/sort.h>
 #include <thrust/transform.h>
-#include <thrust/unique.h>
 
 namespace spark_rapids_jni::protobuf::detail {
 
@@ -75,20 +72,21 @@ void maybe_check_required_fields(field_location const* locations,
                                  bool* row_force_null,
                                  int32_t const* top_row_indices,
                                  int* error_flag,
-                                 rmm::cuda_stream_view stream,
-                                 rmm::device_async_resource_ref mr)
+                                 rmm::cuda_stream_view stream)
 {
   if (num_rows == 0 || field_indices.empty()) { return; }
 
-  bool has_required  = false;
-  auto h_is_required = cudf::detail::make_host_vector<uint8_t>(field_indices.size(), stream);
+  bool has_required = false;
+  auto h_is_required =
+    cudf::detail::make_pinned_vector_async<uint8_t>(field_indices.size(), stream);
   for (size_t i = 0; i < field_indices.size(); ++i) {
     h_is_required[i] = schema[field_indices[i]].is_required ? 1 : 0;
     has_required |= (h_is_required[i] != 0);
   }
   if (!has_required) { return; }
 
-  auto d_is_required = cudf::detail::make_device_uvector_async(h_is_required, stream, mr);
+  auto d_is_required = cudf::detail::make_device_uvector_async(
+    h_is_required, stream, rmm::mr::get_current_device_resource());
 
   auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   check_required_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
@@ -109,8 +107,7 @@ void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_
                                           int num_items,
                                           int32_t const* top_row_indices,
                                           bool propagate_to_rows,
-                                          rmm::cuda_stream_view stream,
-                                          rmm::device_async_resource_ref mr)
+                                          rmm::cuda_stream_view stream)
 {
   if (num_items == 0 || row_invalid.size() == 0 || !propagate_to_rows) { return; }
 
@@ -128,25 +125,13 @@ void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_
     return;
   }
 
-  rmm::device_uvector<int32_t> invalid_rows(num_items, stream, mr);
-  thrust::transform(rmm::exec_policy_nosync(stream),
-                    thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(num_items),
-                    invalid_rows.begin(),
-                    [item_invalid = item_invalid.data(), top_row_indices] __device__(int idx) {
-                      return item_invalid[idx] ? top_row_indices[idx] : -1;
-                    });
-
-  auto valid_end =
-    thrust::remove(rmm::exec_policy_nosync(stream), invalid_rows.begin(), invalid_rows.end(), -1);
-  thrust::sort(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
-  auto unique_end =
-    thrust::unique(rmm::exec_policy_nosync(stream), invalid_rows.begin(), valid_end);
   thrust::for_each(rmm::exec_policy_nosync(stream),
-                   invalid_rows.begin(),
-                   unique_end,
-                   [row_invalid = row_invalid.data()] __device__(int32_t row_idx) {
-                     row_invalid[row_idx] = true;
+                   thrust::make_counting_iterator(0),
+                   thrust::make_counting_iterator(num_items),
+                   [item_invalid = item_invalid.data(),
+                    top_row_indices,
+                    row_invalid = row_invalid.data()] __device__(int idx) {
+                     if (item_invalid[idx]) { row_invalid[top_row_indices[idx]] = true; }
                    });
 }
 
@@ -157,8 +142,7 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
                                       int num_items,
                                       int32_t const* top_row_indices,
                                       bool propagate_to_rows,
-                                      rmm::cuda_stream_view stream,
-                                      rmm::device_async_resource_ref mr)
+                                      rmm::cuda_stream_view stream)
 {
   if (num_items == 0 || valid_enums.empty()) { return; }
 
@@ -166,7 +150,7 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
   auto d_valid_enums = cudf::detail::make_device_uvector_async(
     valid_enums, stream, rmm::mr::get_current_device_resource());
 
-  rmm::device_uvector<bool> item_invalid(num_items, stream, mr);
+  rmm::device_uvector<bool> item_invalid(num_items, stream, rmm::mr::get_current_device_resource());
   thrust::fill(rmm::exec_policy_nosync(stream), item_invalid.begin(), item_invalid.end(), false);
   validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
     values.data(),
@@ -177,7 +161,7 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
     num_items);
 
   propagate_invalid_enum_flags_to_rows(
-    item_invalid, row_invalid, num_items, top_row_indices, propagate_to_rows, stream, mr);
+    item_invalid, row_invalid, num_items, top_row_indices, propagate_to_rows, stream);
 }
 
 }  // namespace spark_rapids_jni::protobuf::detail

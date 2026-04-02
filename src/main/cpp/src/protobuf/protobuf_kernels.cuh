@@ -21,6 +21,7 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/iterator.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/null_mask.hpp>
@@ -31,6 +32,8 @@
 #include <rmm/exec_policy.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <cub/device/device_memcpy.cuh>
+#include <cuda/functional>
 #include <cuda/std/type_traits>
 #include <thrust/fill.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -398,35 +401,6 @@ CUDF_KERNEL void extract_lengths_kernel(LocationProvider loc_provider,
     out_lengths[idx] = 0;
   }
 }
-template <typename LocationProvider>
-CUDF_KERNEL void copy_varlen_data_kernel(uint8_t const* message_data,
-                                         LocationProvider loc_provider,
-                                         int total_items,
-                                         cudf::size_type const* output_offsets,
-                                         char* output_chars,
-                                         int* error_flag,
-                                         bool has_default             = false,
-                                         uint8_t const* default_chars = nullptr,
-                                         int default_len              = 0)
-{
-  auto idx = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-  if (idx >= total_items) return;
-
-  int32_t data_offset = 0;
-  auto loc            = loc_provider.get(idx, data_offset);
-
-  auto out_start = output_offsets[idx];
-
-  if (loc.offset < 0) {
-    if (has_default && default_len > 0) {
-      memcpy(output_chars + out_start, default_chars, default_len);
-    }
-    return;
-  }
-
-  uint8_t const* src = message_data + data_offset;
-  memcpy(output_chars + out_start, src, loc.length);
-}
 
 // ============================================================================
 // Host-side template helpers that launch CUDA kernels
@@ -607,16 +581,49 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
 
   rmm::device_uvector<char> chars(total_size, stream, mr);
   if (total_size > 0) {
-    copy_varlen_data_kernel<CopyProvider>
-      <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                               copy_provider,
-                                               num_rows,
-                                               offsets_col->view().data<int32_t>(),
-                                               chars.data(),
-                                               d_error.data(),
-                                               has_default,
-                                               d_default.data(),
-                                               def_len);
+    auto const* offsets_data = offsets_col->view().data<cudf::size_type>();
+    auto* chars_ptr          = chars.data();
+    auto const* default_ptr  = d_default.data();
+
+    auto src_iter = cudf::detail::make_counting_transform_iterator(
+      0,
+      cuda::proclaim_return_type<void const*>(
+        [message_data, copy_provider, has_default, default_ptr, def_len] __device__(
+          int idx) -> void const* {
+          int32_t data_offset = 0;
+          auto loc            = copy_provider.get(idx, data_offset);
+          if (loc.offset < 0) {
+            return (has_default && def_len > 0) ? static_cast<void const*>(default_ptr) : nullptr;
+          }
+          return static_cast<void const*>(message_data + data_offset);
+        }));
+    auto dst_iter = cudf::detail::make_counting_transform_iterator(
+      0, cuda::proclaim_return_type<void*>([chars_ptr, offsets_data] __device__(int idx) -> void* {
+        return static_cast<void*>(chars_ptr + offsets_data[idx]);
+      }));
+    auto size_iter = cudf::detail::make_counting_transform_iterator(
+      0,
+      cuda::proclaim_return_type<size_t>(
+        [copy_provider, has_default, def_len] __device__(int idx) -> size_t {
+          int32_t data_offset = 0;
+          auto loc            = copy_provider.get(idx, data_offset);
+          if (loc.offset < 0) {
+            return (has_default && def_len > 0) ? static_cast<size_t>(def_len) : 0;
+          }
+          return static_cast<size_t>(loc.length);
+        }));
+
+    size_t temp_storage_bytes = 0;
+    cub::DeviceMemcpy::Batched(
+      nullptr, temp_storage_bytes, src_iter, dst_iter, size_iter, num_rows, stream.value());
+    rmm::device_buffer temp_storage(temp_storage_bytes, stream, mr);
+    cub::DeviceMemcpy::Batched(temp_storage.data(),
+                               temp_storage_bytes,
+                               src_iter,
+                               dst_iter,
+                               size_iter,
+                               num_rows,
+                               stream.value());
   }
 
   if (num_rows == 0) {
@@ -725,8 +732,7 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
                                            num_items,
                                            top_row_indices,
                                            propagate_invalid_rows,
-                                           stream,
-                                           mr);
+                                           stream);
         }
       }
       auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);

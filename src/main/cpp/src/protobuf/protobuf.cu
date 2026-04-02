@@ -19,12 +19,12 @@
 
 #include <cudf/lists/lists_column_view.hpp>
 
-#include <set>
 #include <string>
+#include <unordered_set>
 
 namespace spark_rapids_jni::protobuf {
 
-using namespace detail;
+namespace detail {
 
 namespace {
 
@@ -106,116 +106,137 @@ bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_typ
 void validate_decode_context(protobuf_decode_context const& context)
 {
   auto const num_fields = context.schema.size();
-  CUDF_EXPECTS(context.default_ints.size() == num_fields,
-               "protobuf decode context: default_ints size mismatch with schema (" +
-                 std::to_string(context.default_ints.size()) + " vs " + std::to_string(num_fields) +
-                 ")",
-               std::invalid_argument);
-  CUDF_EXPECTS(context.default_floats.size() == num_fields,
-               "protobuf decode context: default_floats size mismatch with schema (" +
-                 std::to_string(context.default_floats.size()) + " vs " +
-                 std::to_string(num_fields) + ")",
-               std::invalid_argument);
-  CUDF_EXPECTS(context.default_bools.size() == num_fields,
-               "protobuf decode context: default_bools size mismatch with schema (" +
-                 std::to_string(context.default_bools.size()) + " vs " +
-                 std::to_string(num_fields) + ")",
-               std::invalid_argument);
-  CUDF_EXPECTS(context.default_strings.size() == num_fields,
-               "protobuf decode context: default_strings size mismatch with schema (" +
-                 std::to_string(context.default_strings.size()) + " vs " +
-                 std::to_string(num_fields) + ")",
-               std::invalid_argument);
-  CUDF_EXPECTS(context.enum_valid_values.size() == num_fields,
-               "protobuf decode context: enum_valid_values size mismatch with schema (" +
-                 std::to_string(context.enum_valid_values.size()) + " vs " +
-                 std::to_string(num_fields) + ")",
-               std::invalid_argument);
-  CUDF_EXPECTS(context.enum_names.size() == num_fields,
-               "protobuf decode context: enum_names size mismatch with schema (" +
-                 std::to_string(context.enum_names.size()) + " vs " + std::to_string(num_fields) +
-                 ")",
-               std::invalid_argument);
+  if (context.default_ints.size() != num_fields) {
+    CUDF_FAIL("protobuf decode context: default_ints size mismatch with schema (" +
+                std::to_string(context.default_ints.size()) + " vs " + std::to_string(num_fields) +
+                ")",
+              std::invalid_argument);
+  }
+  if (context.default_floats.size() != num_fields) {
+    CUDF_FAIL("protobuf decode context: default_floats size mismatch with schema (" +
+                std::to_string(context.default_floats.size()) + " vs " +
+                std::to_string(num_fields) + ")",
+              std::invalid_argument);
+  }
+  if (context.default_bools.size() != num_fields) {
+    CUDF_FAIL("protobuf decode context: default_bools size mismatch with schema (" +
+                std::to_string(context.default_bools.size()) + " vs " + std::to_string(num_fields) +
+                ")",
+              std::invalid_argument);
+  }
+  if (context.default_strings.size() != num_fields) {
+    CUDF_FAIL("protobuf decode context: default_strings size mismatch with schema (" +
+                std::to_string(context.default_strings.size()) + " vs " +
+                std::to_string(num_fields) + ")",
+              std::invalid_argument);
+  }
+  if (context.enum_valid_values.size() != num_fields) {
+    CUDF_FAIL("protobuf decode context: enum_valid_values size mismatch with schema (" +
+                std::to_string(context.enum_valid_values.size()) + " vs " +
+                std::to_string(num_fields) + ")",
+              std::invalid_argument);
+  }
+  if (context.enum_names.size() != num_fields) {
+    CUDF_FAIL("protobuf decode context: enum_names size mismatch with schema (" +
+                std::to_string(context.enum_names.size()) + " vs " + std::to_string(num_fields) +
+                ")",
+              std::invalid_argument);
+  }
 
-  std::set<std::pair<int, int>> seen_field_numbers;
+  std::unordered_set<uint64_t> seen_field_numbers;
   for (size_t i = 0; i < num_fields; ++i) {
     auto const& field = context.schema[i];
     auto const type   = cudf::data_type{field.output_type};
-    CUDF_EXPECTS(field.field_number > 0 && field.field_number <= MAX_FIELD_NUMBER,
-                 "protobuf decode context: invalid field number at field " + std::to_string(i),
-                 std::invalid_argument);
-    CUDF_EXPECTS(
-      field.depth >= 0 && field.depth < MAX_NESTING_DEPTH,
-      "protobuf decode context: field depth exceeds supported limit at field " + std::to_string(i),
-      std::invalid_argument);
-    CUDF_EXPECTS(field.parent_idx >= -1 && field.parent_idx < static_cast<int>(i),
-                 "protobuf decode context: invalid parent index at field " + std::to_string(i),
-                 std::invalid_argument);
-    CUDF_EXPECTS(seen_field_numbers.emplace(field.parent_idx, field.field_number).second,
-                 "protobuf decode context: duplicate field number under same parent at field " +
-                   std::to_string(i),
-                 std::invalid_argument);
-
-    if (field.parent_idx == -1) {
-      CUDF_EXPECTS(
-        field.depth == 0,
-        "protobuf decode context: top-level field must have depth 0 at field " + std::to_string(i),
-        std::invalid_argument);
-    } else {
-      auto const& parent = context.schema[field.parent_idx];
-      CUDF_EXPECTS(field.depth == parent.depth + 1,
-                   "protobuf decode context: child depth mismatch at field " + std::to_string(i),
-                   std::invalid_argument);
-      CUDF_EXPECTS(
-        cudf::data_type{context.schema[field.parent_idx].output_type}.id() == cudf::type_id::STRUCT,
-        "protobuf decode context: parent must be STRUCT at field " + std::to_string(i),
-        std::invalid_argument);
+    if (field.field_number <= 0 || field.field_number > MAX_FIELD_NUMBER) {
+      CUDF_FAIL("protobuf decode context: invalid field number at field " + std::to_string(i),
+                std::invalid_argument);
+    }
+    if (field.depth < 0 || field.depth >= MAX_NESTING_DEPTH) {
+      CUDF_FAIL("protobuf decode context: field depth exceeds supported limit at field " +
+                  std::to_string(i),
+                std::invalid_argument);
+    }
+    if (field.parent_idx < -1 || field.parent_idx >= static_cast<int>(i)) {
+      CUDF_FAIL("protobuf decode context: invalid parent index at field " + std::to_string(i),
+                std::invalid_argument);
+    }
+    auto const key = (static_cast<uint64_t>(static_cast<uint32_t>(field.parent_idx)) << 32) |
+                     static_cast<uint64_t>(field.field_number);
+    if (!seen_field_numbers.insert(key).second) {
+      CUDF_FAIL("protobuf decode context: duplicate field number under same parent at field " +
+                  std::to_string(i),
+                std::invalid_argument);
     }
 
-    CUDF_EXPECTS(
-      field.wire_type == proto_wire_type::VARINT || field.wire_type == proto_wire_type::I64BIT ||
-        field.wire_type == proto_wire_type::LEN || field.wire_type == proto_wire_type::I32BIT,
-      "protobuf decode context: invalid wire type at field " + std::to_string(i),
-      std::invalid_argument);
-    CUDF_EXPECTS(
-      field.encoding >= proto_encoding::DEFAULT && field.encoding <= proto_encoding::ENUM_STRING,
-      "protobuf decode context: invalid encoding at field " + std::to_string(i),
-      std::invalid_argument);
-    CUDF_EXPECTS(!(field.is_repeated && field.is_required),
-                 "protobuf decode context: field cannot be both repeated and required at field " +
-                   std::to_string(i),
-                 std::invalid_argument);
-    CUDF_EXPECTS(!(field.is_repeated && field.has_default_value),
-                 "protobuf decode context: repeated field cannot carry default value at field " +
-                   std::to_string(i),
-                 std::invalid_argument);
-    CUDF_EXPECTS(!(field.has_default_value &&
-                   (type.id() == cudf::type_id::STRUCT || type.id() == cudf::type_id::LIST)),
-                 "protobuf decode context: STRUCT/LIST field cannot carry default value at field " +
-                   std::to_string(i),
-                 std::invalid_argument);
-    CUDF_EXPECTS(is_encoding_compatible(field, type),
-                 "protobuf decode context: incompatible wire type/encoding/output type at field " +
-                   std::to_string(i),
-                 std::invalid_argument);
+    if (field.parent_idx == -1) {
+      if (field.depth != 0) {
+        CUDF_FAIL("protobuf decode context: top-level field must have depth 0 at field " +
+                    std::to_string(i),
+                  std::invalid_argument);
+      }
+    } else {
+      auto const& parent = context.schema[field.parent_idx];
+      if (field.depth != parent.depth + 1) {
+        CUDF_FAIL("protobuf decode context: child depth mismatch at field " + std::to_string(i),
+                  std::invalid_argument);
+      }
+      if (cudf::data_type{context.schema[field.parent_idx].output_type}.id() !=
+          cudf::type_id::STRUCT) {
+        CUDF_FAIL("protobuf decode context: parent must be STRUCT at field " + std::to_string(i),
+                  std::invalid_argument);
+      }
+    }
+
+    if (field.wire_type != proto_wire_type::VARINT && field.wire_type != proto_wire_type::I64BIT &&
+        field.wire_type != proto_wire_type::LEN && field.wire_type != proto_wire_type::I32BIT) {
+      CUDF_FAIL("protobuf decode context: invalid wire type at field " + std::to_string(i),
+                std::invalid_argument);
+    }
+    if (field.encoding < proto_encoding::DEFAULT || field.encoding > proto_encoding::ENUM_STRING) {
+      CUDF_FAIL("protobuf decode context: invalid encoding at field " + std::to_string(i),
+                std::invalid_argument);
+    }
+    if (field.is_repeated && field.is_required) {
+      CUDF_FAIL("protobuf decode context: field cannot be both repeated and required at field " +
+                  std::to_string(i),
+                std::invalid_argument);
+    }
+    if (field.is_repeated && field.has_default_value) {
+      CUDF_FAIL("protobuf decode context: repeated field cannot carry default value at field " +
+                  std::to_string(i),
+                std::invalid_argument);
+    }
+    if (field.has_default_value &&
+        (type.id() == cudf::type_id::STRUCT || type.id() == cudf::type_id::LIST)) {
+      CUDF_FAIL("protobuf decode context: STRUCT/LIST field cannot carry default value at field " +
+                  std::to_string(i),
+                std::invalid_argument);
+    }
+    if (!is_encoding_compatible(field, type)) {
+      CUDF_FAIL("protobuf decode context: incompatible wire type/encoding/output type at field " +
+                  std::to_string(i),
+                std::invalid_argument);
+    }
 
     if (field.encoding == proto_encoding::ENUM_STRING) {
-      CUDF_EXPECTS(
-        !(context.enum_valid_values[i].empty() || context.enum_names[i].empty()),
-        "protobuf decode context: enum-as-string field requires non-empty metadata at field " +
-          std::to_string(i),
-        std::invalid_argument);
-      CUDF_EXPECTS(
-        context.enum_valid_values[i].size() == context.enum_names[i].size(),
-        "protobuf decode context: enum-as-string metadata mismatch at field " + std::to_string(i),
-        std::invalid_argument);
-      auto const& ev = context.enum_valid_values[i];
-      for (size_t j = 1; j < ev.size(); ++j) {
-        CUDF_EXPECTS(
-          ev[j] > ev[j - 1],
-          "protobuf decode context: enum_valid_values must be strictly sorted at field " +
+      if (context.enum_valid_values[i].empty() || context.enum_names[i].empty()) {
+        CUDF_FAIL(
+          "protobuf decode context: enum-as-string field requires non-empty metadata at field " +
             std::to_string(i),
           std::invalid_argument);
+      }
+      if (context.enum_valid_values[i].size() != context.enum_names[i].size()) {
+        CUDF_FAIL(
+          "protobuf decode context: enum-as-string metadata mismatch at field " + std::to_string(i),
+          std::invalid_argument);
+      }
+      auto const& ev = context.enum_valid_values[i];
+      for (size_t j = 1; j < ev.size(); ++j) {
+        if (ev[j] <= ev[j - 1]) {
+          CUDF_FAIL("protobuf decode context: enum_valid_values must be strictly sorted at field " +
+                      std::to_string(i),
+                    std::invalid_argument);
+        }
       }
     }
   }
@@ -240,7 +261,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                         rmm::cuda_stream_view stream,
                                                         rmm::device_async_resource_ref mr)
 {
-  SRJ_FUNC_RANGE();
   validate_decode_context(context);
   auto const& schema = context.schema;
   CUDF_EXPECTS(binary_input.type().id() == cudf::type_id::LIST,
@@ -310,6 +330,17 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   return cudf::make_structs_column(
     num_rows, std::move(top_level_children), 0, rmm::device_buffer{}, stream, mr);
+}
+
+}  // namespace detail
+
+std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
+                                                        protobuf_decode_context const& context,
+                                                        rmm::cuda_stream_view stream,
+                                                        rmm::device_async_resource_ref mr)
+{
+  SRJ_FUNC_RANGE();
+  return detail::decode_protobuf_to_struct(binary_input, context, stream, mr);
 }
 
 }  // namespace spark_rapids_jni::protobuf
