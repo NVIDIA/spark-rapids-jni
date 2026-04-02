@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <type_traits>
+#include <cuda/std/type_traits>
 
 namespace spark_rapids_jni {
 
@@ -30,7 +30,7 @@ namespace integer_utils {
  */
 template <typename Type>
 __device__ Type floor_div(Type x, Type y)
-  requires(std::is_integral_v<Type> and std::is_signed_v<Type>)
+  requires(cuda::std::is_integral_v<Type> and cuda::std::is_signed_v<Type>)
 {
   auto const quotient          = x / y;
   auto const nonzero_remainder = (x % y) != 0;

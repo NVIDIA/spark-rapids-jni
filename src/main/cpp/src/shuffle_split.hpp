@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/type_traits>
+
 #include <vector>
 
 namespace spark_rapids_jni {
@@ -27,22 +29,23 @@ namespace spark_rapids_jni {
 // cannot be called on the gpu. there is an issue filed against cudf to make
 // is_fixed_point(cudf::data_type type) constexpr. Once that is done, we can remove this
 template <typename T>
-constexpr inline bool is_fixed_point()
+__host__ __device__ constexpr inline bool is_fixed_point()
 {
-  return std::is_same_v<numeric::decimal32, T> || std::is_same_v<numeric::decimal64, T> ||
-         std::is_same_v<numeric::decimal128, T> ||
-         std::is_same_v<numeric::fixed_point<int32_t, numeric::Radix::BASE_2>, T> ||
-         std::is_same_v<numeric::fixed_point<int64_t, numeric::Radix::BASE_2>, T> ||
-         std::is_same_v<numeric::fixed_point<__int128_t, numeric::Radix::BASE_2>, T>;
+  return cuda::std::is_same_v<numeric::decimal32, T> ||
+         cuda::std::is_same_v<numeric::decimal64, T> ||
+         cuda::std::is_same_v<numeric::decimal128, T> ||
+         cuda::std::is_same_v<numeric::fixed_point<int32_t, numeric::Radix::BASE_2>, T> ||
+         cuda::std::is_same_v<numeric::fixed_point<int64_t, numeric::Radix::BASE_2>, T> ||
+         cuda::std::is_same_v<numeric::fixed_point<__int128_t, numeric::Radix::BASE_2>, T>;
 }
 struct is_fixed_point_impl {
   template <typename T>
-  constexpr bool operator()()
+  __host__ __device__ constexpr bool operator()()
   {
     return is_fixed_point<T>();
   }
 };
-constexpr bool is_fixed_point(cudf::data_type type)
+__host__ __device__ constexpr bool is_fixed_point(cudf::data_type type)
 {
   return cudf::type_dispatcher(type, is_fixed_point_impl{});
 }
@@ -57,7 +60,7 @@ struct shuffle_split_col_data {
   {
   }
 
-  constexpr cudf::size_type num_children() const
+  __host__ __device__ constexpr cudf::size_type num_children() const
   {
     return spark_rapids_jni::is_fixed_point(cudf::data_type{type}) ? 0 : param.num_children;
   }

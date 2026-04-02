@@ -28,6 +28,7 @@
 
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/algorithm>
 #include <thrust/tabulate.h>
 
 #include <cstdint>
@@ -115,7 +116,7 @@ struct truncate_binary_fn {
     if (!d_chars) {
       // first phase
       int binary_len = input_offsets[idx + 1] - input_offsets[idx];
-      d_sizes[idx]   = std::min(binary_len, truncate_length);
+      d_sizes[idx]   = cuda::std::min(binary_len, truncate_length);
     } else {
       // second phase
       auto binary_ptr = input_chars + input_offsets[idx];

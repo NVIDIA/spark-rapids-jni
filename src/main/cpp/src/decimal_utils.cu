@@ -30,6 +30,7 @@
 #include <rmm/device_scalar.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/cmath>
 #include <cuda/std/functional>
 #include <thrust/tabulate.h>
 
@@ -1263,7 +1264,7 @@ __device__ inline IntType scaled_round(FloatType input, int32_t pow10)
     } else {
       // Spark rounds up the power-of-10 to floor for DOUBLES >= 2^63 (and yes, this is the exact
       // cutoff).
-      bool const round_up = unsigned_floating > std::numeric_limits<std::int64_t>::max();
+      bool const round_up = unsigned_floating > cuda::std::numeric_limits<std::int64_t>::max();
       return (3 * pow2_bit - 10 * pow10 + 9 * round_up) / 10;
     }
   }(pow2);
@@ -1319,7 +1320,7 @@ struct floating_point_to_decimal_fn {
   {
     auto const x = input.element<FloatType>(idx);
 
-    if (input.is_null(idx) || !std::isfinite(x)) {
+    if (input.is_null(idx) || !cuda::std::isfinite(x)) {
       validity[idx] = false;
       return DecimalRepType{0};
     }

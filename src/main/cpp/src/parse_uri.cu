@@ -84,13 +84,16 @@ namespace {
 // By contrast, the URI https://[15:6:g:invalid] will not return https for the
 // scheme and is considered completely invalid.
 
-constexpr bool is_alpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+__host__ __device__ constexpr bool is_alpha(char c)
+{
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
 
-constexpr bool is_numeric(char c) { return c >= '0' && c <= '9'; }
+__host__ __device__ constexpr bool is_numeric(char c) { return c >= '0' && c <= '9'; }
 
-constexpr bool is_alphanum(char c) { return is_alpha(c) || is_numeric(c); }
+__host__ __device__ constexpr bool is_alphanum(char c) { return is_alpha(c) || is_numeric(c); }
 
-constexpr bool is_hex(char c)
+__host__ __device__ constexpr bool is_hex(char c)
 {
   return is_numeric(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
@@ -142,7 +145,7 @@ __device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_e
   auto iter = s.begin();
   {
     auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
-    iter                = std::move(iter_);
+    iter                = cuda::std::move(iter_);
     if (!valid) { return false; }
   }
   while (iter != s.end()) {
@@ -150,7 +153,7 @@ __device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_e
 
     iter++;
     auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
-    iter                = std::move(iter_);
+    iter                = cuda::std::move(iter_);
     if (!valid) { return false; }
   }
   return true;
@@ -498,7 +501,8 @@ bool __device__ validate_fragment(string_view fragment)
     }));
 }
 
-__device__ std::pair<string_view, bool> find_query_part(string_view haystack, string_view needle)
+__device__ cuda::std::pair<string_view, bool> find_query_part(string_view haystack,
+                                                              string_view needle)
 {
   auto const n_bytes = needle.size_bytes();
   auto h             = haystack.data();

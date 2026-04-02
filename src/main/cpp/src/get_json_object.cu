@@ -396,8 +396,8 @@ __device__ cuda::std::pair<bool, cudf::size_type> evaluate_path(
       return;
     }
     auto& ctx          = stack[stack_size++];
-    ctx.g              = std::move(_g);
-    ctx.path           = std::move(_path);
+    ctx.g              = cuda::std::move(_g);
+    ctx.path           = cuda::std::move(_path);
     ctx.dirty          = 0;
     ctx.case_path      = _case_path;
     ctx.token          = p.get_current_token();

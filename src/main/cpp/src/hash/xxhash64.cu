@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <cuda/std/utility>
 #include <thrust/tabulate.h>
 
 namespace spark_rapids_jni {
@@ -44,10 +45,10 @@ struct XXHash_64 {
   using result_type = hash_value_type;
 
   constexpr XXHash_64() = delete;
-  constexpr XXHash_64(hash_value_type seed) : m_seed(seed) {}
+  __host__ __device__ constexpr XXHash_64(hash_value_type seed) : m_seed(seed) {}
 
   template <typename T>
-  __device__ inline T getblock32(std::byte const* data, cudf::size_type offset) const
+  __device__ inline T getblock32(cuda::std::byte const* data, cudf::size_type offset) const
   {
     // Read a 4-byte value from the data pointer as individual bytes for safe
     // unaligned access (very likely for string types).
@@ -58,7 +59,8 @@ struct XXHash_64 {
     return reinterpret_cast<T const*>(&result)[0];
   }
 
-  __device__ inline hash_value_type getblock64(std::byte const* data, cudf::size_type offset) const
+  __device__ inline hash_value_type getblock64(cuda::std::byte const* data,
+                                               cudf::size_type offset) const
   {
     uint64_t result = static_cast<uint64_t>(getblock32<uint32_t>(data, offset)) |
                       static_cast<uint64_t>(getblock32<uint32_t>(data, offset + 4)) << 32;
@@ -70,10 +72,10 @@ struct XXHash_64 {
   template <typename T>
   result_type __device__ inline compute(T const& key) const
   {
-    return compute_bytes(reinterpret_cast<std::byte const*>(&key), sizeof(T));
+    return compute_bytes(reinterpret_cast<cuda::std::byte const*>(&key), sizeof(T));
   }
 
-  result_type __device__ inline compute_remaining_bytes(std::byte const* data,
+  result_type __device__ inline compute_remaining_bytes(cuda::std::byte const* data,
                                                         cudf::size_type const nbytes,
                                                         cudf::size_type offset,
                                                         result_type h64) const
@@ -107,7 +109,8 @@ struct XXHash_64 {
     return h64;
   }
 
-  result_type __device__ compute_bytes(std::byte const* data, cudf::size_type const nbytes) const
+  result_type __device__ compute_bytes(cuda::std::byte const* data,
+                                       cudf::size_type const nbytes) const
   {
     uint64_t offset = 0;
     hash_value_type h64;
@@ -241,7 +244,7 @@ template <>
 hash_value_type __device__ inline XXHash_64<cudf::string_view>::operator()(
   cudf::string_view const& key) const
 {
-  auto const data = reinterpret_cast<std::byte const*>(key.data());
+  auto const data = reinterpret_cast<cuda::std::byte const*>(key.data());
   auto const len  = key.size_bytes();
   return compute_bytes(data, len);
 }
@@ -265,7 +268,7 @@ hash_value_type __device__ inline XXHash_64<numeric::decimal128>::operator()(
   numeric::decimal128 const& key) const
 {
   auto [java_d, length] = to_java_bigdecimal(key);
-  auto bytes            = reinterpret_cast<std::byte*>(&java_d);
+  auto bytes            = reinterpret_cast<cuda::std::byte*>(&java_d);
   return compute_bytes(bytes, length);
 }
 
@@ -378,7 +381,7 @@ class device_row_hasher {
         delete;  // Because the default constructor of `cudf::column_device_view` is deleted
 
       __device__ col_stack_frame(cudf::column_device_view col)
-        : _column(std::move(col)), _idx_to_process(0)
+        : _column(cuda::std::move(col)), _idx_to_process(0)
       {
       }
 

@@ -96,7 +96,7 @@ __host__ __device__ truncation_format parse_format(char const* fmt_data, cudf::s
                               "MICROSECOND"};
   // Manually calculate sizes of the strings since `strlen` is not available in device code.
   cudf::size_type constexpr comp_sizes[] = {4, 4, 2, 7, 5, 2, 3, 4, 3, 2, 4, 6, 6, 11, 11};
-  auto constexpr num_components          = std::size(components);
+  auto constexpr num_components          = sizeof(components) / sizeof(components[0]);
 
   for (std::size_t comp_idx = 0; comp_idx < num_components; ++comp_idx) {
     if (fmt_size != comp_sizes[comp_idx]) { continue; }
@@ -166,8 +166,8 @@ __device__ inline cuda::std::optional<Timestamp> trunc_date(
 template <typename FormatDeviceT>
 struct truncate_date_fn {
   using Timestamp = cudf::timestamp_D;
-  static_assert(std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
-                  std::is_same_v<FormatDeviceT, truncation_format>,
+  static_assert(cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
+                  cuda::std::is_same_v<FormatDeviceT, truncation_format>,
                 "FormatDeviceT must be either 'cudf::column_device_view' or 'truncation_format'.");
 
   cudf::column_device_view datetime;
@@ -204,8 +204,8 @@ struct truncate_date_fn {
 template <typename FormatDeviceT>
 struct truncate_timestamp_fn {
   using Timestamp = cudf::timestamp_us;
-  static_assert(std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
-                  std::is_same_v<FormatDeviceT, truncation_format>,
+  static_assert(cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
+                  cuda::std::is_same_v<FormatDeviceT, truncation_format>,
                 "FormatDeviceT must be either 'cudf::column_device_view' or 'truncation_format'.");
 
   cudf::column_device_view datetime;
