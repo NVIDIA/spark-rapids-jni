@@ -151,7 +151,7 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
     valid_enums, stream, cudf::get_current_device_resource_ref());
 
   rmm::device_uvector<bool> item_invalid(
-    num_items, stream, rmm::mr::get_current_device_resource_ref());
+    num_items, stream, cudf::get_current_device_resource_ref());
   thrust::fill(rmm::exec_policy_nosync(stream), item_invalid.begin(), item_invalid.end(), false);
   validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
     values.data(),
