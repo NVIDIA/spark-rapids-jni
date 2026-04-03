@@ -34,6 +34,9 @@ public class CharsetDecode {
    * @return UTF-8 string column
    */
   public static ColumnVector decode(ColumnView cv, int charset) {
+    if (charset != GBK) {
+      throw new IllegalArgumentException("Unsupported charset: " + charset);
+    }
     return new ColumnVector(decodeNative(cv.getNativeView(), charset));
   }
 
