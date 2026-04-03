@@ -997,7 +997,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   // so they are check-pointed periodically. This reads and resets
   // the metric for both the threads and the tasks
   template <class T>
-  T get_and_reset_metric(long const task_id, T task_metrics::*MetricPtr)
+  T get_and_reset_metric(long const task_id, T task_metrics::* MetricPtr)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
     T ret              = 0;
@@ -1021,7 +1021,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   }
 
   template <class T>
-  T get_metric(long const task_id, T task_metrics::*MetricPtr)
+  T get_metric(long const task_id, T task_metrics::* MetricPtr)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
     T ret              = 0;

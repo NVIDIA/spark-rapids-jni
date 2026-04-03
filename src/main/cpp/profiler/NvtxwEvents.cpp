@@ -23,10 +23,8 @@
 
 namespace NvidiaNvtxw {
 
-#define PAYLOAD_ENTRY_SIMPLE(flags, type, name)              \
-  {                                                          \
-    (flags), (type), (name), nullptr, 0, 0, nullptr, nullptr \
-  }
+#define PAYLOAD_ENTRY_SIMPLE(flags, type, name) \
+  {(flags), (type), (name), nullptr, 0, 0, nullptr, nullptr}
 
 // The C string containing the event's name must be provided in a special way.
 static const nvtxPayloadSchemaEntry_t nameSchema[] = {PAYLOAD_ENTRY_SIMPLE(

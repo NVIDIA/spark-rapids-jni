@@ -59,9 +59,9 @@ static const size_t initialPathBufSize = MAX_PATH; /* Grows if not big enough */
 #define NVTXW3_DLLFUNC    GetProcAddress
 #define NVTXW3_DLLCLOSE   FreeLibrary
 #else
-static const char pathSep              = '/';
+static const char pathSep = '/';
 #if defined(NVTXW3_TEST_PATH_UTILITIES)
-static const char pathDelimiter        = ':';
+static const char pathDelimiter = ':';
 #endif
 static const size_t initialPathBufSize = 260; /* Grows if not big enough */
 #define NVTXW3_DLLHANDLE  void*
