@@ -148,7 +148,7 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
 
   auto const blocks  = static_cast<int>((num_items + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   auto d_valid_enums = cudf::detail::make_device_uvector_async(
-    valid_enums, stream, rmm::mr::get_current_device_resource_ref());
+    valid_enums, stream, cudf::get_current_device_resource_ref());
 
   rmm::device_uvector<bool> item_invalid(
     num_items, stream, rmm::mr::get_current_device_resource_ref());
