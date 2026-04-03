@@ -86,7 +86,7 @@ void maybe_check_required_fields(field_location const* locations,
   if (!has_required) { return; }
 
   auto d_is_required = cudf::detail::make_device_uvector_async(
-    h_is_required, stream, rmm::mr::get_current_device_resource());
+    h_is_required, stream, rmm::mr::get_current_device_resource_ref());
 
   auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   check_required_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
@@ -148,9 +148,10 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
 
   auto const blocks  = static_cast<int>((num_items + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   auto d_valid_enums = cudf::detail::make_device_uvector_async(
-    valid_enums, stream, rmm::mr::get_current_device_resource());
+    valid_enums, stream, rmm::mr::get_current_device_resource_ref());
 
-  rmm::device_uvector<bool> item_invalid(num_items, stream, rmm::mr::get_current_device_resource());
+  rmm::device_uvector<bool> item_invalid(
+    num_items, stream, rmm::mr::get_current_device_resource_ref());
   thrust::fill(rmm::exec_policy_nosync(stream), item_invalid.begin(), item_invalid.end(), false);
   validate_enum_values_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
     values.data(),

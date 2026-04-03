@@ -567,7 +567,7 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
   rmm::device_uvector<uint8_t> d_default(0, stream, mr);
   if (has_default && def_len > 0) {
     d_default = cudf::detail::make_device_uvector_async(
-      default_bytes, stream, rmm::mr::get_current_device_resource());
+      default_bytes, stream, rmm::mr::get_current_device_resource_ref());
   }
 
   rmm::device_uvector<int32_t> lengths(num_rows, stream, mr);
