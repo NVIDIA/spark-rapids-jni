@@ -86,7 +86,7 @@ void maybe_check_required_fields(field_location const* locations,
   if (!has_required) { return; }
 
   auto d_is_required = cudf::detail::make_device_uvector_async(
-    h_is_required, stream, rmm::mr::get_current_device_resource_ref());
+    h_is_required, stream, cudf::get_current_device_resource_ref());
 
   auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   check_required_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
