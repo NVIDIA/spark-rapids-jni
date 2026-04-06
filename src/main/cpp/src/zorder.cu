@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "utilities/iterator.cuh"
 #include "zorder.hpp"
 
 #include <cudf/column/column_factories.hpp>
@@ -26,8 +27,6 @@
 
 #include <cuda/functional>
 #include <thrust/for_each.h>
-#include <thrust/iterator/constant_iterator.h>
-#include <thrust/iterator/counting_iterator.h>
 
 namespace {
 
@@ -170,7 +169,7 @@ std::unique_ptr<cudf::column> interleave_bits(cudf::table_view const& tbl,
 
   thrust::for_each_n(
     rmm::exec_policy(stream),
-    thrust::make_counting_iterator<cudf::size_type>(0),
+    cuda::make_counting_iterator<cudf::size_type>(0),
     output_size,
     [col = *output_dv_ptr, num_columns, data_type_size, input = *input_dv] __device__(
       cudf::size_type ret_idx) {
@@ -208,7 +207,7 @@ std::unique_ptr<cudf::column> interleave_bits(cudf::table_view const& tbl,
       col.data<uint8_t>()[ret_idx] = ret_byte;
     });
 
-  auto offset_begin   = thrust::make_constant_iterator(data_type_size * num_columns);
+  auto offset_begin   = cuda::make_constant_iterator(data_type_size * num_columns);
   auto offsets_column = std::get<0>(
     cudf::detail::make_offsets_child_column(offset_begin, offset_begin + num_rows, stream, mr));
 
@@ -246,8 +245,8 @@ std::unique_ptr<cudf::column> hilbert_index(int32_t const num_bits_per_entry,
 
   thrust::transform(
     rmm::exec_policy(stream),
-    thrust::make_counting_iterator<cudf::size_type>(0),
-    thrust::make_counting_iterator<cudf::size_type>(0) + num_rows,
+    cuda::make_counting_iterator<cudf::size_type>(0),
+    cuda::make_counting_iterator<cudf::size_type>(num_rows),
     output_dv_ptr->begin<int64_t>(),
     cuda::proclaim_return_type<int64_t>(
       [num_bits_per_entry, num_columns, input = *input_dv] __device__(cudf::size_type row_index) {

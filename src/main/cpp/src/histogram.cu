@@ -15,6 +15,7 @@
  */
 
 #include "histogram.hpp"
+#include "utilities/iterator.cuh"
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
@@ -34,9 +35,6 @@
 #include <cuda/std/functional>
 #include <thrust/binary_search.h>
 #include <thrust/for_each.h>
-#include <thrust/iterator/constant_iterator.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/iterator/permutation_iterator.h>
 #include <thrust/scan.h>
 
 #include <type_traits>
@@ -194,9 +192,9 @@ struct percentile_dispatcher {
 
     auto const fill_percentile = [&](auto const sorted_validity_it) {
       auto const sorted_input_it =
-        thrust::make_permutation_iterator(data.begin<T>(), ordered_indices);
+        cuda::make_permutation_iterator(data.begin<T>(), ordered_indices);
       thrust::for_each_n(rmm::exec_policy(stream),
-                         thrust::make_counting_iterator(0),
+                         cuda::make_counting_iterator(0),
                          num_histograms * static_cast<cudf::size_type>(percentages.size()),
                          fill_percentile_fn{offsets,
                                             sorted_input_it,
@@ -208,9 +206,9 @@ struct percentile_dispatcher {
     };
 
     if (!has_null) {
-      fill_percentile(thrust::make_constant_iterator(true));
+      fill_percentile(cuda::make_constant_iterator(true));
     } else {
-      auto const sorted_validity_it = thrust::make_permutation_iterator(
+      auto const sorted_validity_it = cuda::make_permutation_iterator(
         cudf::detail::make_validity_iterator<false>(data), ordered_indices);
       fill_percentile(sorted_validity_it);
     }
@@ -261,7 +259,7 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column>&& input
 {
   if (input->size() == 0) { return cudf::make_empty_lists_column(input->type()); }
 
-  auto const sizes_itr = thrust::make_constant_iterator(num_percentages);
+  auto const sizes_itr = cuda::make_constant_iterator(num_percentages);
   auto offsets         = std::get<0>(
     cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + num_histograms, stream, mr));
   auto output = cudf::make_lists_column(
@@ -310,7 +308,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
   auto check_valid = rmm::device_uvector<bool>(frequencies.size(), stream, default_mr);
 
   thrust::for_each_n(rmm::exec_policy(stream),
-                     thrust::make_counting_iterator(0),
+                     cuda::make_counting_iterator(0),
                      frequencies.size(),
                      [frequencies   = frequencies.begin<int64_t>(),
                       check_invalid = check_invalid_and_zero.begin(),
@@ -359,7 +357,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
       // Therefore, we manually set `1` for the frequencies of nulls.
       thrust::for_each_n(
         rmm::exec_policy(stream),
-        thrust::make_counting_iterator(0),
+        cuda::make_counting_iterator(0),
         frequencies.size(),
         [frequencies = values_and_frequencies.back()->mutable_view().begin<int64_t>(),
          null_mask =
@@ -376,7 +374,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
   auto const make_lists_histograms = [&](cudf::size_type num_elements,
                                          std::unique_ptr<cudf::column>&& structs_histogram) {
     // Each output list will have size 1.
-    auto const sizes_itr = thrust::make_constant_iterator(1);
+    auto const sizes_itr = cuda::make_constant_iterator(1);
     auto offsets         = std::get<0>(
       cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + num_elements, stream, mr));
     return cudf::make_lists_column(
@@ -455,7 +453,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const&
     default_mr);
 
   auto const d_accumulated_counts = [&] {
-    auto const sorted_counts = thrust::make_permutation_iterator(
+    auto const sorted_counts = cuda::make_permutation_iterator(
       counts_col.begin<int64_t>(), ordered_indices->view().begin<cudf::size_type>());
     auto accumulated_counts = rmm::device_uvector<int64_t>(counts_col.size(), stream, default_mr);
     // We don't need a permutation iterator for the labels, since the same labels always
