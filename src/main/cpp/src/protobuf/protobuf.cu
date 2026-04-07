@@ -862,18 +862,25 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   }
   if (fail_on_errors && h_error != 0) throw cudf::logic_error(error_message(h_error));
 
-  // Build final struct null mask from PERMISSIVE-mode row invalidation.
-  // Note: input null mask is NOT merged here — the Scala/Java caller handles input-row-level
-  // nulls via mergeAndSetValidity after the JNI call returns.
+  // Build final struct null mask by combining input nulls with PERMISSIVE-mode row invalidation.
   cudf::size_type struct_null_count = 0;
   rmm::device_buffer struct_mask{0, stream, mr};
+  auto const input_null_count = binary_input.null_count();
 
-  if (track_permissive_null_rows) {
+  if (track_permissive_null_rows || input_null_count > 0) {
+    auto const* input_mask = binary_input.null_mask();
+    auto input_offset      = binary_input.offset();
     auto [mask, null_count] = cudf::detail::valid_if(
       thrust::make_counting_iterator<cudf::size_type>(0),
       thrust::make_counting_iterator<cudf::size_type>(num_rows),
-      [row_invalid = d_row_force_null.data()] __device__(cudf::size_type row) {
-        return !row_invalid[row];
+      [row_invalid = track_permissive_null_rows ? d_row_force_null.data() : nullptr,
+       input_mask,
+       input_offset] __device__(cudf::size_type row) {
+        if (input_mask != nullptr && !cudf::bit_is_set(input_mask, input_offset + row)) {
+          return false;
+        }
+        if (row_invalid != nullptr && row_invalid[row]) return false;
+        return true;
       },
       stream,
       mr);
@@ -881,10 +888,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     struct_null_count = null_count;
   }
 
-  // cuDF child views do not automatically inherit parent nulls. Push PERMISSIVE nulls down into
-  // every top-level child, then recursively through nested STRUCT/LIST children, so callers that
+  // cuDF child views do not automatically inherit parent nulls. Push nulls down into every
+  // top-level child, then recursively through nested STRUCT/LIST children, so callers that
   // access backing grandchildren directly still observe logically-null rows.
-  if (track_permissive_null_rows && struct_null_count > 0) {
+  if (struct_null_count > 0) {
     auto const* struct_mask_ptr = static_cast<cudf::bitmask_type const*>(struct_mask.data());
     for (auto& child : top_level_children) {
       apply_parent_mask_to_row_aligned_column(
