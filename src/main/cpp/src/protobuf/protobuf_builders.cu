@@ -329,8 +329,7 @@ std::unique_ptr<cudf::column> build_enum_string_column(
                                        num_rows,
                                        top_row_indices,
                                        propagate_invalid_rows,
-                                       stream,
-                                       mr);
+                                       stream);
   return build_enum_string_values_column(enum_values, valid, lookup, num_rows, stream, mr);
 }
 
@@ -390,8 +389,7 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_enum_string_column(
                                        total_count,
                                        top_row_indices,
                                        propagate_invalid_rows,
-                                       stream,
-                                       mr);
+                                       stream);
   return build_enum_string_values_column(enum_values, valid, lookup, total_count, stream, mr);
 }
 
@@ -456,8 +454,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
                                        total_count,
                                        d_top_row_indices.data(),
                                        true,
-                                       stream,
-                                       mr);
+                                       stream);
 
   auto child_col =
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
@@ -813,8 +810,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
                               d_row_force_null.size() > 0 ? d_row_force_null.data() : nullptr,
                               d_top_row_indices.data(),
                               d_error.data(),
-                              stream,
-                              mr);
+                              stream);
 
   // Note: We no longer need to copy child_locs to host because:
   // 1. All scalar extraction kernels access d_child_locs directly on device
@@ -1127,8 +1123,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                               d_row_force_null.size() > 0 ? d_row_force_null.data() : nullptr,
                               top_row_indices,
                               d_error.data(),
-                              stream,
-                              mr);
+                              stream);
 
   std::vector<std::unique_ptr<cudf::column>> struct_children;
   for (int ci = 0; ci < num_child_fields; ci++) {
@@ -1583,8 +1578,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                              total_rep_count,
                                              d_rep_top_row_indices.data(),
                                              propagate_invalid_rows,
-                                             stream,
-                                             mr);
+                                             stream);
         child_values =
           build_enum_string_values_column(enum_values, valid, lookup, total_rep_count, stream, mr);
       } else {

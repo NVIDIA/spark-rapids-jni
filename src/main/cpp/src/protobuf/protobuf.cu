@@ -599,8 +599,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                 track_permissive_null_rows ? d_row_force_null.data() : nullptr,
                                 nullptr,
                                 d_error.data(),
-                                stream,
-                                mr);
+                                stream);
 
     // Batched scalar extraction: group non-special fixed-width fields by extraction
     // category and extract all fields of each category with a single 2D kernel launch.
@@ -923,8 +922,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                               track_permissive_null_rows ? d_row_force_null.data() : nullptr,
                               nullptr,
                               d_error.data(),
-                              stream,
-                              mr);
+                              stream);
 
   // Process repeated fields (three-phase: offsets → combined scan → build columns)
   if (num_repeated > 0) {
