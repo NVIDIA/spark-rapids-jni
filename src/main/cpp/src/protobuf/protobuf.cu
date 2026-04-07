@@ -390,26 +390,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // Extract shared input data pointers (used by scalar, repeated, and nested sections)
   cudf::lists_column_view const in_list_view(binary_input);
   auto const* message_data = reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
-  auto const message_data_size = static_cast<cudf::size_type>(in_list_view.child().size());
-  auto const* list_offsets     = in_list_view.offsets().data<cudf::size_type>();
+  auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
 
   cudf::size_type base_offset = 0;
   CUDF_CUDA_TRY(cudaMemcpyAsync(
     &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
-
-  // Copy schema to device
-  std::vector<device_nested_field_descriptor> h_device_schema(num_fields);
-  for (int i = 0; i < num_fields; i++) {
-    h_device_schema[i] = device_nested_field_descriptor{schema[i]};
-  }
-
-  rmm::device_uvector<device_nested_field_descriptor> d_schema(num_fields, stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_schema.data(),
-                                h_device_schema.data(),
-                                num_fields * sizeof(device_nested_field_descriptor),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
 
   auto d_in = cudf::column_device_view::create(binary_input, stream);
   // Identify repeated and nested fields at depth 0
@@ -429,9 +415,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     }
   }
 
-  int num_repeated = static_cast<int>(repeated_field_indices.size());
-  int num_nested   = static_cast<int>(nested_field_indices.size());
-  int num_scalar   = static_cast<int>(scalar_field_indices.size());
+  int num_scalar = static_cast<int>(scalar_field_indices.size());
 
   // Error flag
   rmm::device_uvector<int> d_error(1, stream, mr);
