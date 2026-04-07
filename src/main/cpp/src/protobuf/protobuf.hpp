@@ -105,7 +105,6 @@ protobuf_field_meta_view make_field_meta_view(protobuf_decode_context const& con
 
 }  // namespace detail
 
-
 std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
                                                         protobuf_decode_context const& context,
                                                         rmm::cuda_stream_view stream,

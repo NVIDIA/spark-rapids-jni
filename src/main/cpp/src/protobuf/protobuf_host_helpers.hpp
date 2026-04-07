@@ -113,7 +113,6 @@ inline cudf::type_id get_output_type_id(FieldT const& field)
   }
 }
 
-
 template <typename SchemaT>
 std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   SchemaT const& schema,
