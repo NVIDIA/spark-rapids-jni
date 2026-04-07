@@ -21,11 +21,6 @@
 
 namespace spark_rapids_jni::protobuf::detail {
 
-/**
- * Helper to build string or bytes column for repeated message child fields.
- * When as_bytes=false, builds a STRING column. When as_bytes=true, builds LIST<UINT8>.
- * Uses GPU kernels for parallel extraction (critical performance fix!).
- */
 std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   uint8_t const* message_data,
   rmm::device_uvector<cudf::size_type> const& d_msg_row_offsets,
@@ -40,9 +35,8 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   rmm::device_async_resource_ref mr)
 {
   if (total_count == 0) {
-    if (as_bytes) {
+    if (as_bytes)
       return make_empty_column_safe(cudf::data_type{cudf::type_id::LIST}, stream, mr);
-    }
     return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
   }
 
@@ -112,16 +106,7 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
     total_count, std::move(offsets_col), d_data.release(), null_count, std::move(mask));
 }
 
-// ============================================================================
-// Utility functions
-// ============================================================================
 
-// Note: make_null_mask_from_valid is defined earlier in the file (before
-// scan_repeated_message_children_kernel)
-
-/**
- * Create an all-null column of the specified type.
- */
 std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
                                                cudf::size_type num_rows,
                                                rmm::cuda_stream_view stream,
@@ -163,24 +148,18 @@ std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
   }
 }
 
-/**
- * Create an empty column (0 rows) of the specified type.
- * This handles nested types (LIST, STRUCT) that cudf::make_empty_column doesn't support.
- */
 std::unique_ptr<cudf::column> make_empty_column_safe(cudf::data_type dtype,
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
 {
   switch (dtype.id()) {
     case cudf::type_id::LIST: {
-      // Create empty list column with empty UINT8 child (Spark BinaryType maps to LIST<UINT8>)
       auto offsets_col =
         std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                        1,
                                        rmm::device_buffer(sizeof(int32_t), stream, mr),
                                        rmm::device_buffer{},
                                        0);
-      // Initialize offset to 0
       CUDF_CUDA_TRY(cudaMemsetAsync(
         offsets_col->mutable_view().data<int32_t>(), 0, sizeof(int32_t), stream.value()));
       auto child_col = std::make_unique<cudf::column>(
@@ -189,21 +168,15 @@ std::unique_ptr<cudf::column> make_empty_column_safe(cudf::data_type dtype,
         0, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
     }
     case cudf::type_id::STRUCT: {
-      // Create empty struct column with no children
       std::vector<std::unique_ptr<cudf::column>> empty_children;
       return cudf::make_structs_column(
         0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
     }
-    default:
-      // For non-nested types, use cudf's make_empty_column
-      return cudf::make_empty_column(dtype);
+    default: return cudf::make_empty_column(dtype);
   }
 }
 
-/**
- * Create an all-null LIST column with the provided child column.
- * The child column is expected to have 0 rows.
- */
+
 std::unique_ptr<cudf::column> make_null_list_column_with_child(
   std::unique_ptr<cudf::column> child_col,
   cudf::size_type num_rows,
@@ -222,9 +195,6 @@ std::unique_ptr<cudf::column> make_null_list_column_with_child(
     num_rows, std::move(offsets_col), std::move(child_col), num_rows, std::move(null_mask));
 }
 
-/**
- * Wrap a 0-row element column into a 0-row LIST column.
- */
 std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::column> element_col,
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
@@ -253,9 +223,9 @@ enum_string_lookup_tables make_enum_string_lookup_tables(
   rmm::device_async_resource_ref mr)
 {
   auto d_valid_enums = cudf::detail::make_device_uvector_async(
-    valid_enums, stream, rmm::mr::get_current_device_resource());
+    valid_enums, stream, cudf::get_current_device_resource_ref());
 
-  auto h_name_offsets = cudf::detail::make_host_vector<int32_t>(valid_enums.size() + 1, stream);
+  auto h_name_offsets = cudf::detail::make_pinned_vector_async<int32_t>(valid_enums.size() + 1, stream);
   std::fill(h_name_offsets.begin(), h_name_offsets.end(), 0);
   int64_t total_name_chars = 0;
   for (size_t k = 0; k < enum_name_bytes.size(); ++k) {
@@ -265,7 +235,7 @@ enum_string_lookup_tables make_enum_string_lookup_tables(
     h_name_offsets[k + 1] = static_cast<int32_t>(total_name_chars);
   }
 
-  auto h_name_chars = cudf::detail::make_host_vector<uint8_t>(total_name_chars, stream);
+  auto h_name_chars = cudf::detail::make_pinned_vector_async<uint8_t>(total_name_chars, stream);
   int32_t cursor    = 0;
   for (auto const& name : enum_name_bytes) {
     if (!name.empty()) {
@@ -275,12 +245,12 @@ enum_string_lookup_tables make_enum_string_lookup_tables(
   }
 
   auto d_name_offsets = cudf::detail::make_device_uvector_async(
-    h_name_offsets, stream, rmm::mr::get_current_device_resource());
+    h_name_offsets, stream, cudf::get_current_device_resource_ref());
 
   auto d_name_chars = [&]() {
     if (total_name_chars > 0) {
       return cudf::detail::make_device_uvector_async(
-        h_name_chars, stream, rmm::mr::get_current_device_resource());
+        h_name_chars, stream, cudf::get_current_device_resource_ref());
     }
     return rmm::device_uvector<uint8_t>(0, stream, mr);
   }();
@@ -1565,7 +1535,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
                                         0,
                                         0.0,
                                         false,
-                                        cudf::detail::make_host_vector<uint8_t>(0, stream),
+                                        cudf::detail::make_pinned_vector_async<uint8_t>(0, stream),
                                         child_schema_idx,
                                         enum_valid_values,
                                         enum_names,
@@ -1624,7 +1594,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
     } else {
       bool as_bytes      = (elem_type_id == cudf::type_id::LIST);
       auto valid_fn      = [] __device__(cudf::size_type) { return true; };
-      auto empty_default = cudf::detail::make_host_vector<uint8_t>(0, stream);
+      auto empty_default = cudf::detail::make_pinned_vector_async<uint8_t>(0, stream);
       child_values       = extract_and_build_string_or_bytes_column(as_bytes,
                                                               message_data,
                                                               total_rep_count,

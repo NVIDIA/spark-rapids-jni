@@ -78,16 +78,16 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
     }
     case wire_type_value(proto_wire_type::I64BIT):
       // Check if there's enough data for 8 bytes
-      if (end - cur < 8) { return -1; }
+      if (end - cur < 8) return -1;
       return 8;
     case wire_type_value(proto_wire_type::I32BIT):
       // Check if there's enough data for 4 bytes
-      if (end - cur < 4) { return -1; }
+      if (end - cur < 4) return -1;
       return 4;
     case wire_type_value(proto_wire_type::LEN): {
       uint64_t len;
       int n;
-      if (!read_varint(cur, end, len, n)) { return -1; }
+      if (!read_varint(cur, end, len, n)) return -1;
       if (len > static_cast<uint64_t>(end - cur - n) ||
           len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max() - n)) {
         return -1;
@@ -100,7 +100,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
       while (cur < end && depth > 0) {
         uint64_t key;
         int key_bytes;
-        if (!read_varint(cur, end, key, key_bytes)) { return -1; }
+        if (!read_varint(cur, end, key, key_bytes)) return -1;
         cur += key_bytes;
 
         int inner_wt = static_cast<int>(key & 0x7);
@@ -108,14 +108,14 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
           --depth;
           if (depth == 0) { return static_cast<int>(cur - start); }
         } else if (inner_wt == wire_type_value(proto_wire_type::SGROUP)) {
-          if (++depth > 32) { return -1; }
+          if (++depth > 32) return -1;
         } else {
           int inner_size = -1;
           switch (inner_wt) {
             case wire_type_value(proto_wire_type::VARINT): {
               uint64_t dummy;
               int vbytes;
-              if (!read_varint(cur, end, dummy, vbytes)) { return -1; }
+              if (!read_varint(cur, end, dummy, vbytes)) return -1;
               inner_size = vbytes;
               break;
             }
@@ -123,7 +123,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
             case wire_type_value(proto_wire_type::LEN): {
               uint64_t len;
               int len_bytes;
-              if (!read_varint(cur, end, len, len_bytes)) { return -1; }
+              if (!read_varint(cur, end, len, len_bytes)) return -1;
               if (len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max() - len_bytes)) {
                 return -1;
               }
@@ -133,7 +133,7 @@ __device__ inline int get_wire_type_size(int wt, uint8_t const* cur, uint8_t con
             case wire_type_value(proto_wire_type::I32BIT): inner_size = 4; break;
             default: return -1;
           }
-          if (inner_size < 0 || cur + inner_size > end) { return -1; }
+          if (inner_size < 0 || cur + inner_size > end) return -1;
           cur += inner_size;
         }
       }
@@ -156,9 +156,9 @@ __device__ inline bool skip_field(uint8_t const* cur,
   if (wt == wire_type_value(proto_wire_type::EGROUP)) { return false; }
 
   int size = get_wire_type_size(wt, cur, end);
-  if (size < 0) { return false; }
+  if (size < 0) return false;
   // Ensure we don't skip past the end of the buffer
-  if (cur + size > end) { return false; }
+  if (cur + size > end) return false;
   out_cur = cur + size;
   return true;
 }
@@ -174,7 +174,7 @@ __device__ inline bool get_field_data_location(
     // For length-delimited, read the length prefix
     uint64_t len;
     int len_bytes;
-    if (!read_varint(cur, end, len, len_bytes)) { return false; }
+    if (!read_varint(cur, end, len, len_bytes)) return false;
     if (len > static_cast<uint64_t>(end - cur - len_bytes) ||
         len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max())) {
       return false;
@@ -184,7 +184,7 @@ __device__ inline bool get_field_data_location(
   } else {
     // For fixed-size and varint fields
     int field_size = get_wire_type_size(wt, cur, end);
-    if (field_size < 0) { return false; }
+    if (field_size < 0) return false;
     data_offset = 0;
     data_length = field_size;
   }
@@ -287,7 +287,7 @@ __device__ __forceinline__ int lookup_field(int field_number,
     return lookup_table[field_number];
   }
   for (int f = 0; f < num_fields; f++) {
-    if (field_descs[f].field_number == field_number) { return f; }
+    if (field_descs[f].field_number == field_number) return f;
   }
   return -1;
 }

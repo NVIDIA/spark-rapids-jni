@@ -17,15 +17,17 @@
 #include "nvtx_ranges.hpp"
 #include "protobuf/protobuf_kernels.cuh"
 
+#include <cudf/lists/lists_column_view.hpp>
+
 #include <thrust/binary_search.h>
 
-#include <limits>
 #include <set>
 #include <string>
+#include <unordered_set>
 
 namespace spark_rapids_jni::protobuf {
 
-using namespace detail;
+namespace detail {
 
 namespace {
 
@@ -133,6 +135,43 @@ void propagate_nulls_to_descendants(cudf::column& col,
     case cudf::type_id::LIST: propagate_list_nulls_to_descendants(col, stream, mr); break;
     default: break;
   }
+}
+
+std::unique_ptr<cudf::column> make_null_column_with_schema(
+  std::vector<nested_field_descriptor> const& schema,
+  int schema_idx,
+  int num_fields,
+  cudf::size_type num_rows,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const& field = schema[schema_idx];
+  auto const dtype  = cudf::data_type{schema[schema_idx].output_type};
+
+  if (field.is_repeated) {
+    std::unique_ptr<cudf::column> empty_child;
+    if (dtype.id() == cudf::type_id::STRUCT) {
+      empty_child =
+        make_empty_struct_column_with_schema(schema, schema_idx, num_fields, stream, mr);
+    } else {
+      empty_child = make_empty_column_safe(dtype, stream, mr);
+    }
+    return make_null_list_column_with_child(std::move(empty_child), num_rows, stream, mr);
+  }
+
+  if (dtype.id() == cudf::type_id::STRUCT) {
+    auto child_indices = find_child_field_indices(schema, num_fields, schema_idx);
+    std::vector<std::unique_ptr<cudf::column>> children;
+    for (auto const child_idx : child_indices) {
+      children.push_back(
+        make_null_column_with_schema(schema, child_idx, num_fields, num_rows, stream, mr));
+    }
+    auto null_mask = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
+    return cudf::make_structs_column(
+      num_rows, std::move(children), num_rows, std::move(null_mask), stream, mr);
+  }
+
+  return make_null_column(dtype, num_rows, stream, mr);
 }
 
 }  // namespace
@@ -296,7 +335,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                         rmm::cuda_stream_view stream,
                                                         rmm::device_async_resource_ref mr)
 {
-  SRJ_FUNC_RANGE();
   validate_decode_context(context);
   auto const& schema            = context.schema;
   auto const& default_ints      = context.default_ints;
@@ -313,22 +351,32 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   CUDF_EXPECTS(child_type == cudf::type_id::INT8 || child_type == cudf::type_id::UINT8,
                "binary_input must be a LIST<INT8/UINT8> column");
 
-  auto num_rows   = binary_input.size();
-  auto num_fields = static_cast<int>(schema.size());
+  auto const num_rows   = binary_input.size();
+  auto const num_fields = static_cast<int>(schema.size());
 
-  if (num_rows == 0 || num_fields == 0) {
-    // Build empty struct based on top-level fields with proper nested structure
+  if (num_fields == 0) {
+    auto const input_null_count = binary_input.null_count();
+    if (input_null_count > 0) {
+      auto null_mask = cudf::copy_bitmask(binary_input, stream, mr);
+      return cudf::make_structs_column(
+        num_rows, {}, input_null_count, std::move(null_mask), stream, mr);
+    }
+    return cudf::make_structs_column(num_rows, {}, 0, rmm::device_buffer{}, stream, mr);
+  }
+
+  if (num_rows == 0) {
     std::vector<std::unique_ptr<cudf::column>> empty_children;
     for (int i = 0; i < num_fields; i++) {
       if (schema[i].parent_idx == -1) {
         auto field_type = cudf::data_type{schema[i].output_type};
         if (schema[i].is_repeated && field_type.id() == cudf::type_id::STRUCT) {
-          // Repeated message field - build empty LIST with proper struct element
           auto empty_struct =
             make_empty_struct_column_with_schema(schema, i, num_fields, stream, mr);
           empty_children.push_back(make_empty_list_column(std::move(empty_struct), stream, mr));
-        } else if (field_type.id() == cudf::type_id::STRUCT && !schema[i].is_repeated) {
-          // Non-repeated nested message field
+        } else if (schema[i].is_repeated) {
+          auto empty_child = make_empty_column_safe(field_type, stream, mr);
+          empty_children.push_back(make_empty_list_column(std::move(empty_child), stream, mr));
+        } else if (field_type.id() == cudf::type_id::STRUCT) {
           empty_children.push_back(
             make_empty_struct_column_with_schema(schema, i, num_fields, stream, mr));
         } else {
@@ -1284,24 +1332,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // Assemble top_level_children in schema order (not processing order)
   std::vector<std::unique_ptr<cudf::column>> top_level_children;
   for (int i = 0; i < num_fields; i++) {
-    if (schema[i].parent_idx == -1) {  // Top-level field
+    if (schema[i].parent_idx == -1) {
       if (column_map[i]) {
         top_level_children.push_back(std::move(column_map[i]));
       } else {
-        if (schema[i].is_repeated) {
-          auto const element_type = cudf::data_type{schema[i].output_type};
-          std::unique_ptr<cudf::column> empty_child;
-          if (element_type.id() == cudf::type_id::STRUCT) {
-            empty_child = make_empty_struct_column_with_schema(schema, i, num_fields, stream, mr);
-          } else {
-            empty_child = make_empty_column_safe(element_type, stream, mr);
-          }
-          top_level_children.push_back(
-            make_null_list_column_with_child(std::move(empty_child), num_rows, stream, mr));
-        } else {
-          top_level_children.push_back(
-            make_null_column(cudf::data_type{schema[i].output_type}, num_rows, stream, mr));
-        }
+        top_level_children.push_back(
+          make_null_column_with_schema(schema, i, num_fields, num_rows, stream, mr));
       }
     }
   }
@@ -1347,6 +1383,17 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   return cudf::make_structs_column(
     num_rows, std::move(top_level_children), struct_null_count, std::move(struct_mask), stream, mr);
+}
+
+}  // namespace detail
+
+std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const& binary_input,
+                                                        protobuf_decode_context const& context,
+                                                        rmm::cuda_stream_view stream,
+                                                        rmm::device_async_resource_ref mr)
+{
+  SRJ_FUNC_RANGE();
+  return detail::decode_protobuf_to_struct(binary_input, context, stream, mr);
 }
 
 }  // namespace spark_rapids_jni::protobuf

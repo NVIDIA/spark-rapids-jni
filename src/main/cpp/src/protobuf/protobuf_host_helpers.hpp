@@ -38,21 +38,21 @@ namespace spark_rapids_jni::protobuf::detail {
 
 /**
  * Build a host-side direct-mapped lookup table: field_number -> index.
- * Returns an empty vector if the max field number exceeds the threshold.
- *
- * @tparam GetFieldNumber callable (int i) -> int returning the field number for index i
+ * @param get_field_number Callable: (int i) -> field_number for the i-th entry.
+ * @param num_entries Number of entries.
+ * @return Empty vector if the max field number exceeds the threshold.
  */
-template <typename GetFieldNumber>
-inline std::vector<int> build_lookup_table(int num_entries, GetFieldNumber get_fn)
+template <typename FieldNumberFn>
+inline std::vector<int> build_lookup_table(FieldNumberFn get_field_number, int num_entries)
 {
   int max_fn = 0;
   for (int i = 0; i < num_entries; i++) {
-    max_fn = std::max(max_fn, get_fn(i));
+    max_fn = std::max(max_fn, get_field_number(i));
   }
   if (max_fn > FIELD_LOOKUP_TABLE_MAX) { return {}; }
   std::vector<int> table(max_fn + 1, -1);
   for (int i = 0; i < num_entries; i++) {
-    table[get_fn(i)] = i;
+    table[get_field_number(i)] = i;
   }
   return table;
 }
@@ -61,13 +61,13 @@ inline std::vector<int> build_index_lookup_table(nested_field_descriptor const* 
                                                  int const* field_indices,
                                                  int num_indices)
 {
-  return build_lookup_table(num_indices,
-                            [&](int i) { return schema[field_indices[i]].field_number; });
+  return build_lookup_table([&](int i) { return schema[field_indices[i]].field_number; },
+                            num_indices);
 }
 
 inline std::vector<int> build_field_lookup_table(field_descriptor const* descs, int num_fields)
 {
-  return build_lookup_table(num_fields, [&](int i) { return descs[i].field_number; });
+  return build_lookup_table([&](int i) { return descs[i].field_number; }, num_fields);
 }
 
 /**
@@ -113,6 +113,7 @@ inline cudf::type_id get_output_type_id(FieldT const& field)
   }
 }
 
+
 template <typename SchemaT>
 std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   SchemaT const& schema,
@@ -154,16 +155,14 @@ void maybe_check_required_fields(field_location const* locations,
                                  bool* row_force_null,
                                  int32_t const* top_row_indices,
                                  int* error_flag,
-                                 rmm::cuda_stream_view stream,
-                                 rmm::device_async_resource_ref mr);
+                                 rmm::cuda_stream_view stream);
 
 void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_invalid,
                                           rmm::device_uvector<bool>& row_invalid,
                                           int num_items,
                                           int32_t const* top_row_indices,
                                           bool propagate_to_rows,
-                                          rmm::cuda_stream_view stream,
-                                          rmm::device_async_resource_ref mr);
+                                          rmm::cuda_stream_view stream);
 
 void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,
                                       rmm::device_uvector<bool>& valid,
@@ -172,8 +171,7 @@ void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values
                                       int num_items,
                                       int32_t const* top_row_indices,
                                       bool propagate_to_rows,
-                                      rmm::cuda_stream_view stream,
-                                      rmm::device_async_resource_ref mr);
+                                      rmm::cuda_stream_view stream);
 
 // ============================================================================
 // Forward declarations of builder/utility functions
