@@ -27,6 +27,7 @@
 #include <rmm/device_uvector.hpp>
 
 #include <mutex>
+#include <stdexcept>
 
 namespace spark_rapids_jni {
 
@@ -74,7 +75,7 @@ uint16_t const* get_gbk_table(rmm::cuda_stream_view stream)
  * @param output Pointer to write UTF-8 bytes (must have space for up to 3 bytes)
  * @return Number of bytes written
  */
-__device__ int codepoint_to_utf8(uint32_t codepoint, char* output)
+__device__ __forceinline__ int codepoint_to_utf8(uint32_t codepoint, char* output)
 {
   if (codepoint <= 0x7F) {
     if (output) { output[0] = static_cast<char>(codepoint); }
@@ -176,12 +177,17 @@ std::unique_ptr<cudf::column> decode_gbk(cudf::column_view const& input,
   auto const num_rows = input.size();
   if (num_rows == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
-  CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST, "Input must be LIST type (BinaryType)");
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST,
+               "Input must be LIST type (BinaryType)",
+               std::invalid_argument);
   cudf::lists_column_view list_col(input);
   auto const child   = list_col.child();
   auto const offsets = list_col.offsets();
-  CUDF_EXPECTS(child.type().id() == cudf::type_id::UINT8, "Input must be LIST<UINT8> (BinaryType)");
-  CUDF_EXPECTS(!child.nullable(), "Child column of binary column must be non-nullable");
+  CUDF_EXPECTS(child.type().id() == cudf::type_id::UINT8,
+               "Input must be LIST<UINT8> (BinaryType)",
+               std::invalid_argument);
+  CUDF_EXPECTS(
+    !child.nullable(), "Child column of binary column must be non-nullable", std::invalid_argument);
 
   auto const* gbk_table = get_gbk_table(stream);
 
