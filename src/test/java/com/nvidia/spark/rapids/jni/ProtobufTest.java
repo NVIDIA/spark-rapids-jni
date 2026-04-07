@@ -315,15 +315,29 @@ public class ProtobufTest {
     Byte[] row2 = null;
 
     try (Table input = new Table.TestBuilder().column(row0, row1, row2).build();
-         ColumnVector expectedId = ColumnVector.fromBoxedLongs(100L, 200L, null);
-         ColumnVector expectedName = ColumnVector.fromStrings("alice", null, null);
-         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedId, expectedName);
          ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1, 2},
              new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
              new int[]{0, 0})) {
-      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+      // Row 2 is a null input row — the output struct row should also be null.
+      assertEquals(3, actualStruct.getRowCount());
+      assertEquals(1, actualStruct.getNullCount());
+      try (HostColumnVector hcv = actualStruct.copyToHost()) {
+        assertFalse(hcv.isNull(0));
+        assertFalse(hcv.isNull(1));
+        assertTrue(hcv.isNull(2), "Null input row should produce null struct row");
+      }
+      // Children for non-null rows should still match
+      try (ColumnVector childId = actualStruct.getChildColumnView(0).copyToColumnVector();
+           HostColumnVector hostId = childId.copyToHost();
+           ColumnVector childName = actualStruct.getChildColumnView(1).copyToColumnVector();
+           HostColumnVector hostName = childName.copyToHost()) {
+        assertEquals(100L, hostId.getLong(0));
+        assertEquals(200L, hostId.getLong(1));
+        assertEquals("alice", hostName.getJavaString(0));
+        assertTrue(hostName.isNull(1));
+      }
     }
   }
 
@@ -1347,9 +1361,9 @@ public class ProtobufTest {
          ColumnVector idCol = actualStruct.getChildColumnView(0).copyToColumnVector();
          HostColumnVector hostStruct = actualStruct.copyToHost();
          HostColumnVector hostId = idCol.copyToHost()) {
-      assertEquals(0, actualStruct.getNullCount(), "Null input rows keep the top-level struct row");
+      assertEquals(1, actualStruct.getNullCount(), "Null input row should be null in output struct");
       assertFalse(hostStruct.isNull(0), "Present required field should keep row 0 valid");
-      assertFalse(hostStruct.isNull(1), "Null input row should not trigger required-field failure");
+      assertTrue(hostStruct.isNull(1), "Null input row should produce null struct row");
       assertEquals(1, idCol.getNullCount(), "The required child value should be null on the null input row");
       assertTrue(hostId.isNull(1), "Null input row should produce a null child value, not ERR_REQUIRED");
     }
