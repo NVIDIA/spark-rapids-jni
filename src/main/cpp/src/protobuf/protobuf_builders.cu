@@ -35,13 +35,9 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   rmm::device_async_resource_ref mr)
 {
   if (total_count == 0) {
-    if (as_bytes)
-      return make_empty_column_safe(cudf::data_type{cudf::type_id::LIST}, stream, mr);
+    if (as_bytes) return make_empty_column_safe(cudf::data_type{cudf::type_id::LIST}, stream, mr);
     return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
   }
-
-  auto const threads = THREADS_PER_BLOCK;
-  auto const blocks  = static_cast<int>((total_count + threads - 1u) / threads);
 
   rmm::device_uvector<int32_t> d_lengths(total_count, stream, mr);
   thrust::transform(
@@ -93,13 +89,11 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
           return static_cast<void const*>(message_data + data_offset);
         }));
     auto dst_iter = cudf::detail::make_counting_transform_iterator(
-      0,
-      cuda::proclaim_return_type<void*>([chars_ptr, offsets_data] __device__(int idx) -> void* {
+      0, cuda::proclaim_return_type<void*>([chars_ptr, offsets_data] __device__(int idx) -> void* {
         return static_cast<void*>(chars_ptr + offsets_data[idx]);
       }));
     auto size_iter = cudf::detail::make_counting_transform_iterator(
-      0,
-      cuda::proclaim_return_type<size_t>([loc_provider] __device__(int idx) -> size_t {
+      0, cuda::proclaim_return_type<size_t>([loc_provider] __device__(int idx) -> size_t {
         int32_t data_offset = 0;
         auto loc            = loc_provider.get(idx, data_offset);
         if (loc.offset < 0) return 0;
@@ -135,7 +129,6 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   return cudf::make_strings_column(
     total_count, std::move(offsets_col), d_data.release(), null_count, std::move(mask));
 }
-
 
 std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
                                                cudf::size_type num_rows,
@@ -206,7 +199,6 @@ std::unique_ptr<cudf::column> make_empty_column_safe(cudf::data_type dtype,
   }
 }
 
-
 std::unique_ptr<cudf::column> make_null_list_column_with_child(
   std::unique_ptr<cudf::column> child_col,
   cudf::size_type num_rows,
@@ -255,7 +247,8 @@ enum_string_lookup_tables make_enum_string_lookup_tables(
   auto d_valid_enums = cudf::detail::make_device_uvector_async(
     valid_enums, stream, cudf::get_current_device_resource_ref());
 
-  auto h_name_offsets = cudf::detail::make_pinned_vector_async<int32_t>(valid_enums.size() + 1, stream);
+  auto h_name_offsets =
+    cudf::detail::make_pinned_vector_async<int32_t>(valid_enums.size() + 1, stream);
   std::fill(h_name_offsets.begin(), h_name_offsets.end(), 0);
   int64_t total_name_chars = 0;
   for (size_t k = 0; k < enum_name_bytes.size(); ++k) {
@@ -479,12 +472,8 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
                     d_occurrences.end(),
                     d_top_row_indices.begin(),
                     [] __device__(repeated_occurrence const& occ) { return occ.row_idx; });
-  propagate_invalid_enum_flags_to_rows(d_elem_has_invalid_enum,
-                                       d_row_force_null,
-                                       total_count,
-                                       d_top_row_indices.data(),
-                                       true,
-                                       stream);
+  propagate_invalid_enum_flags_to_rows(
+    d_elem_has_invalid_enum, d_row_force_null, total_count, d_top_row_indices.data(), true, stream);
 
   auto child_col =
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
@@ -594,13 +583,11 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
           return static_cast<void const*>(message_data + data_offset);
         }));
     auto dst_iter = cudf::detail::make_counting_transform_iterator(
-      0,
-      cuda::proclaim_return_type<void*>([chars_ptr, offsets_data] __device__(int idx) -> void* {
+      0, cuda::proclaim_return_type<void*>([chars_ptr, offsets_data] __device__(int idx) -> void* {
         return static_cast<void*>(chars_ptr + offsets_data[idx]);
       }));
     auto size_iter = cudf::detail::make_counting_transform_iterator(
-      0,
-      cuda::proclaim_return_type<size_t>([copy_provider] __device__(int idx) -> size_t {
+      0, cuda::proclaim_return_type<size_t>([copy_provider] __device__(int idx) -> size_t {
         int32_t data_offset = 0;
         auto loc            = copy_provider.get(idx, data_offset);
         if (loc.offset < 0) return 0;
