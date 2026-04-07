@@ -80,13 +80,43 @@ std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
                                                       d_child_locs.data(),
                                                       child_idx,
                                                       num_child_fields};
-    copy_varlen_data_kernel<repeated_msg_child_location_provider>
-      <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                               loc_provider,
-                                               total_count,
-                                               offsets_col->view().data<int32_t>(),
-                                               d_data.data(),
-                                               d_error.data());
+    auto const* offsets_data = offsets_col->view().data<cudf::size_type>();
+    auto* chars_ptr          = d_data.data();
+
+    auto src_iter = cudf::detail::make_counting_transform_iterator(
+      0,
+      cuda::proclaim_return_type<void const*>(
+        [message_data, loc_provider] __device__(int idx) -> void const* {
+          int32_t data_offset = 0;
+          auto loc            = loc_provider.get(idx, data_offset);
+          if (loc.offset < 0) return nullptr;
+          return static_cast<void const*>(message_data + data_offset);
+        }));
+    auto dst_iter = cudf::detail::make_counting_transform_iterator(
+      0,
+      cuda::proclaim_return_type<void*>([chars_ptr, offsets_data] __device__(int idx) -> void* {
+        return static_cast<void*>(chars_ptr + offsets_data[idx]);
+      }));
+    auto size_iter = cudf::detail::make_counting_transform_iterator(
+      0,
+      cuda::proclaim_return_type<size_t>([loc_provider] __device__(int idx) -> size_t {
+        int32_t data_offset = 0;
+        auto loc            = loc_provider.get(idx, data_offset);
+        if (loc.offset < 0) return 0;
+        return static_cast<size_t>(loc.length);
+      }));
+
+    size_t temp_storage_bytes = 0;
+    cub::DeviceMemcpy::Batched(
+      nullptr, temp_storage_bytes, src_iter, dst_iter, size_iter, total_count, stream.value());
+    rmm::device_buffer temp_storage(temp_storage_bytes, stream, mr);
+    cub::DeviceMemcpy::Batched(temp_storage.data(),
+                               temp_storage_bytes,
+                               src_iter,
+                               dst_iter,
+                               size_iter,
+                               total_count,
+                               stream.value());
   }
 
   auto [mask, null_count] = make_null_mask_from_valid(d_valid, stream, mr);
@@ -550,14 +580,44 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   rmm::device_uvector<char> chars(total_chars, stream, mr);
   if (total_chars > 0) {
-    repeated_location_provider loc_provider{list_offsets, base_offset, d_occurrences.data()};
-    copy_varlen_data_kernel<repeated_location_provider>
-      <<<blocks, threads, 0, stream.value()>>>(message_data,
-                                               loc_provider,
-                                               total_count,
-                                               str_offsets_col->view().data<int32_t>(),
-                                               chars.data(),
-                                               d_error.data());
+    repeated_location_provider copy_provider{list_offsets, base_offset, d_occurrences.data()};
+    auto const* offsets_data = str_offsets_col->view().data<cudf::size_type>();
+    auto* chars_ptr          = chars.data();
+
+    auto src_iter = cudf::detail::make_counting_transform_iterator(
+      0,
+      cuda::proclaim_return_type<void const*>(
+        [message_data, copy_provider] __device__(int idx) -> void const* {
+          int32_t data_offset = 0;
+          auto loc            = copy_provider.get(idx, data_offset);
+          if (loc.offset < 0) return nullptr;
+          return static_cast<void const*>(message_data + data_offset);
+        }));
+    auto dst_iter = cudf::detail::make_counting_transform_iterator(
+      0,
+      cuda::proclaim_return_type<void*>([chars_ptr, offsets_data] __device__(int idx) -> void* {
+        return static_cast<void*>(chars_ptr + offsets_data[idx]);
+      }));
+    auto size_iter = cudf::detail::make_counting_transform_iterator(
+      0,
+      cuda::proclaim_return_type<size_t>([copy_provider] __device__(int idx) -> size_t {
+        int32_t data_offset = 0;
+        auto loc            = copy_provider.get(idx, data_offset);
+        if (loc.offset < 0) return 0;
+        return static_cast<size_t>(loc.length);
+      }));
+
+    size_t temp_storage_bytes = 0;
+    cub::DeviceMemcpy::Batched(
+      nullptr, temp_storage_bytes, src_iter, dst_iter, size_iter, total_count, stream.value());
+    rmm::device_buffer temp_storage(temp_storage_bytes, stream, mr);
+    cub::DeviceMemcpy::Batched(temp_storage.data(),
+                               temp_storage_bytes,
+                               src_iter,
+                               dst_iter,
+                               size_iter,
+                               total_count,
+                               stream.value());
   }
 
   std::unique_ptr<cudf::column> child_col;
