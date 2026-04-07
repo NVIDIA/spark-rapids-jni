@@ -627,7 +627,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         bool zz  = (enc == proto_encoding::ZIGZAG);
 
         // STRING, LIST, and enum-as-string go to per-field path
-        if (tid == cudf::type_id::STRING || tid == cudf::type_id::LIST) { continue; }
+        if (tid == cudf::type_id::STRING || tid == cudf::type_id::LIST) continue;
 
         bool is_fixed = (enc == proto_encoding::FIXED);
 
@@ -672,7 +672,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       // Helper: batch-extract one group using a 2D kernel, then build columns.
       auto do_batch = [&](std::vector<int> const& idxs, auto kernel_launcher) {
         int nf = static_cast<int>(idxs.size());
-        if (nf == 0) { return; }
+        if (nf == 0) return;
 
         std::vector<std::unique_ptr<scalar_buf_pair>> bufs;
         bufs.reserve(nf);
@@ -1348,7 +1348,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   if (h_error == ERR_SCHEMA_TOO_LARGE || h_error == ERR_REPEATED_COUNT_MISMATCH) {
     throw cudf::logic_error(error_message(h_error));
   }
-  if (fail_on_errors && h_error != 0) { throw cudf::logic_error(error_message(h_error)); }
+  if (fail_on_errors && h_error != 0) throw cudf::logic_error(error_message(h_error));
 
   // Build final struct with PERMISSIVE mode null mask for invalid enums
   cudf::size_type struct_null_count = 0;
