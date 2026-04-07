@@ -852,8 +852,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   auto const input_null_count = binary_input.null_count();
 
   if (track_permissive_null_rows || input_null_count > 0) {
-    auto const* input_mask = binary_input.null_mask();
-    auto input_offset      = binary_input.offset();
+    auto const* input_mask  = binary_input.null_mask();
+    auto input_offset       = binary_input.offset();
     auto [mask, null_count] = cudf::detail::valid_if(
       thrust::make_counting_iterator<cudf::size_type>(0),
       thrust::make_counting_iterator<cudf::size_type>(num_rows),
