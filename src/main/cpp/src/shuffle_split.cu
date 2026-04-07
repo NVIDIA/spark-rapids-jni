@@ -726,7 +726,7 @@ void split_copy(src_buf_info const* src_bufs,
       return cinfo.buf_size;
     }));
 
-  size_t temp_storage_bytes;
+  size_t temp_storage_bytes = 0;  // Initialized on the next line, not that the compiler would know.
   cub::DeviceMemcpy::Batched(
     nullptr, temp_storage_bytes, input_iter, output_iter, size_iter, num_bufs, stream);
   rmm::device_buffer temp_storage(
