@@ -22,6 +22,7 @@
 #include <cudf/binaryop.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/lists/lists_column_view.hpp>
 #include <cudf/replace.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/contains.hpp>
@@ -278,6 +279,38 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
       }
     }();
     return jni::release_as_jlong(result);
+  }
+  CATCH_CAST_EXCEPTION(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_bytesToHex(JNIEnv* env,
+                                                                                jclass,
+                                                                                jlong input_column)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    auto const col = *reinterpret_cast<cudf::column_view const*>(input_column);
+    // BinaryType arrives as LIST<INT8>. Reinterpret as STRING for the kernel.
+    // STRING layout: data=chars bytes, children=[offsets]  (1 child)
+    // LIST<INT8> layout: data=nullptr, children=[offsets, child_int8]  (2 children)
+    auto const str_col = [&]() -> cudf::column_view {
+      if (col.type().id() == cudf::type_id::LIST) {
+        auto const lv = cudf::lists_column_view(col);
+        return cudf::column_view(cudf::data_type{cudf::type_id::STRING},
+                                 col.size(),
+                                 lv.child().head<char>(),
+                                 col.null_mask(),
+                                 col.null_count(),
+                                 col.offset(),
+                                 {lv.offsets()});
+      }
+      return col;
+    }();
+    auto const input = cudf::strings_column_view{str_col};
+    auto result      = spark_rapids_jni::bytes_to_hex(input, cudf::get_default_stream());
+    return cudf::jni::release_as_jlong(result);
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
