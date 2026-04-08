@@ -135,7 +135,11 @@ public class ParquetFooter implements AutoCloseable {
    *         where element i is the file-global row index of the first row in row group i.
    */
   public long[] getRowIndexOffsets() {
-    return getRowIndexOffsets(nativeHandle);
+    long[] offsets = getRowIndexOffsets(nativeHandle);
+    if (offsets == null) {
+      throw new RuntimeException("Failed to get row index offsets from native code");
+    }
+    return offsets;
   }
 
   @Override
