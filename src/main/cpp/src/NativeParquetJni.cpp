@@ -908,8 +908,9 @@ Java_com_nvidia_spark_rapids_jni_ParquetFooter_getRowIndexOffsets(JNIEnv* env, j
   {
     auto* footer = reinterpret_cast<rapids::jni::parquet_footer_with_row_group_offsets*>(handle);
     auto const& offsets = footer->row_index_offsets;
-    jlongArray result   = env->NewLongArray(offsets.size());
-    env->SetLongArrayRegion(result, 0, offsets.size(), offsets.data());
+    jsize len           = static_cast<jsize>(offsets.size());
+    jlongArray result   = env->NewLongArray(len);
+    env->SetLongArrayRegion(result, 0, len, reinterpret_cast<jlong const*>(offsets.data()));
     return result;
   }
   JNI_CATCH(env, nullptr);
