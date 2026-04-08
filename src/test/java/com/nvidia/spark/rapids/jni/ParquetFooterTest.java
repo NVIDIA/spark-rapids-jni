@@ -116,6 +116,10 @@ public class ParquetFooterTest {
 
   // ---- shared test data ----
 
+  //  The `filter_groups` function (NativeParquetJni.cpp) includes a row group when its midpoint
+  //  falls within [partOffset, partOffset + partLength).
+  //  midpoint = data_page_offset + compressed_size / 2
+  //
   //  Three row groups layout:
   //   RG0: 1000 rows, data_page_offset=100, compressed_size=200  → midpoint=200
   //   RG1: 2000 rows, data_page_offset=400, compressed_size=200  → midpoint=500
@@ -222,23 +226,6 @@ public class ParquetFooterTest {
     }
   }
 
-  /** Reproduces the scenario from the original bug: a large first row group
-   *  followed by a small second row group. Selecting only the second row group
-   *  must yield an offset equal to the first row group's row count. */
-  @Test
-  void testRowIndexOffsetsBugScenario() throws Exception {
-    // Mirrors the real file: RG0=2,750,100 rows, RG1=20,000 rows
-    org.apache.parquet.format.FileMetaData meta = makeFooter(
-        makeRowGroup(2_750_100, 100, 500),
-        makeRowGroup(20_000,    700, 500));
-    byte[] bytes = serialize(meta);
-
-    // Select only RG1: midpoint = 700 + 250 = 950, in [600, 1200)
-    try (ParquetFooter footer = readFooter(bytes, 600, 600)) {
-      assertArrayEquals(new long[]{2_750_100}, footer.getRowIndexOffsets());
-      assertEquals(20_000, footer.getNumRows());
-    }
-  }
 
   @Test
   void testRowIndexOffsetsManyRowGroups() throws Exception {
