@@ -208,8 +208,6 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
             parallel {
                 stage ('cuda12') {
                     options {
-                        // We have to use params to pass the resource label in options block,
-                        // this is a limitation of declarative pipeline. And we need to lock resource before agent start
                         lock(label: "${params.GPU_POOL}", quantity: 1, variable: 'GPU_RESOURCE')
                     }
                     agent {
@@ -220,6 +218,9 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                             customWorkspace "${CUSTOM_WORKSPACE}-cu12"
                         }
                     }
+                    environment {
+                        CCACHE_BASEDIR = "${WORKSPACE}"
+                    }
 
                     steps {
                         script {
@@ -227,6 +228,8 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                             container('gpu') {
                                 timeout(time: 6, unit: 'HOURS') { // step only timeout for test run
                                     common.resolveIncompatibleDriverIssue(this)
+                                    def jniVer = readMavenPom(file: 'pom.xml').version
+                                    common.restoreJniCcache(this, jniVer, 'cuda12', 'ART_CREDS')
                                     try {
                                         sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
                                         sh 'bash ci/fuzz-test.sh'
@@ -253,6 +256,9 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                             customWorkspace "${CUSTOM_WORKSPACE}-cu13"
                         }
                     }
+                    environment {
+                        CCACHE_BASEDIR = "${WORKSPACE}"
+                    }
 
                     steps {
                         script {
@@ -260,6 +266,8 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                             container('gpu') {
                                 timeout(time: 6, unit: 'HOURS') { // step only timeout for test run
                                     common.resolveIncompatibleDriverIssue(this)
+                                    def jniVer = readMavenPom(file: 'pom.xml').version
+                                    common.restoreJniCcache(this, jniVer, 'cuda13', 'ART_CREDS')
                                     try {
                                         sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
                                         sh 'bash ci/fuzz-test.sh'
