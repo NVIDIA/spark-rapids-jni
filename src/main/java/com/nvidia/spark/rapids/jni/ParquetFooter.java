@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -125,6 +125,23 @@ public class ParquetFooter implements AutoCloseable {
     return getNumColumns(nativeHandle);
   }
 
+  /**
+   * Returns the file-global row index offset for each row group in the filtered footer.
+   * Offsets are cumulative row counts computed from ALL row groups in the original file
+   * before byte-range filtering, so they remain correct even when the footer contains
+   * only a subset of the file's row groups.
+   *
+   * @return array of length equal to the number of row groups in this (filtered) footer,
+   *         where element i is the file-global row index of the first row in row group i.
+   */
+  public long[] getRowIndexOffsets() {
+    long[] offsets = getRowIndexOffsets(nativeHandle);
+    if (offsets == null) {
+      throw new RuntimeException("Failed to get row index offsets from native code");
+    }
+    return offsets;
+  }
+
   @Override
   public void close() throws Exception {
     if (nativeHandle != 0) {
@@ -238,4 +255,6 @@ public class ParquetFooter implements AutoCloseable {
 
   private static native HostMemoryBuffer serializeThriftFile(long nativeHandle,
     HostMemoryAllocator hostMemoryAllocator);
+
+  private static native long[] getRowIndexOffsets(long nativeHandle);
 }
