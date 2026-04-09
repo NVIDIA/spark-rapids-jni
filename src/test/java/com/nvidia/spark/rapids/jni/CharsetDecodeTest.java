@@ -220,4 +220,22 @@ public class CharsetDecodeTest {
       AssertUtils.assertColumnsAreEqual(expected, result);
     }
   }
+
+  @Test
+  void testSlicedInput() {
+    // Regression test: decode must handle sliced LIST<UINT8> columns correctly.
+    // A sliced column has a non-zero parent offset; offsets_begin() must be used
+    // instead of raw offsets().data() to avoid reading wrong row boundaries.
+    byte[] nihao = {(byte) 0xC4, (byte) 0xE3, (byte) 0xBA, (byte) 0xC3};  // 你好
+    byte[] shijie = {(byte) 0xCA, (byte) 0xC0, (byte) 0xBD, (byte) 0xE7}; // 世界
+    byte[] ascii = {'A', 'B', 'C'};
+
+    try (ColumnVector full = binaryColumn(ascii, nihao, shijie, ascii);
+         // Slice rows [1, 3) -> should decode "你好", "世界"
+         ColumnVector sliced = full.subVector(1, 3);
+         ColumnVector result = CharsetDecode.decode(sliced, CharsetDecode.GBK);
+         ColumnVector expected = ColumnVector.fromStrings("你好", "世界")) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
 }

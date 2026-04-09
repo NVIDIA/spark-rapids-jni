@@ -181,8 +181,7 @@ std::unique_ptr<cudf::column> decode_gbk(cudf::column_view const& input,
                "Input must be LIST type (BinaryType)",
                std::invalid_argument);
   cudf::lists_column_view list_col(input);
-  auto const child   = list_col.child();
-  auto const offsets = list_col.offsets();
+  auto const child = list_col.child();
   CUDF_EXPECTS(child.type().id() == cudf::type_id::UINT8,
                "Input must be LIST<UINT8> (BinaryType)",
                std::invalid_argument);
@@ -191,9 +190,10 @@ std::unique_ptr<cudf::column> decode_gbk(cudf::column_view const& input,
 
   auto const* gbk_table = get_gbk_table(stream);
 
+  // offsets_begin() accounts for the parent list offset on sliced columns
   auto [new_offsets, new_chars] =
     cudf::strings::detail::make_strings_children(gbk_decode_fn{child.data<uint8_t>(),
-                                                               offsets.data<cudf::size_type>(),
+                                                               list_col.offsets_begin(),
                                                                gbk_table,
                                                                nullptr,
                                                                nullptr,
