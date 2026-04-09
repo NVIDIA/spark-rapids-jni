@@ -75,7 +75,7 @@ std::unique_ptr<cudf::column> bytes_to_hex(cudf::strings_column_view const& inpu
 {
   if (input.is_empty()) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
-  auto const d_column = cudf::column_device_view::create(input.parent(), stream);
+  auto const d_column          = cudf::column_device_view::create(input.parent(), stream);
   auto [offsets_column, chars] = cudf::strings::detail::make_strings_children(
     bytes_to_hex_fn{*d_column}, input.size(), stream, mr);
 
