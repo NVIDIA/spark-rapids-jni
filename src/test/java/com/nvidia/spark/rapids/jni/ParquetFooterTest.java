@@ -32,7 +32,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,7 +53,7 @@ public class ParquetFooterTest {
         Collections.singletonList(COL_NAME),
         CompressionCodec.UNCOMPRESSED,
         numRows,          // num_values
-        compressedSize,   // total_uncompressed_size
+        compressedSize * 2,   // total_uncompressed_size. unused currently.
         compressedSize,   // total_compressed_size
         dataPageOffset);  // data_page_offset
     ColumnChunk cc = new ColumnChunk(dataPageOffset);
@@ -97,7 +96,7 @@ public class ParquetFooterTest {
   /**
    * Schema for readAndFilter that matches the single "a" column in makeFooter.
    */
-  private static ParquetFooter.StructElement singleIntColumnSchema() {
+  private static ParquetFooter.StructElement makeReadSchema() {
     return ParquetFooter.StructElement.builder()
         .addChild(COL_NAME, new ParquetFooter.ValueElement())
         .build();
@@ -110,7 +109,7 @@ public class ParquetFooterTest {
       throws Exception {
     try (HostMemoryBuffer buffer = HostMemoryBuffer.allocate(footerBytes.length)) {
       buffer.setBytes(0, footerBytes, 0, footerBytes.length);
-      return ParquetFooter.readAndFilter(buffer, partOffset, partLength, singleIntColumnSchema(), false);
+      return ParquetFooter.readAndFilter(buffer, partOffset, partLength, makeReadSchema(), false);
     }
   }
 
