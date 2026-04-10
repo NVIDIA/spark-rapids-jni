@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -296,17 +296,22 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_bytesToHex(
     // STRING layout: data=chars bytes, children=[offsets]  (1 child)
     // LIST<INT8> layout: data=nullptr, children=[offsets, child_int8]  (2 children)
     auto const str_col = [&]() -> cudf::column_view {
-      if (col.type().id() == cudf::type_id::LIST) {
-        auto const lv = cudf::lists_column_view(col);
-        return cudf::column_view(cudf::data_type{cudf::type_id::STRING},
-                                 col.size(),
-                                 lv.child().head<char>(),
-                                 col.null_mask(),
-                                 col.null_count(),
-                                 col.offset(),
-                                 {lv.offsets()});
+      switch (col.type().id()) {
+        case cudf::type_id::LIST: {
+          auto const lv = cudf::lists_column_view(col);
+          CUDF_EXPECTS(lv.child().type().id() == cudf::type_id::INT8,
+                       "bytesToHex: LIST child must be INT8 (BinaryType)");
+          return cudf::column_view(cudf::data_type{cudf::type_id::STRING},
+                                   col.size(),
+                                   lv.child().head<char>(),
+                                   col.null_mask(),
+                                   col.null_count(),
+                                   col.offset(),
+                                   {lv.offsets()});
+        }
+        case cudf::type_id::STRING: return col;
+        default: CUDF_FAIL("bytesToHex: unsupported input type, expected STRING or LIST<INT8>");
       }
-      return col;
     }();
     auto const input = cudf::strings_column_view{str_col};
     auto result      = spark_rapids_jni::bytes_to_hex(input, cudf::get_default_stream());

@@ -208,6 +208,6 @@ std::unique_ptr<cudf::column> parse_strings_to_date(
 std::unique_ptr<cudf::column> bytes_to_hex(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni
