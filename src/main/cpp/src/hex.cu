@@ -21,6 +21,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/offsets_iterator_factory.cuh>
 #include <cudf/null_mask.hpp>
+#include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -37,6 +38,20 @@ namespace detail {
 namespace {
 
 /**
+ * @brief Functor to compute output sizes from input offsets.
+ *
+ * Each input byte produces 2 hex characters, so output size = input byte count * 2.
+ */
+struct output_size_fn {
+  cudf::detail::input_offsetalator d_in_offsets;
+
+  __device__ cudf::size_type operator()(cudf::size_type idx) const
+  {
+    return static_cast<cudf::size_type>((d_in_offsets[idx + 1] - d_in_offsets[idx]) * 2);
+  }
+};
+
+/**
  * @brief Functor to convert each byte of a string to its 2-character hex representation.
  *
  * Output position is derived from the input string pointer, avoiding a separate
@@ -44,7 +59,7 @@ namespace {
  */
 struct write_hex_fn {
   cudf::column_device_view d_strings;
-  char const* d_chars_begin;  // start of input chars buffer
+  char const* d_chars_begin;
   char* d_out;
 
   __device__ void operator()(cudf::size_type idx) const
@@ -72,26 +87,15 @@ std::unique_ptr<cudf::column> bytes_to_hex(cudf::strings_column_view const& inpu
 {
   if (input.is_empty()) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
-  auto const num_strings = input.size();
-
-  // Output offsets = input offsets * 2 (each byte produces 2 hex chars).
-  // This avoids both a sizing kernel and cudf detail APIs.
+  // Build output offsets from input offsets. Each byte produces 2 hex chars,
+  // so output_size[i] = (input_offset[i+1] - input_offset[i]) * 2.
+  // make_offsets_child_column handles the INT32/INT64 switch for large strings.
   auto const d_in_offsets =
     cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
-  auto offsets_column = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT32},
-                                                  num_strings + 1,
-                                                  cudf::mask_state::UNALLOCATED,
-                                                  stream,
-                                                  mr);
-  thrust::transform(rmm::exec_policy_nosync(stream),
-                    d_in_offsets,
-                    d_in_offsets + num_strings + 1,
-                    offsets_column->mutable_view().data<int32_t>(),
-                    cuda::proclaim_return_type<int32_t>(
-                      [] __device__(int64_t offset) { return static_cast<int32_t>(offset * 2); }));
-
-  // Total output bytes = total input char bytes * 2.
-  auto const total_bytes = input.chars_size(stream) * 2;
+  auto sizes_itr = thrust::make_transform_iterator(
+    thrust::make_counting_iterator(cudf::size_type{0}), output_size_fn{d_in_offsets});
+  auto [offsets_column, total_bytes] = cudf::strings::detail::make_offsets_child_column(
+    sizes_itr, sizes_itr + input.size(), stream, mr);
 
   // Write hex chars in a single pass.
   auto chars = rmm::device_uvector<char>(total_bytes, stream, mr);
@@ -99,11 +103,11 @@ std::unique_ptr<cudf::column> bytes_to_hex(cudf::strings_column_view const& inpu
     auto const d_column = cudf::column_device_view::create(input.parent(), stream);
     thrust::for_each(rmm::exec_policy_nosync(stream),
                      thrust::make_counting_iterator(cudf::size_type{0}),
-                     thrust::make_counting_iterator(num_strings),
+                     thrust::make_counting_iterator(input.size()),
                      write_hex_fn{*d_column, input.chars_begin(stream), chars.data()});
   }
 
-  return cudf::make_strings_column(num_strings,
+  return cudf::make_strings_column(input.size(),
                                    std::move(offsets_column),
                                    chars.release(),
                                    input.null_count(),
