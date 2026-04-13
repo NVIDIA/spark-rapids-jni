@@ -236,6 +236,7 @@ add_library(
   src/from_json_to_raw_map.cu
   src/from_json_to_structs.cu
   src/get_json_object.cu
+  src/hex.cu
   src/hash/HashJni.cpp
   src/hash/hive_hash.cu
   src/hash/murmur_hash.cu
