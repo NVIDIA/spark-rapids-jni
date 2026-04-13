@@ -29,6 +29,21 @@
       <id>snapshots</id>
     </server>
     <server>
+      <username>${env.ART_CREDS_USR}</username>
+      <password>${env.ART_CREDS_PSW}</password>
+      <id>apache.snapshots</id>
+    </server>
+    <server>
+      <username>${env.ART_CREDS_USR}</username>
+      <password>${env.ART_CREDS_PSW}</password>
+      <id>apache.snapshots.https</id>
+    </server>
+    <server>
+      <username>${env.ART_CREDS_USR}</username>
+      <password>${env.ART_CREDS_PSW}</password>
+      <id>apache-snapshots-repo</id>
+    </server>
+    <server>
       <id>ossrh</id>
       <username>${env.SONATYPE_USR}</username>
       <password>${env.SONATYPE_PSW}</password>
