@@ -1,4 +1,4 @@
 [submodule "thirdparty/cudf"]
 	path = thirdparty/cudf
-	url = https://github.com/rapidsai/cudf.git
-	branch = main
+	url = https://github.com/bdice/cudf.git
+	branch = rmm-cccl-migration
