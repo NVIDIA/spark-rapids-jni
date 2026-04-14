@@ -75,6 +75,9 @@ public interface RapidsInputFile {
    * <p>The output buffer will not be closed by this method. It is the caller's responsibility
    * to close it.</p>
    *
+   * <p>Data is written starting at offset 0 of the output buffer. The output buffer must have
+   * capacity for at least {@code length} bytes.</p>
+   *
    * @param length the number of bytes to read from the tail
    * @param output the buffer to read data into
    * @throws IOException if an I/O error occurs during reading
@@ -100,6 +103,15 @@ public interface RapidsInputFile {
     private final long outputOffset;
 
     public CopyRange(long inputOffset, long length, long outputOffset) {
+      if (inputOffset < 0) {
+        throw new IllegalArgumentException("inputOffset must be non-negative");
+      }
+      if (length <= 0) {
+        throw new IllegalArgumentException("length must be positive");
+      }
+      if (outputOffset < 0) {
+        throw new IllegalArgumentException("outputOffset must be non-negative");
+      }
       this.inputOffset = inputOffset;
       this.length = length;
       this.outputOffset = outputOffset;
