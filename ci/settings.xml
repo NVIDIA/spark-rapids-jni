@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Copyright (c) 2022, NVIDIA CORPORATION.
+  Copyright (c) 2022-2026, NVIDIA CORPORATION.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -27,6 +27,21 @@
       <username>${env.ART_CREDS_USR}</username>
       <password>${env.ART_CREDS_PSW}</password>
       <id>snapshots</id>
+    </server>
+    <server>
+      <username>${env.ART_CREDS_USR}</username>
+      <password>${env.ART_CREDS_PSW}</password>
+      <id>apache.snapshots</id>
+    </server>
+    <server>
+      <username>${env.ART_CREDS_USR}</username>
+      <password>${env.ART_CREDS_PSW}</password>
+      <id>apache.snapshots.https</id>
+    </server>
+    <server>
+      <username>${env.ART_CREDS_USR}</username>
+      <password>${env.ART_CREDS_PSW}</password>
+      <id>apache-snapshots-repo</id>
     </server>
     <server>
       <id>ossrh</id>
