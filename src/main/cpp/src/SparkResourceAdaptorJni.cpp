@@ -19,7 +19,6 @@
 #include <cuda/memory_resource>
 
 #include <cudf_jni_apis.hpp>
-#include <jni_rmm_resource.hpp>
 #include <pthread.h>
 #include <spdlog/common.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -648,12 +647,11 @@ class full_thread_state {
  */
 class spark_resource_adaptor final {
  public:
-  spark_resource_adaptor(JNIEnv* env, rmm::device_async_resource_ref mr) : resource{mr}
+  spark_resource_adaptor(JNIEnv* env, cuda::mr::any_resource<cuda::mr::device_accessible> mr)
+    : resource{std::move(mr)}
   {
     if (env->GetJavaVM(&jvm) < 0) { throw std::runtime_error("GetJavaVM failed"); }
   }
-
-  rmm::device_async_resource_ref get_wrapped_resource() { return resource; }
 
   /**
    * Update the internal state so that a specific thread is dedicated to a task.
@@ -1196,7 +1194,7 @@ class spark_resource_adaptor final {
   }
 
  private:
-  rmm::device_async_resource_ref resource;
+  cuda::mr::any_resource<cuda::mr::device_accessible> resource;
 
   // The state mutex must be held when modifying the state of threads or tasks
   // it must never be held when calling into the child resource or after returning
@@ -2223,8 +2221,9 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
   JNI_NULL_CHECK(env, child, "child is null", 0);
   JNI_TRY
   {
-    auto wrapped = cudf::jni::get_resource_ref(child);
-    auto ret     = new spark_resource_adaptor(env, wrapped);
+    auto wrapped =
+      *reinterpret_cast<cuda::mr::any_resource<cuda::mr::device_accessible>*>(child);
+    auto ret = new spark_resource_adaptor(env, std::move(wrapped));
     return cudf::jni::ptr_as_jlong(ret);
   }
   JNI_CATCH(env, 0);
