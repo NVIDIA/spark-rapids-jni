@@ -423,6 +423,34 @@ public class CastStringsTest {
     }
   }
 
+  @Test
+  void bytesToHexStringTest() {
+    try (
+      ColumnVector input = ColumnVector.fromStrings("AB", "", "Spark", null, "\0\1\u00FF");
+      ColumnVector expected = ColumnVector.fromStrings("4142", "", "537061726B", null, "0001C3BF");
+      ColumnVector result = CastStrings.bytesToHex(input)
+    ) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void bytesToHexBinaryTest() {
+    try (
+      ColumnVector input = ColumnVector.fromLists(
+        new HostColumnVector.ListType(true, new HostColumnVector.BasicType(true, DType.INT8)),
+        Arrays.asList((byte)0x41, (byte)0x42),
+        Arrays.asList((byte)0x00, (byte)0xFF),
+        null,
+        Arrays.asList()
+      );
+      ColumnVector expected = ColumnVector.fromStrings("4142", "00FF", null, "");
+      ColumnVector result = CastStrings.bytesToHex(input)
+    ) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
   /**
    * Mock timezone info for testing.
    */
