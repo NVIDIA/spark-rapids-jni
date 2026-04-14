@@ -47,16 +47,6 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   private static final int FLOAT32_TYPE_ID = ai.rapids.cudf.DType.FLOAT32.getTypeId().getNativeId();
   private static final int FLOAT64_TYPE_ID = ai.rapids.cudf.DType.FLOAT64.getTypeId().getNativeId();
 
-  // Encoding and wire type constants (mirrored from Protobuf to avoid circular dependency)
-  private static final int ENC_DEFAULT = 0;
-  private static final int ENC_FIXED = 1;
-  private static final int ENC_ZIGZAG = 2;
-  private static final int ENC_ENUM_STRING = 3;
-  private static final int WT_VARINT = 0;
-  private static final int WT_64BIT = 1;
-  private static final int WT_LEN = 2;
-  private static final int WT_32BIT = 5;
-
   final int[] fieldNumbers;
   final int[] parentIndices;
   final int[] depthLevels;
@@ -251,13 +241,13 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
 
   private static void validateWireTypeAndEncoding(int index, int wireType,
                                                    int outputTypeId, int encoding) {
-    if (wireType != WT_VARINT && wireType != WT_64BIT &&
-        wireType != WT_LEN && wireType != WT_32BIT) {
+    if (wireType != Protobuf.WT_VARINT && wireType != Protobuf.WT_64BIT &&
+        wireType != Protobuf.WT_LEN && wireType != Protobuf.WT_32BIT) {
       throw new IllegalArgumentException(
           "Invalid wire type at index " + index + ": " + wireType +
           " (must be one of {0, 1, 2, 5})");
     }
-    if (encoding < ENC_DEFAULT || encoding > ENC_ENUM_STRING) {
+    if (encoding < Protobuf.ENC_DEFAULT || encoding > Protobuf.ENC_ENUM_STRING) {
       throw new IllegalArgumentException(
           "Invalid encoding at index " + index + ": " + encoding);
     }
@@ -287,7 +277,7 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
 
   private static void validateEnumMetadata(int index, int encoding,
                                             int[] validValues, byte[][] names) {
-    if (encoding == ENC_ENUM_STRING &&
+    if (encoding == Protobuf.ENC_ENUM_STRING &&
         (validValues == null || validValues.length == 0 ||
          names == null || names.length == 0)) {
       throw new IllegalArgumentException(
@@ -317,15 +307,15 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
 
   private static boolean isEncodingCompatible(int wireType, int outputTypeId, int encoding) {
     switch (encoding) {
-      case ENC_DEFAULT:
+      case Protobuf.ENC_DEFAULT:
         return isDefaultEncodingCompatible(wireType, outputTypeId);
-      case ENC_FIXED:
+      case Protobuf.ENC_FIXED:
         return isFixedEncodingCompatible(wireType, outputTypeId);
-      case ENC_ZIGZAG:
-        return wireType == WT_VARINT &&
+      case Protobuf.ENC_ZIGZAG:
+        return wireType == Protobuf.WT_VARINT &&
             (outputTypeId == INT32_TYPE_ID || outputTypeId == INT64_TYPE_ID);
-      case ENC_ENUM_STRING:
-        return wireType == WT_VARINT && outputTypeId == STRING_TYPE_ID;
+      case Protobuf.ENC_ENUM_STRING:
+        return wireType == Protobuf.WT_VARINT && outputTypeId == STRING_TYPE_ID;
       default:
         return false;
     }
@@ -335,17 +325,17 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     if (outputTypeId == BOOL8_TYPE_ID || outputTypeId == INT32_TYPE_ID ||
         outputTypeId == UINT32_TYPE_ID || outputTypeId == INT64_TYPE_ID ||
         outputTypeId == UINT64_TYPE_ID) {
-      return wireType == WT_VARINT;
+      return wireType == Protobuf.WT_VARINT;
     }
     if (outputTypeId == FLOAT32_TYPE_ID) {
-      return wireType == WT_32BIT;
+      return wireType == Protobuf.WT_32BIT;
     }
     if (outputTypeId == FLOAT64_TYPE_ID) {
-      return wireType == WT_64BIT;
+      return wireType == Protobuf.WT_64BIT;
     }
     if (outputTypeId == STRING_TYPE_ID || outputTypeId == LIST_TYPE_ID ||
         outputTypeId == STRUCT_TYPE_ID) {
-      return wireType == WT_LEN;
+      return wireType == Protobuf.WT_LEN;
     }
     return false;
   }
@@ -353,11 +343,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   private static boolean isFixedEncodingCompatible(int wireType, int outputTypeId) {
     if (outputTypeId == INT32_TYPE_ID || outputTypeId == UINT32_TYPE_ID ||
         outputTypeId == FLOAT32_TYPE_ID) {
-      return wireType == WT_32BIT;
+      return wireType == Protobuf.WT_32BIT;
     }
     if (outputTypeId == INT64_TYPE_ID || outputTypeId == UINT64_TYPE_ID ||
         outputTypeId == FLOAT64_TYPE_ID) {
-      return wireType == WT_64BIT;
+      return wireType == Protobuf.WT_64BIT;
     }
     return false;
   }
