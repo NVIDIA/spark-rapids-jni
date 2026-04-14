@@ -14,9 +14,12 @@
  * limitations under the License.
  */
 
-#include <rmm/mr/device_memory_resource.hpp>
+#include <rmm/resource_ref.hpp>
+
+#include <cuda/memory_resource>
 
 #include <cudf_jni_apis.hpp>
+#include <jni_rmm_resource.hpp>
 #include <pthread.h>
 #include <spdlog/common.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -643,14 +646,14 @@ class full_thread_state {
  * mitigation we might want to do to avoid killing a task with an out of
  * memory error.
  */
-class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
+class spark_resource_adaptor final {
  public:
-  spark_resource_adaptor(JNIEnv* env, rmm::mr::device_memory_resource* mr) : resource{mr}
+  spark_resource_adaptor(JNIEnv* env, rmm::device_async_resource_ref mr) : resource{mr}
   {
     if (env->GetJavaVM(&jvm) < 0) { throw std::runtime_error("GetJavaVM failed"); }
   }
 
-  rmm::mr::device_memory_resource* get_wrapped_resource() { return resource; }
+  rmm::device_async_resource_ref get_wrapped_resource() { return resource; }
 
   /**
    * Update the internal state so that a specific thread is dedicated to a task.
@@ -1193,7 +1196,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   }
 
  private:
-  rmm::mr::device_memory_resource* const resource;
+  rmm::device_async_resource_ref resource;
 
   // The state mutex must be held when modifying the state of threads or tasks
   // it must never be held when calling into the child resource or after returning
@@ -2101,13 +2104,15 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return true;
   }
 
-  void* do_allocate(std::size_t const num_bytes, rmm::cuda_stream_view stream) override
+  void* allocate(cuda::stream_ref stream,
+                 std::size_t num_bytes,
+                 std::size_t alignment = alignof(std::max_align_t))
   {
     auto const tid = static_cast<long>(pthread_self());
     while (true) {
       bool const likely_spill = pre_alloc(tid);
       try {
-        void* ret = resource->allocate(stream, num_bytes);
+        void* ret = resource.allocate(stream, num_bytes, alignment);
         post_alloc_success(tid, likely_spill, num_bytes);
         return ret;
       } catch (rmm::out_of_memory const& e) {
@@ -2122,6 +2127,11 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     }
     // we should never reach this point, but just in case
     throw rmm::bad_alloc("Internal Error");
+  }
+
+  void* allocate_sync(std::size_t num_bytes, std::size_t alignment = alignof(std::max_align_t))
+  {
+    return allocate(cuda::stream_ref{cudaStream_t{nullptr}}, num_bytes, alignment);
   }
 
   void dealloc_core(bool const is_for_cpu,
@@ -2168,15 +2178,32 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     wake_next_highest_priority_blocked(lock, is_for_cpu);
   }
 
-  void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) noexcept override
+  void deallocate(cuda::stream_ref stream,
+                  void* p,
+                  std::size_t size,
+                  std::size_t alignment = alignof(std::max_align_t)) noexcept
   {
-    resource->deallocate(stream, p, size);
+    resource.deallocate(stream, p, size, alignment);
     // deallocate success
     if (size > 0) {
       std::unique_lock<std::mutex> lock(state_mutex);
       dealloc_core(false, lock, size);
     }
   }
+
+  void deallocate_sync(void* p,
+                       std::size_t size,
+                       std::size_t alignment = alignof(std::max_align_t)) noexcept
+  {
+    deallocate(cuda::stream_ref{cudaStream_t{nullptr}}, p, size, alignment);
+  }
+
+  bool operator==(spark_resource_adaptor const& other) const noexcept
+  {
+    return resource == other.resource;
+  }
+
+  friend void get_property(spark_resource_adaptor const&, cuda::mr::device_accessible) noexcept {}
 };
 
 }  // namespace
@@ -2196,7 +2223,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
   JNI_NULL_CHECK(env, child, "child is null", 0);
   JNI_TRY
   {
-    auto wrapped = reinterpret_cast<rmm::mr::device_memory_resource*>(child);
+    auto wrapped = cudf::jni::get_resource_ref(child);
     auto ret     = new spark_resource_adaptor(env, wrapped);
     return cudf::jni::ptr_as_jlong(ret);
   }
