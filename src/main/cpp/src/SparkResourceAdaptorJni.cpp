@@ -19,6 +19,7 @@
 #include <cuda/memory_resource>
 
 #include <cudf_jni_apis.hpp>
+#include <jni_cccl_any_resource.hpp>
 #include <pthread.h>
 #include <spdlog/common.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -2221,9 +2222,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
   JNI_NULL_CHECK(env, child, "child is null", 0);
   JNI_TRY
   {
-    auto wrapped =
-      *reinterpret_cast<cuda::mr::any_resource<cuda::mr::device_accessible>*>(child);
-    auto ret = new spark_resource_adaptor(env, std::move(wrapped));
+    auto ret = new spark_resource_adaptor(env, cudf::jni::get_resource(child));
     return cudf::jni::ptr_as_jlong(ret);
   }
   JNI_CATCH(env, 0);
