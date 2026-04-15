@@ -438,7 +438,7 @@ public class CastStringsTest {
   void bytesToHexBinaryTest() {
     try (
       ColumnVector input = ColumnVector.fromLists(
-        new HostColumnVector.ListType(true, new HostColumnVector.BasicType(true, DType.INT8)),
+        new HostColumnVector.ListType(true, new HostColumnVector.BasicType(true, DType.UINT8)),
         Arrays.asList((byte)0x41, (byte)0x42),
         Arrays.asList((byte)0x00, (byte)0xFF),
         null,
