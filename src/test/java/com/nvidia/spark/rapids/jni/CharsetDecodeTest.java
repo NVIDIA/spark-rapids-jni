@@ -185,6 +185,42 @@ public class CharsetDecodeTest {
   }
 
   @Test
+  void testSecondByte0xFF() {
+    // Lead byte + 0xFF: consumed as pair, maps to FFFD (0xFF is outside table range)
+    byte[] input = {(byte) 0x81, (byte) 0xFF};
+    String javaResult = decodeGbkJava(input);
+
+    try (ColumnVector cv = binaryColumn(input);
+         ColumnVector result = CharsetDecode.decode(cv, CharsetDecode.GBK);
+         ColumnVector expected = ColumnVector.fromStrings(javaResult)) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testLeadByteWithInvalidSecond() {
+    // Lead byte 0x81 + second byte 0x30 (< 0x40): not consumed as pair
+    byte[] input = {(byte) 0x81, (byte) 0x30};
+    String javaResult = decodeGbkJava(input);
+
+    try (ColumnVector cv = binaryColumn(input);
+         ColumnVector result = CharsetDecode.decode(cv, CharsetDecode.GBK);
+         ColumnVector expected = ColumnVector.fromStrings(javaResult)) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testZeroRowColumn() {
+    byte[][] empty = {};
+
+    try (ColumnVector cv = binaryColumn(empty);
+         ColumnVector result = CharsetDecode.decode(cv, CharsetDecode.GBK)) {
+      AssertUtils.assertColumnsAreEqual(ColumnVector.fromStrings(), result);
+    }
+  }
+
+  @Test
   void testAllGbkDoubleBytePairs() {
     // End-to-end verification: for every valid GBK double-byte pair,
     // compare GPU decode output against Java's GBK charset decoder.

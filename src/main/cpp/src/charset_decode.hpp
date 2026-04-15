@@ -49,9 +49,9 @@ enum class charset_type : int32_t {
  * @param mr Device memory resource used for allocating output column
  * @return A new strings column containing the decoded UTF-8 strings
  */
-std::unique_ptr<cudf::column> decode_charset(cudf::column_view const& input,
-                                             charset_type charset,
-                                             rmm::cuda_stream_view stream,
-                                             rmm::device_async_resource_ref mr);
+[[nodiscard]] std::unique_ptr<cudf::column> decode_charset(cudf::column_view const& input,
+                                                           charset_type charset,
+                                                           rmm::cuda_stream_view stream,
+                                                           rmm::device_async_resource_ref mr);
 
 }  // namespace spark_rapids_jni
