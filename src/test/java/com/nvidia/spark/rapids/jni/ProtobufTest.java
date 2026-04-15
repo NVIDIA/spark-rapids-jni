@@ -164,7 +164,8 @@ public class ProtobufTest {
     if (typeId == DType.LIST.getTypeId().getNativeId()) return Protobuf.WT_LEN;
     if (typeId == DType.STRUCT.getTypeId().getNativeId()) return Protobuf.WT_LEN;
     if (encoding == Protobuf.ENC_FIXED) {
-      if (typeId == DType.INT64.getTypeId().getNativeId()) return Protobuf.WT_64BIT;
+      if (typeId == DType.INT64.getTypeId().getNativeId()
+          || typeId == DType.UINT64.getTypeId().getNativeId()) return Protobuf.WT_64BIT;
       return Protobuf.WT_32BIT;
     }
     return Protobuf.WT_VARINT;

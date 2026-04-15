@@ -418,7 +418,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   int num_scalar = static_cast<int>(scalar_field_indices.size());
 
   // Error flag
-  rmm::device_uvector<int> d_error(1, stream, mr);
+  rmm::device_uvector<int> d_error(1, stream, cudf::get_current_device_resource_ref());
   CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
   auto error_message = [](int code) -> char const* {
     switch (code) {
@@ -448,7 +448,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   bool has_enum_fields = std::any_of(
     enum_valid_values.begin(), enum_valid_values.end(), [](auto const& v) { return !v.empty(); });
   bool track_permissive_null_rows = !fail_on_errors;
-  rmm::device_uvector<bool> d_row_force_null(track_permissive_null_rows ? num_rows : 0, stream, mr);
+  rmm::device_uvector<bool> d_row_force_null(
+    track_permissive_null_rows ? num_rows : 0, stream, cudf::get_current_device_resource_ref());
   if (track_permissive_null_rows) {
     CUDF_CUDA_TRY(
       cudaMemsetAsync(d_row_force_null.data(), 0, num_rows * sizeof(bool), stream.value()));
@@ -470,7 +471,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       h_field_descs[i].is_repeated        = false;
     }
 
-    rmm::device_uvector<field_descriptor> d_field_descs(num_scalar, stream, mr);
+    rmm::device_uvector<field_descriptor> d_field_descs(
+      num_scalar, stream, cudf::get_current_device_resource_ref());
     CUDF_CUDA_TRY(cudaMemcpyAsync(d_field_descs.data(),
                                   h_field_descs.data(),
                                   num_scalar * sizeof(field_descriptor),
@@ -478,10 +480,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                   stream.value()));
 
     rmm::device_uvector<field_location> d_locations(
-      static_cast<size_t>(num_rows) * num_scalar, stream, mr);
+      static_cast<size_t>(num_rows) * num_scalar, stream,
+      cudf::get_current_device_resource_ref());
 
     auto h_field_lookup = build_field_lookup_table(h_field_descs.data(), num_scalar);
-    rmm::device_uvector<int> d_field_lookup(h_field_lookup.size(), stream, mr);
+    rmm::device_uvector<int> d_field_lookup(
+      h_field_lookup.size(), stream, cudf::get_current_device_resource_ref());
     if (!h_field_lookup.empty()) {
       CUDF_CUDA_TRY(cudaMemcpyAsync(d_field_lookup.data(),
                                     h_field_lookup.data(),
@@ -596,7 +600,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           int si   = scalar_field_indices[li];
           bool hd  = schema[si].has_default_value;
           auto& bp = *bufs.emplace_back(std::make_unique<scalar_buf_pair>(stream, mr));
-          bp.valid = rmm::device_uvector<bool>(std::max(1, num_rows), stream, mr);
+          bp.valid = rmm::device_uvector<bool>(
+            std::max(1, num_rows), stream, cudf::get_current_device_resource_ref());
           // BOOL8 default comes from default_bools (converted to 0/1 int)
           bool is_bool  = (cudf::data_type{schema[si].output_type}.id() == cudf::type_id::BOOL8);
           int64_t def_i = hd ? (is_bool ? (default_bools[si] ? 1 : 0) : default_ints[si]) : 0;
@@ -627,7 +632,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           bufs[j]->out_bytes = rmm::device_uvector<uint8_t>(num_rows * elem_size, stream, mr);
           h_descs[j].output  = bufs[j]->out_bytes.data();
         }
-        rmm::device_uvector<batched_scalar_desc> d_descs(nf, stream, mr);
+        rmm::device_uvector<batched_scalar_desc> d_descs(
+          nf, stream, cudf::get_current_device_resource_ref());
         CUDF_CUDA_TRY(cudaMemcpyAsync(d_descs.data(),
                                       h_descs.data(),
                                       nf * sizeof(h_descs[0]),
@@ -725,8 +731,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             // 1. Decode enum numeric value as INT32 varint.
             // 2. Validate against enum_valid_values.
             // 3. Convert INT32 -> UTF-8 enum name bytes.
-            rmm::device_uvector<int32_t> out(num_rows, stream, mr);
-            rmm::device_uvector<bool> valid((num_rows > 0 ? num_rows : 1), stream, mr);
+            rmm::device_uvector<int32_t> out(
+              num_rows, stream, cudf::get_current_device_resource_ref());
+            rmm::device_uvector<bool> valid(
+              (num_rows > 0 ? num_rows : 1), stream, cudf::get_current_device_resource_ref());
             int64_t def_int = has_def ? field_meta.default_int : 0;
             top_level_location_provider loc_provider{
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
