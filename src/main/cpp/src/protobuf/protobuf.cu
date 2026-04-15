@@ -480,8 +480,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                   stream.value()));
 
     rmm::device_uvector<field_location> d_locations(
-      static_cast<size_t>(num_rows) * num_scalar, stream,
-      cudf::get_current_device_resource_ref());
+      static_cast<size_t>(num_rows) * num_scalar, stream, cudf::get_current_device_resource_ref());
 
     auto h_field_lookup = build_field_lookup_table(h_field_descs.data(), num_scalar);
     rmm::device_uvector<int> d_field_lookup(
