@@ -21,6 +21,7 @@
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+#include <cudf/utilities/memory_resource.hpp>
 
 #include <rmm/resource_ref.hpp>
 
@@ -192,6 +193,22 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(
 std::unique_ptr<cudf::column> parse_strings_to_date(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+/**
+ * @brief Convert a strings column to its hexadecimal representation.
+ *
+ * Each byte of each string is converted to a 2-character hex string (uppercase).
+ * For example, "AB" (bytes 0x41, 0x42) becomes "4142".
+ *
+ * @param input The input strings column
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return A new strings column with hex representation
+ */
+std::unique_ptr<cudf::column> bytes_to_hex(
+  cudf::strings_column_view const& input,
+  rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni

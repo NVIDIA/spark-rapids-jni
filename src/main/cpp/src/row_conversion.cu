@@ -46,9 +46,6 @@
 #include <cuda/std/iterator>
 #include <cuda/std/limits>
 #include <thrust/binary_search.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/iterator/discard_iterator.h>
-#include <thrust/iterator/transform_iterator.h>
 #include <thrust/scan.h>
 
 #include <algorithm>
@@ -212,12 +209,12 @@ build_string_row_offsets(table_view const& tbl,
 
   auto d_offsets_iterators = [&]() {
     std::vector<cudf::detail::input_offsetalator> offsets_iterators;
-    auto itr = thrust::make_transform_iterator(
+    auto itr = cuda::make_transform_iterator(
       tbl.begin(), [](auto const& col) -> cudf::detail::input_offsetalator {
         return cudf::detail::offsetalator_factory::make_input_iterator(
           strings_column_view(col).offsets(), col.offset());
       });
-    auto stencil = thrust::make_transform_iterator(
+    auto stencil = cuda::make_transform_iterator(
       tbl.begin(), [](auto const& col) -> bool { return !is_fixed_width(col.type()); });
     thrust::copy_if(thrust::host,
                     itr,
@@ -232,8 +229,8 @@ build_string_row_offsets(table_view const& tbl,
   auto const num_columns = static_cast<size_type>(d_offsets_iterators.size());
 
   thrust::for_each(rmm::exec_policy(stream),
-                   thrust::make_counting_iterator(0),
-                   thrust::make_counting_iterator(num_columns * num_rows),
+                   cuda::make_counting_iterator(0),
+                   cuda::make_counting_iterator(num_columns * num_rows),
                    [d_offsets_iterators = d_offsets_iterators.data(),
                     num_columns,
                     num_rows,
@@ -1501,7 +1498,7 @@ batch_data build_batches(size_type num_rows,
   // 32-row boundary to match the fixed_width optimized versions.
 
   while (last_row_end < num_rows) {
-    auto offset_row_sizes = thrust::make_transform_iterator(
+    auto offset_row_sizes = cuda::make_transform_iterator(
       cumulative_row_sizes.begin(),
       cuda::proclaim_return_type<uint64_t>(
         [last_row_end, cumulative_row_sizes = cumulative_row_sizes.data()] __device__(auto i) {
@@ -1573,7 +1570,7 @@ int compute_tile_counts(device_span<size_type const> const& batch_row_boundaries
 {
   size_type const num_batches = batch_row_boundaries.size() - 1;
   device_uvector<size_type> num_tiles(num_batches, stream);
-  auto iter = thrust::make_counting_iterator(0);
+  auto iter = cuda::make_counting_iterator(0);
   thrust::transform(
     rmm::exec_policy(stream),
     iter,
@@ -1612,7 +1609,7 @@ size_type build_tiles(
 {
   size_type const num_batches = batch_row_boundaries.size() - 1;
   device_uvector<size_type> num_tiles(num_batches, stream);
-  auto iter = thrust::make_counting_iterator(0);
+  auto iter = cuda::make_counting_iterator(0);
   thrust::transform(
     rmm::exec_policy(stream),
     iter,
@@ -1803,14 +1800,14 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
     column_info.column_starts, stream, rmm::mr::get_current_device_resource_ref());
 
   // Get the pointers to the input columnar data ready
-  auto const data_begin = thrust::make_transform_iterator(tbl.begin(), [](auto const& c) {
+  auto const data_begin = cuda::make_transform_iterator(tbl.begin(), [](auto const& c) {
     return is_compound(c.type()) ? nullptr : c.template data<int8_t>();
   });
   std::vector<int8_t const*> input_data(data_begin, data_begin + tbl.num_columns());
 
   // validity code handles variable and fixed-width data, so give it everything
   auto const nm_begin =
-    thrust::make_transform_iterator(tbl.begin(), [](auto const& c) { return c.null_mask(); });
+    cuda::make_transform_iterator(tbl.begin(), [](auto const& c) { return c.null_mask(); });
   std::vector<bitmask_type const*> input_nm(nm_begin, nm_begin + tbl.num_columns());
 
   auto dev_input_data =
@@ -1919,7 +1916,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
     CUDF_EXPECTS(!variable_width_table.is_empty(), "No variable-width columns when expected!");
     CUDF_EXPECTS(variable_width_offsets.has_value(), "No variable width offset data!");
 
-    auto const variable_data_begin = thrust::make_transform_iterator(
+    auto const variable_data_begin = cuda::make_transform_iterator(
       variable_width_table.begin(),
       [](auto const& c) { return is_compound(c.type()) ? c.template data<int8_t>() : nullptr; });
     std::vector<int8_t const*> variable_width_input_data(
@@ -1956,7 +1953,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
   // byte columns
   std::vector<std::unique_ptr<column>> ret;
   ret.reserve(batch_info.row_batches.size());
-  auto counting_iter = thrust::make_counting_iterator(0);
+  auto counting_iter = cuda::make_counting_iterator(0);
   std::transform(counting_iter,
                  counting_iter + batch_info.row_batches.size(),
                  std::back_inserter(ret),
@@ -2018,7 +2015,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
   // before building the tiles so the tiles can be properly cut around them.
 
   auto schema_column_iter =
-    thrust::make_transform_iterator(tbl.begin(), [](auto const& i) { return i.type(); });
+    cuda::make_transform_iterator(tbl.begin(), [](auto const& i) { return i.type(); });
 
   auto column_info =
     detail::compute_column_information(schema_column_iter, schema_column_iter + num_columns);
@@ -2026,7 +2023,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
   if (fixed_width_only) {
     // total encoded row size. This includes fixed-width data and validity only. It does not include
     // variable-width data since it isn't copied with the fixed-width and validity kernel.
-    auto row_size_iter = thrust::make_constant_iterator<uint64_t>(
+    auto row_size_iter = cuda::make_constant_iterator<uint64_t>(
       cudf::util::round_up_unsafe(size_per_row, JCUDF_ROW_ALIGNMENT));
 
     auto batch_info = detail::build_batches(num_rows, row_size_iter, fixed_width_only, stream, mr);
@@ -2265,8 +2262,8 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
   device_uvector<size_type> gpu_batch_row_boundaries(num_batches, stream);
 
   thrust::transform(rmm::exec_policy(stream),
-                    thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(num_batches),
+                    cuda::make_counting_iterator(0),
+                    cuda::make_counting_iterator(num_batches),
                     gpu_batch_row_boundaries.begin(),
                     cuda::proclaim_return_type<size_type>(
                       [num_rows] __device__(auto i) { return i == 0 ? 0 : num_rows; }));

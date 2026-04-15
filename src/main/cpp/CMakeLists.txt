@@ -207,6 +207,7 @@ add_library(
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
+  src/ProtobufJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
@@ -235,6 +236,7 @@ add_library(
   src/from_json_to_raw_map.cu
   src/from_json_to_structs.cu
   src/get_json_object.cu
+  src/hex.cu
   src/hash/HashJni.cpp
   src/hash/hive_hash.cu
   src/hash/murmur_hash.cu
@@ -254,6 +256,9 @@ add_library(
   src/multiply.cu
   src/number_converter.cu
   src/parse_uri.cu
+  src/protobuf/protobuf.cu
+  src/protobuf/protobuf_builders.cu
+  src/protobuf/protobuf_kernels.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/round_float.cu

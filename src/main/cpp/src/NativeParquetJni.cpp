@@ -98,6 +98,20 @@ struct column_pruning_maps {
 };
 
 /**
+ * Pairs Parquet FileMetaData with the file-global row index offset of each
+ * row group. The offset for row group i is the cumulative row count of all
+ * preceding row groups in the file.
+ *
+ * When row groups have been filtered by byte range, the offsets are still
+ * computed from all original row groups before filtering, so they remain
+ * correct even when the footer contains only a subset of the file's row groups.
+ */
+struct parquet_footer_with_row_group_offsets {
+  std::unique_ptr<parquet::format::FileMetaData> meta;
+  std::vector<int64_t> row_index_offsets;  // one per row group in meta
+};
+
+/**
  * Tags what type of node is expected in the passed down Spark schema. This
  * lets us match the Spark schema to the schema in the Parquet file. Different
  * versions of parquet had different layouts for various nested types.
@@ -608,8 +622,21 @@ static int64_t get_offset(parquet::format::ColumnChunk const& column_chunk)
   return offset;
 }
 
-static std::vector<parquet::format::RowGroup> filter_groups(
-  parquet::format::FileMetaData const& meta, int64_t part_offset, int64_t part_length)
+/**
+ * A collection of row groups paired with their file-global row index offsets.
+ *
+ * When produced by filter_groups, the offsets are computed from all original
+ * row groups before byte-range filtering, so they remain correct even when
+ * only a subset survives.
+ */
+struct row_groups {
+  std::vector<parquet::format::RowGroup> groups;
+  std::vector<int64_t> row_index_offsets;
+};
+
+static row_groups filter_groups(parquet::format::FileMetaData const& meta,
+                                int64_t part_offset,
+                                int64_t part_length)
 {
   SRJ_FUNC_RANGE();
   // This is based off of the java parquet_mr code to find the groups in a range...
@@ -621,7 +648,8 @@ static std::vector<parquet::format::RowGroup> filter_groups(
     first_column_with_metadata = meta.row_groups[0].columns[0].__isset.meta_data;
   }
 
-  std::vector<parquet::format::RowGroup> filtered_groups;
+  row_groups result;
+  int64_t cumulative_rows = 0;
   for (uint64_t rg_i = 0; rg_i < num_row_groups; ++rg_i) {
     parquet::format::RowGroup const& row_group = meta.row_groups[rg_i];
     int64_t total_size                         = 0;
@@ -653,10 +681,12 @@ static std::vector<parquet::format::RowGroup> filter_groups(
 
     int64_t mid_point = start_index + total_size / 2;
     if (mid_point >= part_offset && mid_point < (part_offset + part_length)) {
-      filtered_groups.push_back(row_group);
+      result.groups.push_back(row_group);
+      result.row_index_offsets.push_back(cumulative_rows);
     }
+    cumulative_rows += row_group.num_rows;
   }
-  return filtered_groups;
+  return result;
 }
 
 void deserialize_parquet_footer(uint8_t* buffer, uint32_t len, parquet::format::FileMetaData* meta)
@@ -762,13 +792,26 @@ Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv* env,
       }
       meta->column_orders = std::move(new_order);
     }
-    // Now we want to filter the columns out of each row group that we care about as we go.
-    if (part_length >= 0) {
-      meta->row_groups = std::move(rapids::jni::filter_groups(*meta, part_offset, part_length));
-    }
-    rapids::jni::filter_columns(meta->row_groups, filter.chunk_map);
+    // Build the footer wrapper that pairs metadata with row index offsets.
+    auto footer  = std::make_unique<rapids::jni::parquet_footer_with_row_group_offsets>();
+    footer->meta = std::move(meta);
 
-    return cudf::jni::release_as_jlong(meta);
+    // Filter row groups by byte range and compute file-global row index offsets.
+    if (part_length >= 0) {
+      auto filtered = rapids::jni::filter_groups(*footer->meta, part_offset, part_length);
+      footer->meta->row_groups  = std::move(filtered.groups);
+      footer->row_index_offsets = std::move(filtered.row_index_offsets);
+    } else {
+      // No byte-range filtering — offsets are just cumulative row counts.
+      int64_t cumulative = 0;
+      for (auto const& rg : footer->meta->row_groups) {
+        footer->row_index_offsets.push_back(cumulative);
+        cumulative += rg.num_rows;
+      }
+    }
+    rapids::jni::filter_columns(footer->meta->row_groups, filter.chunk_map);
+
+    return cudf::jni::release_as_jlong(footer);
   }
   JNI_CATCH(env, 0);
 }
@@ -779,7 +822,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_close(JNIE
 {
   JNI_TRY
   {
-    parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
+    auto* ptr = reinterpret_cast<rapids::jni::parquet_footer_with_row_group_offsets*>(handle);
     delete ptr;
   }
   JNI_CATCH(env, );
@@ -791,9 +834,9 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumRow
 {
   JNI_TRY
   {
-    parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
-    long ret                           = 0;
-    for (auto it = ptr->row_groups.begin(); it != ptr->row_groups.end(); ++it) {
+    auto* footer = reinterpret_cast<rapids::jni::parquet_footer_with_row_group_offsets*>(handle);
+    long ret     = 0;
+    for (auto it = footer->meta->row_groups.begin(); it != footer->meta->row_groups.end(); ++it) {
       ret = ret + it->num_rows;
     }
     return ret;
@@ -807,10 +850,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumCol
 {
   JNI_TRY
   {
-    parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
-    int ret                            = 0;
-    if (ptr->schema.size() > 0) {
-      if (ptr->schema[0].__isset.num_children) { ret = ptr->schema[0].num_children; }
+    auto* footer = reinterpret_cast<rapids::jni::parquet_footer_with_row_group_offsets*>(handle);
+    int ret      = 0;
+    if (footer->meta->schema.size() > 0) {
+      if (footer->meta->schema[0].__isset.num_children) {
+        ret = footer->meta->schema[0].num_children;
+      }
     }
     return ret;
   }
@@ -823,13 +868,13 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_seriali
   SRJ_FUNC_RANGE();
   JNI_TRY
   {
-    parquet::format::FileMetaData* meta = reinterpret_cast<parquet::format::FileMetaData*>(handle);
+    auto* footer = reinterpret_cast<rapids::jni::parquet_footer_with_row_group_offsets*>(handle);
     std::shared_ptr<apache::thrift::transport::TMemoryBuffer> transportOut(
       new apache::thrift::transport::TMemoryBuffer());
     apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
       factory;
     auto protocolOut = factory.getProtocol(transportOut);
-    meta->write(protocolOut.get());
+    footer->meta->write(protocolOut.get());
     uint8_t* buf_ptr;
     uint32_t buf_size;
     transportOut->getBuffer(&buf_ptr, &buf_size);
@@ -852,6 +897,22 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_seriali
     after[6]       = 'R';
     after[7]       = '1';
     return ret;
+  }
+  JNI_CATCH(env, nullptr);
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_ParquetFooter_getRowIndexOffsets(JNIEnv* env, jclass, jlong handle)
+{
+  JNI_TRY
+  {
+    auto* footer = reinterpret_cast<rapids::jni::parquet_footer_with_row_group_offsets*>(handle);
+    auto const& offsets = footer->row_index_offsets;
+    jsize len           = static_cast<jsize>(offsets.size());
+    jlongArray result   = env->NewLongArray(len);
+    if (result == nullptr) { return nullptr; }
+    env->SetLongArrayRegion(result, 0, len, reinterpret_cast<jlong const*>(offsets.data()));
+    return result;
   }
   JNI_CATCH(env, nullptr);
 }
