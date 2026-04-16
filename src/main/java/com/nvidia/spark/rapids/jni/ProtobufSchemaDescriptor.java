@@ -180,133 +180,137 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
 
     Set<Long> seenFieldNumbers = new HashSet<>();
     for (int i = 0; i < n; i++) {
-      if (fieldNumbers[i] <= 0 || fieldNumbers[i] > MAX_FIELD_NUMBER) {
+      validateFieldRange(i, fieldNumbers[i], depthLevels[i]);
+      validateParentChild(i, parentIndices[i], depthLevels, outputTypeIds);
+      validateUniqueFieldKey(i, parentIndices[i], fieldNumbers[i], seenFieldNumbers);
+      validateWireTypeAndEncoding(i, wireTypes[i], outputTypeIds[i], encodings[i]);
+      validateFieldFlags(i, isRepeated[i], isRequired[i], hasDefaultValue[i], outputTypeIds[i]);
+      validateEnumMetadata(i, encodings[i], enumValidValues[i], enumNames[i]);
+    }
+  }
+
+  private static void validateFieldRange(int index, int fieldNumber, int depth) {
+    if (fieldNumber <= 0 || fieldNumber > MAX_FIELD_NUMBER) {
+      throw new IllegalArgumentException(
+          "Invalid field number at index " + index + ": " + fieldNumber +
+          " (must be 1-" + MAX_FIELD_NUMBER + ")");
+    }
+    if (depth < 0 || depth >= MAX_NESTING_DEPTH) {
+      throw new IllegalArgumentException(
+          "Invalid depth at index " + index + ": " + depth +
+          " (must be 0-" + (MAX_NESTING_DEPTH - 1) + ")");
+    }
+  }
+
+  private static void validateParentChild(int index, int parentIndex,
+                                           int[] depthLevels, int[] outputTypeIds) {
+    if (parentIndex < -1 || parentIndex >= index) {
+      throw new IllegalArgumentException(
+          "Invalid parent index at index " + index + ": " + parentIndex +
+          " (must be -1 or a prior index < " + index + ")");
+    }
+    if (parentIndex == -1) {
+      if (depthLevels[index] != 0) {
         throw new IllegalArgumentException(
-            "Invalid field number at index " + i + ": " + fieldNumbers[i] +
-            " (must be 1-" + MAX_FIELD_NUMBER + ")");
+            "Top-level field at index " + index + " must have depth 0, got " +
+            depthLevels[index]);
       }
-      if (depthLevels[i] < 0 || depthLevels[i] >= MAX_NESTING_DEPTH) {
+    } else {
+      if (outputTypeIds[parentIndex] != STRUCT_TYPE_ID) {
         throw new IllegalArgumentException(
-            "Invalid depth at index " + i + ": " + depthLevels[i] +
-            " (must be 0-" + (MAX_NESTING_DEPTH - 1) + ")");
+            "Parent at index " + parentIndex + " for field " + index +
+            " must be STRUCT, got type id " + outputTypeIds[parentIndex]);
       }
-      int pi = parentIndices[i];
-      if (pi < -1 || pi >= i) {
+      if (depthLevels[index] != depthLevels[parentIndex] + 1) {
         throw new IllegalArgumentException(
-            "Invalid parent index at index " + i + ": " + pi +
-            " (must be -1 or a prior index < " + i + ")");
+            "Field at index " + index + " depth (" + depthLevels[index] +
+            ") must be parent depth (" + depthLevels[parentIndex] + ") + 1");
       }
-      if (pi == -1) {
-        if (depthLevels[i] != 0) {
+    }
+  }
+
+  private static void validateUniqueFieldKey(int index, int parentIndex,
+                                              int fieldNumber, Set<Long> seen) {
+    long fieldKey = (((long) parentIndex) << 32) | (fieldNumber & 0xFFFFFFFFL);
+    if (!seen.add(fieldKey)) {
+      throw new IllegalArgumentException(
+          "Duplicate field number " + fieldNumber +
+          " under parent index " + parentIndex + " at schema index " + index);
+    }
+  }
+
+  private static void validateWireTypeAndEncoding(int index, int wireType,
+                                                   int outputTypeId, int encoding) {
+    if (wireType != Protobuf.WT_VARINT && wireType != Protobuf.WT_64BIT &&
+        wireType != Protobuf.WT_LEN && wireType != Protobuf.WT_32BIT) {
+      throw new IllegalArgumentException(
+          "Invalid wire type at index " + index + ": " + wireType +
+          " (must be one of {0, 1, 2, 5})");
+    }
+    if (encoding < Protobuf.ENC_DEFAULT || encoding > Protobuf.ENC_ENUM_STRING) {
+      throw new IllegalArgumentException(
+          "Invalid encoding at index " + index + ": " + encoding);
+    }
+    if (!isEncodingCompatible(wireType, outputTypeId, encoding)) {
+      throw new IllegalArgumentException(
+          "Incompatible wire type / output type / encoding at index " + index +
+          ": wireType=" + wireType + ", outputTypeId=" + outputTypeId +
+          ", encoding=" + encoding);
+    }
+  }
+
+  private static void validateFieldFlags(int index, boolean repeated, boolean required,
+                                          boolean hasDefault, int outputTypeId) {
+    if (repeated && required) {
+      throw new IllegalArgumentException(
+          "Field at index " + index + " cannot be both repeated and required");
+    }
+    if (repeated && hasDefault) {
+      throw new IllegalArgumentException(
+          "Repeated field at index " + index + " cannot carry a default value");
+    }
+    if (hasDefault && (outputTypeId == STRUCT_TYPE_ID || outputTypeId == LIST_TYPE_ID)) {
+      throw new IllegalArgumentException(
+          "STRUCT/LIST field at index " + index + " cannot carry a default value");
+    }
+  }
+
+  private static void validateEnumMetadata(int index, int encoding,
+                                            int[] validValues, byte[][] names) {
+    if (encoding == Protobuf.ENC_ENUM_STRING &&
+        (validValues == null || validValues.length == 0 ||
+         names == null || names.length == 0)) {
+      throw new IllegalArgumentException(
+          "Enum-as-string field at index " + index +
+          " must provide non-empty enumValidValues and enumNames");
+    }
+    if (validValues != null) {
+      for (int j = 1; j < validValues.length; j++) {
+        if (validValues[j] <= validValues[j - 1]) {
           throw new IllegalArgumentException(
-              "Top-level field at index " + i + " must have depth 0, got " + depthLevels[i]);
-        }
-      } else {
-        if (outputTypeIds[pi] != STRUCT_TYPE_ID) {
-          throw new IllegalArgumentException(
-              "Parent at index " + pi + " for field " + i + " must be STRUCT, got type id " +
-              outputTypeIds[pi]);
-        }
-        if (depthLevels[i] != depthLevels[pi] + 1) {
-          throw new IllegalArgumentException(
-              "Field at index " + i + " depth (" + depthLevels[i] +
-              ") must be parent depth (" + depthLevels[pi] + ") + 1");
+              "enumValidValues[" + index + "] must be strictly sorted in ascending order " +
+              "(binary search requires unique values), but found " + validValues[j - 1] +
+              " followed by " + validValues[j]);
         }
       }
-      long fieldKey = (((long) pi) << 32) | (fieldNumbers[i] & 0xFFFFFFFFL);
-      if (!seenFieldNumbers.add(fieldKey)) {
+      if (names != null && names.length != validValues.length) {
         throw new IllegalArgumentException(
-            "Duplicate field number " + fieldNumbers[i] +
-            " under parent index " + pi + " at schema index " + i);
+            "enumNames[" + index + "].length (" + names.length + ") must equal " +
+            "enumValidValues[" + index + "].length (" + validValues.length + ")");
       }
-      int wt = wireTypes[i];
-      if (wt != 0 && wt != 1 && wt != 2 && wt != 5) {
-        throw new IllegalArgumentException(
-            "Invalid wire type at index " + i + ": " + wt +
-            " (must be one of {0, 1, 2, 5})");
-      }
-      int enc = encodings[i];
-      if (enc < Protobuf.ENC_DEFAULT || enc > Protobuf.ENC_ENUM_STRING) {
-        throw new IllegalArgumentException(
-            "Invalid encoding at index " + i + ": " + enc);
-      }
-      if (!isEncodingCompatible(wt, outputTypeIds[i], enc)) {
-        throw new IllegalArgumentException(
-            "Incompatible wire type / output type / encoding at index " + i +
-            ": wireType=" + wt + ", outputTypeId=" + outputTypeIds[i] + ", encoding=" + enc);
-      }
-      if (isRepeated[i] && isRequired[i]) {
-        throw new IllegalArgumentException(
-            "Field at index " + i + " cannot be both repeated and required");
-      }
-      if (isRepeated[i] && hasDefaultValue[i]) {
-        throw new IllegalArgumentException(
-            "Repeated field at index " + i + " cannot carry a default value");
-      }
-      if (hasDefaultValue[i] &&
-          (outputTypeIds[i] == STRUCT_TYPE_ID || outputTypeIds[i] == LIST_TYPE_ID)) {
-        throw new IllegalArgumentException(
-            "STRUCT/LIST field at index " + i + " cannot carry a default value");
-      }
-      if (enc == Protobuf.ENC_ENUM_STRING &&
-          (enumValidValues[i] == null || enumValidValues[i].length == 0 ||
-           enumNames[i] == null || enumNames[i].length == 0)) {
-        throw new IllegalArgumentException(
-            "Enum-as-string field at index " + i +
-            " must provide non-empty enumValidValues and enumNames");
-      }
-      if (enumValidValues[i] != null) {
-        int[] ev = enumValidValues[i];
-        for (int j = 1; j < ev.length; j++) {
-          if (ev[j] <= ev[j - 1]) {
-            throw new IllegalArgumentException(
-                "enumValidValues[" + i + "] must be strictly sorted in ascending order " +
-                "(binary search requires unique values), but found " + ev[j - 1] +
-                " followed by " + ev[j]);
-          }
-        }
-        if (enumNames[i] != null && enumNames[i].length != ev.length) {
-          throw new IllegalArgumentException(
-              "enumNames[" + i + "].length (" + enumNames[i].length + ") must equal " +
-              "enumValidValues[" + i + "].length (" + ev.length + ")");
-        }
-      } else if (enumNames[i] != null) {
-        throw new IllegalArgumentException(
-            "enumNames[" + i + "] is non-null but enumValidValues[" + i + "] is null; " +
-            "both must be provided together for enum-as-string fields");
-      }
+    } else if (names != null) {
+      throw new IllegalArgumentException(
+          "enumNames[" + index + "] is non-null but enumValidValues[" + index + "] is null; " +
+          "both must be provided together for enum-as-string fields");
     }
   }
 
   private static boolean isEncodingCompatible(int wireType, int outputTypeId, int encoding) {
     switch (encoding) {
       case Protobuf.ENC_DEFAULT:
-        if (outputTypeId == BOOL8_TYPE_ID || outputTypeId == INT32_TYPE_ID ||
-            outputTypeId == UINT32_TYPE_ID || outputTypeId == INT64_TYPE_ID ||
-            outputTypeId == UINT64_TYPE_ID) {
-          return wireType == Protobuf.WT_VARINT;
-        }
-        if (outputTypeId == FLOAT32_TYPE_ID) {
-          return wireType == Protobuf.WT_32BIT;
-        }
-        if (outputTypeId == FLOAT64_TYPE_ID) {
-          return wireType == Protobuf.WT_64BIT;
-        }
-        if (outputTypeId == STRING_TYPE_ID || outputTypeId == LIST_TYPE_ID ||
-            outputTypeId == STRUCT_TYPE_ID) {
-          return wireType == Protobuf.WT_LEN;
-        }
-        return false;
+        return isDefaultEncodingCompatible(wireType, outputTypeId);
       case Protobuf.ENC_FIXED:
-        if (outputTypeId == INT32_TYPE_ID || outputTypeId == UINT32_TYPE_ID ||
-            outputTypeId == FLOAT32_TYPE_ID) {
-          return wireType == Protobuf.WT_32BIT;
-        }
-        if (outputTypeId == INT64_TYPE_ID || outputTypeId == UINT64_TYPE_ID ||
-            outputTypeId == FLOAT64_TYPE_ID) {
-          return wireType == Protobuf.WT_64BIT;
-        }
-        return false;
+        return isFixedEncodingCompatible(wireType, outputTypeId);
       case Protobuf.ENC_ZIGZAG:
         return wireType == Protobuf.WT_VARINT &&
             (outputTypeId == INT32_TYPE_ID || outputTypeId == INT64_TYPE_ID);
@@ -315,5 +319,36 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
       default:
         return false;
     }
+  }
+
+  private static boolean isDefaultEncodingCompatible(int wireType, int outputTypeId) {
+    if (outputTypeId == BOOL8_TYPE_ID || outputTypeId == INT32_TYPE_ID ||
+        outputTypeId == UINT32_TYPE_ID || outputTypeId == INT64_TYPE_ID ||
+        outputTypeId == UINT64_TYPE_ID) {
+      return wireType == Protobuf.WT_VARINT;
+    }
+    if (outputTypeId == FLOAT32_TYPE_ID) {
+      return wireType == Protobuf.WT_32BIT;
+    }
+    if (outputTypeId == FLOAT64_TYPE_ID) {
+      return wireType == Protobuf.WT_64BIT;
+    }
+    if (outputTypeId == STRING_TYPE_ID || outputTypeId == LIST_TYPE_ID ||
+        outputTypeId == STRUCT_TYPE_ID) {
+      return wireType == Protobuf.WT_LEN;
+    }
+    return false;
+  }
+
+  private static boolean isFixedEncodingCompatible(int wireType, int outputTypeId) {
+    if (outputTypeId == INT32_TYPE_ID || outputTypeId == UINT32_TYPE_ID ||
+        outputTypeId == FLOAT32_TYPE_ID) {
+      return wireType == Protobuf.WT_32BIT;
+    }
+    if (outputTypeId == INT64_TYPE_ID || outputTypeId == UINT64_TYPE_ID ||
+        outputTypeId == FLOAT64_TYPE_ID) {
+      return wireType == Protobuf.WT_64BIT;
+    }
+    return false;
   }
 }
