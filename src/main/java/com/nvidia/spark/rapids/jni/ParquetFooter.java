@@ -99,7 +99,7 @@ public class ParquetFooter implements AutoCloseable {
   }
 
   private void checkClosed() {
-    Preconditions.ensure(nativeHandle, "ParquetFooter has already been closed");
+    Preconditions.ensure(nativeHandle != 0, "ParquetFooter has already been closed");
   }
 
   /**
@@ -148,7 +148,7 @@ public class ParquetFooter implements AutoCloseable {
 
   @Override
   public void close() throws Exception {
-    if (nativeHandle) {
+    if (nativeHandle != 0) {
       close(nativeHandle);
       nativeHandle = 0;
     }
