@@ -262,7 +262,7 @@ build_string_row_offsets(table_view const& tbl,
  */
 struct string_row_offset_functor {
   string_row_offset_functor(device_span<size_type const> d_row_offsets)
-    : d_row_offsets(d_row_offsets){};
+    : d_row_offsets(d_row_offsets) {};
 
   __device__ inline size_type operator()(int row_number, int) const
   {
@@ -278,7 +278,7 @@ struct string_row_offset_functor {
  */
 struct fixed_width_row_offset_functor {
   fixed_width_row_offset_functor(size_type fixed_width_only_row_size)
-    : _fixed_width_only_row_size(fixed_width_only_row_size){};
+    : _fixed_width_only_row_size(fixed_width_only_row_size) {};
 
   __device__ inline size_type operator()(int row_number, int tile_row_start) const
   {
@@ -416,7 +416,7 @@ CUDF_KERNEL void copy_from_rows_fixed_width_optimized(const size_type num_rows,
         uint32_t bitmask          = __ballot_sync(active_mask, predicate);
         if (row_index % 32 == 0) { nm[word_index(row_index)] = bitmask; }
       }  // end column loop
-    }    // end row copy
+    }  // end row copy
     // wait for the row_group to be totally copied before starting on the next row group
     __syncthreads();
   }
@@ -525,7 +525,7 @@ CUDF_KERNEL void copy_to_rows_fixed_width_optimized(const size_type start_row,
           atomicOr_block(valid_int, 1 << int_bit_offset);
         }
       }  // end column loop
-    }    // end row copy
+    }  // end row copy
     // wait for the row_group to be totally copied into shared memory
     __syncthreads();
 

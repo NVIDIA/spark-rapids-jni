@@ -700,7 +700,7 @@ __device__ cuda::std::pair<bool, cudf::size_type> evaluate_path(
         ctx.dirty        = 0;
         ctx.task_is_done = true;
       }
-    }       // if (!ctx.task_is_done)
+    }  // if (!ctx.task_is_done)
     else {  // current context is done.
       // pop current top context
       stack_size--;
@@ -774,9 +774,9 @@ __device__ cuda::std::pair<bool, cudf::size_type> evaluate_path(
         }
 
         default:;  // Never happens!
-      }            // end switch (ctx.case_path)
-    }              // ctx.task_is_done
-  }                // while (stack_size > 0)
+      }  // end switch (ctx.case_path)
+    }  // ctx.task_is_done
+  }  // while (stack_size > 0)
 
   auto const success = stack[0].dirty > 0;
 
