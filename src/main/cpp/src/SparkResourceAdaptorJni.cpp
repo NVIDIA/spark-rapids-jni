@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -997,7 +997,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   // so they are check-pointed periodically. This reads and resets
   // the metric for both the threads and the tasks
   template <class T>
-  T get_and_reset_metric(long const task_id, T task_metrics::*MetricPtr)
+  T get_and_reset_metric(long const task_id, T task_metrics::* MetricPtr)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
     T ret              = 0;
@@ -1021,7 +1021,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   }
 
   template <class T>
-  T get_metric(long const task_id, T task_metrics::*MetricPtr)
+  T get_metric(long const task_id, T task_metrics::* MetricPtr)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
     T ret              = 0;
