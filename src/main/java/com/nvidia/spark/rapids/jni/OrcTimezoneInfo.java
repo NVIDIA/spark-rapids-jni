@@ -100,7 +100,7 @@ class OrcTimezoneInfo {
    * Extract DST rule by probing getOffset() or from ZoneRules transition rules.
    * Returns null if the timezone has no DST.
    */
-  static DstRule extractDstRule(String timezoneId, TimeZone tz) {
+  static DstRule extractDstRule(String timezoneId, TimeZone tz, ZoneRules rules) {
     if (!tz.useDaylightTime()) {
       return null;
     }
@@ -109,15 +109,15 @@ class OrcTimezoneInfo {
       return dstRule;
     }
 
-    dstRule = extractDstRuleFromZoneRules(timezoneId, tz);
+    dstRule = extractDstRuleFromZoneRules(timezoneId, tz, rules);
     if (dstRule != null) {
       return dstRule;
     }
     throw new IllegalStateException("Failed to extract ORC DST rule for timezone: " + timezoneId);
   }
 
-  private static DstRule extractDstRuleFromZoneRules(String timezoneId, TimeZone tz) {
-    ZoneRules rules = GpuTimeZoneDB.getZoneId(timezoneId).getRules();
+  private static DstRule extractDstRuleFromZoneRules(String timezoneId, TimeZone tz,
+      ZoneRules rules) {
     List<ZoneOffsetTransitionRule> transitionRules = rules.getTransitionRules();
     if (transitionRules.isEmpty()) {
       return null;
@@ -524,7 +524,7 @@ class OrcTimezoneInfo {
     if (rules.isFixedOffset()) {
       return new OrcTimezoneInfo(initialOffset, tz.getRawOffset(), null, null, null);
     }
-    DstRule dstRule = extractDstRule(timezoneId, tz);
+    DstRule dstRule = extractDstRule(timezoneId, tz, rules);
 
     List<ZoneOffsetTransition> transitionList = rules.getTransitions();
     HistoricalTransitions historicalTransitions = buildHistoricalTransitions(tz, transitionList);
