@@ -113,8 +113,8 @@ struct gbk_decode_fn {
   cudf::size_type const* input_offsets;
   uint16_t const* gbk_table;
 
-  cudf::size_type* d_sizes;
-  char* d_chars;
+  cudf::size_type* d_sizes{};
+  char* d_chars{};
   cudf::detail::input_offsetalator d_offsets;
 
   __device__ void operator()(cudf::size_type idx)
@@ -178,9 +178,6 @@ std::unique_ptr<cudf::column> decode_gbk(cudf::column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  auto const num_rows = input.size();
-  if (num_rows == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
-
   CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST,
                "Input must be LIST type (BinaryType)",
                std::invalid_argument);
@@ -192,19 +189,17 @@ std::unique_ptr<cudf::column> decode_gbk(cudf::column_view const& input,
   CUDF_EXPECTS(
     !child.nullable(), "Child column of binary column must be non-nullable", std::invalid_argument);
 
+  auto const num_rows = input.size();
+  if (num_rows == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
+
   auto const* gbk_table = get_gbk_table(stream);
 
   // offsets_begin() accounts for the parent list offset on sliced columns
-  auto [new_offsets, new_chars] =
-    cudf::strings::detail::make_strings_children(gbk_decode_fn{child.data<uint8_t>(),
-                                                               list_col.offsets_begin(),
-                                                               gbk_table,
-                                                               nullptr,
-                                                               nullptr,
-                                                               cudf::detail::input_offsetalator{}},
-                                                 num_rows,
-                                                 stream,
-                                                 mr);
+  auto [new_offsets, new_chars] = cudf::strings::detail::make_strings_children(
+    gbk_decode_fn{child.data<uint8_t>(), list_col.offsets_begin(), gbk_table},
+    num_rows,
+    stream,
+    mr);
 
   return cudf::make_strings_column(num_rows,
                                    std::move(new_offsets),

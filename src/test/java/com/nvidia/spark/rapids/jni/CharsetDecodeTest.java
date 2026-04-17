@@ -215,8 +215,9 @@ public class CharsetDecodeTest {
     byte[][] empty = {};
 
     try (ColumnVector cv = binaryColumn(empty);
-         ColumnVector result = CharsetDecode.decode(cv, CharsetDecode.GBK)) {
-      AssertUtils.assertColumnsAreEqual(ColumnVector.fromStrings(), result);
+         ColumnVector result = CharsetDecode.decode(cv, CharsetDecode.GBK);
+         ColumnVector expected = ColumnVector.fromStrings()) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
     }
   }
 
