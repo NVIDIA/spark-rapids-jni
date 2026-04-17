@@ -171,4 +171,22 @@ public class MapUtilsTest {
       assertColumnsAreEqual(expected, result);
     }
   }
+
+  @Test
+  void outerNullRowAndNullStructEntryRowBothNull() {
+    // Exercises the bitmask_and path: input already has a null row (outer null) AND
+    // another row with a null struct entry.  Both must appear null in the output.
+    //
+    // Row 0: null outer row                →  stays null  (existing null mask)
+    // Row 1: [null_struct, {2,20}]         →  becomes null (null struct entry)
+    // Row 2: [{3,30}]                      →  unchanged
+    List<HostColumnVector.StructData> row1 = Arrays.asList(null, entry(2, 20));
+    List<HostColumnVector.StructData> row2 = Arrays.asList(entry(3, 30));
+    try (ColumnVector input  = ColumnVector.fromLists(LIST_TYPE, null, row1, row2);
+         ColumnVector result = MapUtils.mapFromEntries(input, true)) {
+      try (ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, null, null, row2)) {
+        assertColumnsAreEqual(expected, result);
+      }
+    }
+  }
 }

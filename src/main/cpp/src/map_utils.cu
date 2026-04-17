@@ -54,7 +54,8 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
 
   // Step 1: Per-row flag — does row i contain any null struct entry?
   // contains_nulls returns BOOL8, size = input.size().
-  // A null outer row itself yields null in has_null_entry; copy_if_else handles that correctly.
+  // A null outer row itself yields null in has_null_entry; bools_to_mask treats null as false
+  // (bit=0), so outer-null rows are correctly kept null in the final mask.
   auto has_null_entry = cudf::lists::contains_nulls(lists_cv, stream, mr);
 
   // Fast path: no null struct entries anywhere — simple global null-key check.
