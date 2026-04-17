@@ -18,6 +18,14 @@ import java.util.concurrent.ConcurrentMap;
  * Historical transitions come from ZoneRules, while offsets before the first transition and
  * future recurring DST behavior are validated against java.util.TimeZone so ORC rebasing matches
  * SerializationUtils.convertBetweenTimezones semantics without relying on non-public ZoneInfo APIs.
+ *
+ * <p><b>Runtime dependency:</b> because the metadata is generated on the fly from
+ * {@link java.util.TimeZone}/{@link java.time.zone.ZoneRules}, the exact transition table and
+ * recurring DST rule are determined by the JVM's bundled IANA {@code tzdata}. Different JDK
+ * distributions or {@code tzdata} versions may produce slightly different historical
+ * transitions or future-year DST offsets for the same zone id. This is strictly more correct
+ * than the previous frozen OpenJDK-8 snapshot, but users debugging cross-environment
+ * differences should first check the JVM's {@code tzdata} version.
  */
 class OrcTimezoneInfo {
   public OrcTimezoneInfo(
