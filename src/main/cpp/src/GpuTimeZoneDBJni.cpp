@@ -157,7 +157,9 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertOrcTimezones(JNIEnv* env,
     auto const writer_tz_info_tab = reinterpret_cast<cudf::table_view const*>(writer_tz_info_table);
     auto const reader_tz_info_tab = reinterpret_cast<cudf::table_view const*>(reader_tz_info_table);
     auto const writer_dst         = parse_dst_rule(env, writer_dst_rule);
-    auto const reader_dst         = parse_dst_rule(env, reader_dst_rule);
+    cudf::jni::check_java_exception(env);
+    auto const reader_dst = parse_dst_rule(env, reader_dst_rule);
+    cudf::jni::check_java_exception(env);
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::convert_orc_writer_reader_timezones(*input,
                                                             static_cast<int64_t>(base_offset_us),
