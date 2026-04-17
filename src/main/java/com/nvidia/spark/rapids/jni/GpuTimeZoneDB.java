@@ -560,6 +560,7 @@ public class GpuTimeZoneDB {
     private final int readerInitialOffset;
     private final int readerRawOffset;
     private final int[] readerDst;
+    private boolean closed;
 
     private OrcTimezoneContext(Table writerTzInfoTable, Table readerTzInfoTable,
         OrcTimezoneInfo writerTzInfo, OrcTimezoneInfo readerTzInfo) {
@@ -575,6 +576,10 @@ public class GpuTimeZoneDB {
 
     @Override
     public void close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
       if (writerTzInfoTable != null) {
         writerTzInfoTable.close();
       }
