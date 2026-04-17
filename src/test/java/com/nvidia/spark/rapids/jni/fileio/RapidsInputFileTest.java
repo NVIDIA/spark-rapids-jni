@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class RapidsInputFileTest {
@@ -53,6 +54,19 @@ public class RapidsInputFileTest {
   }
 
   @Test
+  public void readVectoredRejectsNullRangesBeforeOpeningStream() throws IOException {
+    TestRapidsInputFile inputFile = new TestRapidsInputFile(FILE_DATA);
+    try (HostMemoryBuffer output = HostMemoryBuffer.allocate(3)) {
+      assertThrows(NullPointerException.class,
+          () -> inputFile.readVectored(output, Arrays.asList(
+              new RapidsInputFile.CopyRange(0, 1, 0),
+              null,
+              new RapidsInputFile.CopyRange(1, 1, 1))));
+    }
+    assertEquals(0, inputFile.getOpenCount());
+  }
+
+  @Test
   public void readTailUsesSeekableStreamFallback() throws IOException {
     RapidsInputFile inputFile = new TestRapidsInputFile(FILE_DATA);
     try (HostMemoryBuffer output = HostMemoryBuffer.allocate(4)) {
@@ -77,9 +91,11 @@ public class RapidsInputFileTest {
 
   private static final class TestRapidsInputFile implements RapidsInputFile {
     private final byte[] data;
+    private int openCount;
 
     private TestRapidsInputFile(byte[] data) {
       this.data = data;
+      this.openCount = 0;
     }
 
     @Override
@@ -87,8 +103,13 @@ public class RapidsInputFileTest {
       return data.length;
     }
 
+    private int getOpenCount() {
+      return openCount;
+    }
+
     @Override
     public SeekableInputStream open() {
+      openCount++;
       return new ArraySeekableInputStream(data);
     }
   }
