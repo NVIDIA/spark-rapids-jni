@@ -123,7 +123,7 @@ struct dst_rule {
   int32_t start_dow;    // day-of-week 1=Sun..7=Sat, 0 for DOM_MODE
   int32_t start_time;   // ms within day
   int32_t start_time_mode;
-  int32_t start_mode;   // 0=DOM, 1=DOW_IN_MONTH, 2=DOW_GE_DOM, 3=DOW_LE_DOM
+  int32_t start_mode;  // 0=DOM, 1=DOW_IN_MONTH, 2=DOW_GE_DOM, 3=DOW_LE_DOM
   int32_t end_month;
   int32_t end_day;
   int32_t end_dow;
