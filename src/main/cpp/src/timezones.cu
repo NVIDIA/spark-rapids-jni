@@ -496,6 +496,8 @@ __device__ static int32_t get_transition_index(int64_t const* begin,
     return compute_dst_offset(time_ms, raw_offset, rule);
   }
 
+  // upper_bound returns the first element strictly greater than time_ms, so
+  // *iter > time_ms and the index we want is iter - 1.
   auto const iter = thrust::upper_bound(thrust::seq, begin, end, time_ms);
   if (iter == end) {
     // Beyond the transition table -- use DST rule for future dates
@@ -503,8 +505,6 @@ __device__ static int32_t get_transition_index(int64_t const* begin,
   }
 
   int32_t index = static_cast<int32_t>(cuda::std::distance(begin, iter));
-  if (*iter == time_ms) { return offset_begin[index]; }
-
   if (index == 0) {
     // Before the first recorded transition, java.util.TimeZone uses the
     // historical offset in effect before that transition, not the future rule.
