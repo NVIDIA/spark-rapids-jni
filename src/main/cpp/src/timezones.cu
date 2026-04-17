@@ -487,7 +487,6 @@ __device__ static int32_t get_transition_index(int64_t const* begin,
                                                int64_t const* end,
                                                int64_t time_ms,
                                                int32_t const* offset_begin,
-                                               int32_t const* offset_end,
                                                int32_t initial_offset,
                                                int32_t raw_offset,
                                                spark_rapids_jni::dst_rule const& rule)
@@ -541,14 +540,12 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   int64_t const* writer_trans_begin,
   int64_t const* writer_trans_end,
   int32_t const* writer_offsets_begin,
-  int32_t const* writer_offsets_end,
   int32_t writer_initial_offset,
   int32_t writer_raw_offset,
   spark_rapids_jni::dst_rule const& writer_dst,
   int64_t const* reader_trans_begin,
   int64_t const* reader_trans_end,
   int32_t const* reader_offsets_begin,
-  int32_t const* reader_offsets_end,
   int32_t reader_initial_offset,
   int32_t reader_raw_offset,
   spark_rapids_jni::dst_rule const& reader_dst)
@@ -572,7 +569,6 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
                                                                      writer_trans_end,
                                                                      epoch_millis,
                                                                      writer_offsets_begin,
-                                                                     writer_offsets_end,
                                                                      writer_initial_offset,
                                                                      writer_raw_offset,
                                                                      writer_dst);
@@ -582,7 +578,6 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
                                                                      reader_trans_end,
                                                                      epoch_millis,
                                                                      reader_offsets_begin,
-                                                                     reader_offsets_end,
                                                                      reader_initial_offset,
                                                                      reader_raw_offset,
                                                                      reader_dst);
@@ -594,7 +589,6 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
                                                                        reader_trans_end,
                                                                        adjusted_milliseconds,
                                                                        reader_offsets_begin,
-                                                                       reader_offsets_end,
                                                                        reader_initial_offset,
                                                                        reader_raw_offset,
                                                                        reader_dst);
@@ -672,21 +666,19 @@ __global__ void convert_timezones_kernel(cudf::timestamp_us const* __restrict__ 
   int64_t const* wt_begin = writer_fits ? s_writer_trans : g_writer_trans;
   int64_t const* wt_end   = wt_begin ? wt_begin + writer_trans_count : nullptr;
   int32_t const* wo_begin = writer_fits ? s_writer_offsets : g_writer_offsets;
-  int32_t const* wo_end   = wo_begin ? wo_begin + writer_trans_count : nullptr;
 
   int64_t const* rt_begin = reader_fits ? s_reader_trans : g_reader_trans;
   int64_t const* rt_end   = rt_begin ? rt_begin + reader_trans_count : nullptr;
   int32_t const* ro_begin = reader_fits ? s_reader_offsets : g_reader_offsets;
-  int32_t const* ro_end   = ro_begin ? ro_begin + reader_trans_count : nullptr;
 
   // Handle null transition tables (fixed-offset timezones use nullptr)
   if (!g_writer_trans) {
     wt_begin = wt_end = nullptr;
-    wo_begin = wo_end = nullptr;
+    wo_begin          = nullptr;
   }
   if (!g_reader_trans) {
     rt_begin = rt_end = nullptr;
-    ro_begin = ro_end = nullptr;
+    ro_begin          = nullptr;
   }
 
   cudf::size_type idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -697,14 +689,12 @@ __global__ void convert_timezones_kernel(cudf::timestamp_us const* __restrict__ 
                                                       wt_begin,
                                                       wt_end,
                                                       wo_begin,
-                                                      wo_end,
                                                       writer_initial_offset,
                                                       writer_raw_offset,
                                                       writer_dst,
                                                       rt_begin,
                                                       rt_end,
                                                       ro_begin,
-                                                      ro_end,
                                                       reader_initial_offset,
                                                       reader_raw_offset,
                                                       reader_dst);
