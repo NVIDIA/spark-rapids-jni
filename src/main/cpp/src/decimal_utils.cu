@@ -1339,11 +1339,11 @@ struct floating_point_to_decimal_dispatcher {
   template <typename FloatType, typename DecimalType>
   static constexpr bool supported_types()
   {
-    return (std::is_same_v<FloatType, float> ||   //
-            std::is_same_v<FloatType, double>)&&  //
-      (std::is_same_v<DecimalType, numeric::decimal32> ||
-       std::is_same_v<DecimalType, numeric::decimal64> ||
-       std::is_same_v<DecimalType, numeric::decimal128>);
+    return (std::is_same_v<FloatType, float> ||    //
+            std::is_same_v<FloatType, double>) &&  //
+           (std::is_same_v<DecimalType, numeric::decimal32> ||
+            std::is_same_v<DecimalType, numeric::decimal64> ||
+            std::is_same_v<DecimalType, numeric::decimal128>);
   }
 
   template <typename FloatType,

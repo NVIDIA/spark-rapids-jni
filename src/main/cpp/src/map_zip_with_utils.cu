@@ -109,10 +109,10 @@ std::unique_ptr<column> generate_labels(
  * @note Both input list columns must have the same number of rows
  */
 std::unique_ptr<column> indices_of(
-  lists_column_view const& search_keys,       // Column containing lists of keys to search for
-  lists_column_view const& search_values,     // Column containing lists of values to search through
+  lists_column_view const& search_keys,    // Column containing lists of keys to search for
+  lists_column_view const& search_values,  // Column containing lists of values to search through
   rmm::cuda_stream_view stream =
-    cudf::get_default_stream(),               // CUDA stream for asynchronous execution
+    cudf::get_default_stream(),  // CUDA stream for asynchronous execution
   rmm::device_async_resource_ref mr =
     cudf::get_current_device_resource_ref())  // Memory resource for allocations
 {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -420,6 +420,34 @@ public class CastStringsTest {
     )
     {
       convTestInternal(input, expected, 16);
+    }
+  }
+
+  @Test
+  void bytesToHexStringTest() {
+    try (
+      ColumnVector input = ColumnVector.fromStrings("AB", "", "Spark", null, "\0\1\u00FF");
+      ColumnVector expected = ColumnVector.fromStrings("4142", "", "537061726B", null, "0001C3BF");
+      ColumnVector result = CastStrings.bytesToHex(input)
+    ) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void bytesToHexBinaryTest() {
+    try (
+      ColumnVector input = ColumnVector.fromLists(
+        new HostColumnVector.ListType(true, new HostColumnVector.BasicType(true, DType.UINT8)),
+        Arrays.asList((byte)0x41, (byte)0x42),
+        Arrays.asList((byte)0x00, (byte)0xFF),
+        null,
+        Arrays.asList()
+      );
+      ColumnVector expected = ColumnVector.fromStrings("4142", "00FF", null, "");
+      ColumnVector result = CastStrings.bytesToHex(input)
+    ) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
     }
   }
 

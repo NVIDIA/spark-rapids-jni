@@ -160,6 +160,18 @@ public class CastStrings {
   }
 
   /**
+   * Convert a strings/binary column to its hexadecimal representation.
+   * Each byte is converted to a 2-character uppercase hex string.
+   * For example, "AB" (bytes 0x41, 0x42) becomes "4142".
+   *
+   * @param cv The input strings column
+   * @return a new String ColumnVector with hex representation
+   */
+  public static ColumnVector bytesToHex(ColumnView cv) {
+    return new ColumnVector(bytesToHex(cv.getNativeView()));
+  }
+
+  /**
    * Trims and parses strings to intermediate result.
    * This is the first phase of casting string with timezone to timestamp.
    *
@@ -341,6 +353,7 @@ public class CastStrings {
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
+  private static native long bytesToHex(long nativeColumnView);
 
   private static native long parseTimestampStringsToIntermediate(
       long input, int defaultTimezoneIndex,
