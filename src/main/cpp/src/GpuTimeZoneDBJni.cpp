@@ -108,8 +108,11 @@ static spark_rapids_jni::dst_rule parse_dst_rule(JNIEnv* env, jintArray jrule)
   auto const rule_length                   = env->GetArrayLength(jrule);
   JNI_ARG_CHECK(
     env, rule_length == expected_dst_rule_length, "dst rule array must have 13 ints", rule);
+  jint* arr = env->GetIntArrayElements(jrule, nullptr);
+  // GetIntArrayElements returns nullptr and sets a pending OutOfMemoryError
+  // on failure; return early so the pending exception is raised on JNI exit.
+  if (arr == nullptr) { return rule; }
   rule.has_dst = true;
-  jint* arr    = env->GetIntArrayElements(jrule, nullptr);
   // Order must match GpuTimeZoneDB.dstRuleToArray():
   // dstSavings, startMonth, startDay, startDayOfWeek, startTime,
   // startTimeMode, startMode, endMonth, endDay, endDayOfWeek,
