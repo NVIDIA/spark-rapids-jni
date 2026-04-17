@@ -155,6 +155,10 @@ class OrcTimezoneInfo {
 
   private static void fillDstRuleFromTransitionRule(String timezoneId, DstRule rule,
       ZoneOffsetTransitionRule transitionRule, boolean isStartRule) {
+    // We only accept rules shaped as "first <dayOfWeek> on or after <dayOfMonthIndicator>",
+    // i.e. ZoneRules' positive-day-indicator form. A negative indicator would mean
+    // "last <dayOfWeek> on or before day" (DOW_LE_DOM_MODE, mode=3); we reject those
+    // here so that downstream code can assume DOW_GE_DOM_MODE (mode=2) unconditionally.
     if (transitionRule.getDayOfWeek() == null ||
         transitionRule.getDayOfMonthIndicator() <= 0) {
       throw new IllegalStateException("Unsupported ORC DST transition rule shape for timezone: " +
@@ -166,7 +170,8 @@ class OrcTimezoneInfo {
     int dayOfWeek = toCalendarDayOfWeek(transitionRule.getDayOfWeek().getValue());
     int time = getTransitionRuleTimeMillis(transitionRule);
     int timeMode = getTransitionRuleTimeMode(transitionRule);
-    int mode = 2; // DOW_GE_DOM_MODE
+    // SimpleTimeZone mode constant: DOW_GE_DOM_MODE. Guaranteed by the precondition above.
+    int mode = 2;
 
     if (isStartRule) {
       rule.startMonth = month;
