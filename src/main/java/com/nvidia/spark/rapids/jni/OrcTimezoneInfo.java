@@ -85,6 +85,14 @@ class OrcTimezoneInfo {
   // typical application lifetime, plus two far-future anchors to exercise the
   // recurring-rule fallback path well past any historical transition entry.
   private static final int[] DST_RULE_VALIDATION_YEARS = {2060, 2400, 9997};
+  // Lower bound of the range ORC supports (year 0001-01-01 UTC). Computed via
+  // java.time.LocalDate, which uses the proleptic Gregorian calendar, whereas
+  // java.util.TimeZone.getOffset(long) internally uses a hybrid Julian/Gregorian
+  // calendar with the 1582 cutover for date-field interpretations. In practice
+  // this difference does not affect offset lookup (which is purely instant-based
+  // for ZoneInfo), and zones with DST in year 0001 do not exist, so the two
+  // calendars agree on the offset at this instant. Kept as a single anchor so
+  // the GPU side matches whatever TimeZone.getOffset returns here.
   private static final long MIN_SUPPORTED_ORC_UTC_MILLIS = utcMillisForDate(1, 0, 1);
   private static final long HISTORICAL_TRANSITION_SCAN_STEP_MILLIS = 24L * 3600_000L;
 
