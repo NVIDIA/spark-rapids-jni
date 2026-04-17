@@ -759,4 +759,3 @@ std::unique_ptr<column> string_to_float(data_type dtype,
 }
 
 }  // namespace spark_rapids_jni
- 
