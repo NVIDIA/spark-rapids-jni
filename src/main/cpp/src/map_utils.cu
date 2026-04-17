@@ -16,13 +16,16 @@
 
 #include "map_utils.hpp"
 
+#include <cudf/binaryop.hpp>
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/lists/contains.hpp>
 #include <cudf/lists/lists_column_view.hpp>
+#include <cudf/null_mask.hpp>
 #include <cudf/reduction.hpp>
 #include <cudf/scalar/scalar.hpp>
+#include <cudf/table/table_view.hpp>
 #include <cudf/transform.hpp>
 #include <cudf/unary.hpp>
 #include <cudf/utilities/default_stream.hpp>
@@ -68,7 +71,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   if (!any_null_entry) {
     // All struct entries are valid.  Any null key in the flat key column is a real null key.
     auto const keys = structs.child(0);
-    if (throw_on_null_key && keys.null_count(stream) > 0) {
+    if (throw_on_null_key && keys.null_count() > 0) {
       throw cudf::logic_error("Cannot use null as map key.");
     }
     return std::make_unique<cudf::column>(input, stream, mr);
@@ -140,13 +143,38 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
     if (any_throw) { throw cudf::logic_error("Cannot use null as map key."); }
   }
 
-  // Null-mask rows that contain null struct entries.
-  // copy_if_else(lhs=null_scalar, rhs=input, mask=has_null_entry):
-  //   mask[i] = true  → null_scalar   (row had a null struct entry → output null row)
-  //   mask[i] = false → input[i]      (row was fine → keep original)
-  //   mask[i] = null  → input[i]      (outer null row stays null via input[i])
-  auto null_scalar = cudf::make_default_constructed_scalar(input.type(), stream, mr);
-  return cudf::copy_if_else(*null_scalar, input, *has_null_entry, stream, mr);
+  // Null-mask rows that contain null struct entries, then purge their child data.
+  // cudf::make_default_constructed_scalar does not support LIST type, so we build the
+  // null mask directly and use purge_nonempty_nulls to clear child data for null rows
+  // (cudf requires null LIST rows to have empty offset spans).
+  //   keep[i] = NOT has_null_entry[i]:  false/null → bit=0 (null), true → bit=1 (valid)
+  // bools_to_mask treats NULL inputs as false, so already-null outer rows (where
+  // has_null_entry is null) are also masked to null.
+  auto keep_valid_col = cudf::unary_operation(
+    *has_null_entry, cudf::unary_operator::NOT, stream, mr);
+  auto [entry_mask_uptr, entry_nc] = cudf::bools_to_mask(*keep_valid_col, stream, mr);
+
+  auto result = std::make_unique<cudf::column>(input, stream, mr);
+  if (entry_nc > 0) {
+    // Build a dummy column carrying entry_mask as its null mask so we can use
+    // bitmask_and(table_view) to safely AND with the input's existing null mask.
+    // Use LIST type (compound) so the column_view constructor accepts nullptr data.
+    auto const entry_mask_ptr =
+      static_cast<cudf::bitmask_type const*>(entry_mask_uptr->data());
+    auto const dummy = cudf::column_view(cudf::data_type{cudf::type_id::LIST},
+                                         input.size(),
+                                         nullptr,
+                                         entry_mask_ptr,
+                                         static_cast<cudf::size_type>(entry_nc));
+    // bitmask_and treats non-nullable columns as all-valid, handling both nullable and
+    // non-nullable inputs correctly.
+    auto [combined_mask, combined_nc] = cudf::bitmask_and(
+      cudf::table_view{std::vector<cudf::column_view>{input, dummy}}, stream, mr);
+    result->set_null_mask(std::move(combined_mask), combined_nc);
+  }
+  // purge_nonempty_nulls adjusts list offsets so each null outer row has an empty span,
+  // satisfying cudf's invariant that null rows in nested columns are empty.
+  return cudf::purge_nonempty_nulls(result->view(), stream, mr);
 }
 
 }  // namespace spark_rapids_jni
