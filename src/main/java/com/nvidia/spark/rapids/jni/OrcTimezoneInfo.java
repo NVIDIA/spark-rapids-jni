@@ -80,7 +80,11 @@ class OrcTimezoneInfo {
     int endMode;
   }
 
-  private static final int[] DST_RULE_VALIDATION_YEARS = {2400, 9997};
+  // Reference years used to cross-check CPU vs. GPU DST offset computation.
+  // We include a near-future anchor (2060) to catch divergence within the
+  // typical application lifetime, plus two far-future anchors to exercise the
+  // recurring-rule fallback path well past any historical transition entry.
+  private static final int[] DST_RULE_VALIDATION_YEARS = {2060, 2400, 9997};
   private static final long MIN_SUPPORTED_ORC_UTC_MILLIS = utcMillisForDate(1, 0, 1);
   private static final long HISTORICAL_TRANSITION_SCAN_STEP_MILLIS = 24L * 3600_000L;
 
