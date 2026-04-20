@@ -45,8 +45,7 @@ namespace {
 // Extract a bool from a BOOL8 reduce scalar; returns false if scalar is null (empty-column case).
 // Each of is_valid(stream) and value(stream) performs a blocking device→host copy.
 // Two syncs per call; acceptable because the scalar is small and syncs are rare.
-auto bool_scalar_value(std::unique_ptr<cudf::scalar> const& s,
-                       rmm::cuda_stream_view stream) -> bool
+auto bool_scalar_value(std::unique_ptr<cudf::scalar> const& s, rmm::cuda_stream_view stream) -> bool
 {
   return s->is_valid(stream) &&
          static_cast<cudf::numeric_scalar<bool> const*>(s.get())->value(stream);
@@ -110,26 +109,23 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
     auto const keys = structs.child(0);
     if (throw_on_null_key && keys.nullable() && keys.null_count() > 0) {
       auto key_is_null_fp = cudf::is_null(keys, stream, temp_mr);
-      auto row_hnk_fp     = cudf::segmented_reduce(
-        *key_is_null_fp,
-        offsets_span,
-        *cudf::make_max_aggregation<cudf::segmented_reduce_aggregation>(),
-        cudf::data_type{cudf::type_id::BOOL8},
-        cudf::null_policy::EXCLUDE,
-        stream,
-        temp_mr);
+      auto row_hnk_fp =
+        cudf::segmented_reduce(*key_is_null_fp,
+                               offsets_span,
+                               *cudf::make_max_aggregation<cudf::segmented_reduce_aggregation>(),
+                               cudf::data_type{cudf::type_id::BOOL8},
+                               cudf::null_policy::EXCLUDE,
+                               stream,
+                               temp_mr);
       // Outer-null rows must not trigger a throw; AND with is_valid(input) before reducing.
       auto input_is_valid = cudf::is_valid(input, stream, temp_mr);
-      auto row_throw      = cudf::binary_operation(
-        *row_hnk_fp,
-        *input_is_valid,
-        cudf::binary_operator::BITWISE_AND,
-        cudf::data_type{cudf::type_id::BOOL8},
-        stream,
-        temp_mr);
-      if (reduce_any(*row_throw, stream, temp_mr)) {
-        throw cudf::logic_error(kNullKeyError);
-      }
+      auto row_throw      = cudf::binary_operation(*row_hnk_fp,
+                                              *input_is_valid,
+                                              cudf::binary_operator::BITWISE_AND,
+                                              cudf::data_type{cudf::type_id::BOOL8},
+                                              stream,
+                                              temp_mr);
+      if (reduce_any(*row_throw, stream, temp_mr)) { throw cudf::logic_error(kNullKeyError); }
     }
     return std::make_unique<cudf::column>(input, stream, mr);
   }
@@ -143,94 +139,94 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   //   (b) at least one entry's key is null inside a valid (non-null) struct.
   //
   // Per-entry boolean: null_key_in_valid[j] = key_is_null[j] AND struct_is_valid[j]
-  auto const keys        = structs.child(0);
-  auto key_is_null       = cudf::is_null(keys, stream, temp_mr);
-  auto struct_is_valid   = cudf::is_valid(structs, stream, temp_mr);  // Single kernel vs. is_null+NOT
-  auto null_key_in_valid = cudf::binary_operation(
-    *key_is_null,
-    *struct_is_valid,
-    cudf::binary_operator::BITWISE_AND,
-    cudf::data_type{cudf::type_id::BOOL8},
-    stream,
-    temp_mr);
+  auto const keys      = structs.child(0);
+  auto key_is_null     = cudf::is_null(keys, stream, temp_mr);
+  auto struct_is_valid = cudf::is_valid(structs, stream, temp_mr);  // Single kernel vs. is_null+NOT
+  auto null_key_in_valid = cudf::binary_operation(*key_is_null,
+                                                  *struct_is_valid,
+                                                  cudf::binary_operator::BITWISE_AND,
+                                                  cudf::data_type{cudf::type_id::BOOL8},
+                                                  stream,
+                                                  temp_mr);
 
   // Reduce per-list: does this row contain any entry where null_key_in_valid = true?
-  auto row_has_null_key = cudf::segmented_reduce(
-    *null_key_in_valid,
-    offsets_span,
-    *cudf::make_max_aggregation<cudf::segmented_reduce_aggregation>(),
-    cudf::data_type{cudf::type_id::BOOL8},
-    cudf::null_policy::EXCLUDE,
-    stream,
-    temp_mr);
+  auto row_has_null_key =
+    cudf::segmented_reduce(*null_key_in_valid,
+                           offsets_span,
+                           *cudf::make_max_aggregation<cudf::segmented_reduce_aggregation>(),
+                           cudf::data_type{cudf::type_id::BOOL8},
+                           cudf::null_policy::EXCLUDE,
+                           stream,
+                           temp_mr);
 
   // NOT(has_null_entry): true for rows whose struct entries are all valid.
   // Computed once and reused for both the throw check and the output null mask.
   // bools_to_mask treats NULL inputs as false, so outer-null rows (where has_null_entry
   // is null) are correctly masked to null in the output.
-  auto no_null_entry = cudf::unary_operation(
-    *has_null_entry, cudf::unary_operator::NOT, stream, temp_mr);
+  auto no_null_entry =
+    cudf::unary_operation(*has_null_entry, cudf::unary_operator::NOT, stream, temp_mr);
 
   // Throw only when: row has no null struct entry AND row has a null key in a valid struct.
   // For rows with null struct entries (has_null_entry = true), the whole output row is masked
   // to null below, so their null keys are irrelevant — no exception is thrown for them.
   if (throw_on_null_key) {
     // NULL AND anything = NULL; reduce(any) skips nulls, so null rows are safely ignored.
-    auto should_throw = cudf::binary_operation(
-      *no_null_entry,
-      *row_has_null_key,
-      cudf::binary_operator::BITWISE_AND,
-      cudf::data_type{cudf::type_id::BOOL8},
-      stream,
-      temp_mr);
-    if (reduce_any(*should_throw, stream, temp_mr)) {
-      throw cudf::logic_error(kNullKeyError);
-    }
+    auto should_throw = cudf::binary_operation(*no_null_entry,
+                                               *row_has_null_key,
+                                               cudf::binary_operator::BITWISE_AND,
+                                               cudf::data_type{cudf::type_id::BOOL8},
+                                               stream,
+                                               temp_mr);
+    if (reduce_any(*should_throw, stream, temp_mr)) { throw cudf::logic_error(kNullKeyError); }
   }
 
   // Build null mask from no_null_entry: false/null → bit=0 (null), true → bit=1 (valid).
   auto [entry_mask_uptr, entry_nc] = cudf::bools_to_mask(*no_null_entry, stream, temp_mr);
 
   // Since any_null_entry == true, no_null_entry has at least one false/null bit, so entry_nc > 0.
-  CUDF_EXPECTS(entry_nc > 0,
-               "map_from_entries: reached slow path with entry_nc == 0 — fast path invariant broken");
+  CUDF_EXPECTS(
+    entry_nc > 0,
+    "map_from_entries: reached slow path with entry_nc == 0 — fast path invariant broken");
 
   // Combine input's existing null mask with entry_mask via the offset-aware raw-bitmask overload
   // so input.null_mask() is consumed from input.offset() while entry_mask starts at bit 0.
   // The resulting combined_mask_buf is always bit-0-aligned for input.size() rows.
   auto const entry_mask_ptr = static_cast<cudf::bitmask_type const*>(entry_mask_uptr->data());
   std::vector<cudf::bitmask_type const*> masks;
-  std::vector<cudf::size_type>           begin_bits;
+  std::vector<cudf::size_type> begin_bits;
   if (input.nullable()) {
     masks.push_back(input.null_mask());
     begin_bits.push_back(input.offset());
   }
   masks.push_back(entry_mask_ptr);
   begin_bits.push_back(0);
-  auto [combined_mask_buf, combined_nc] = cudf::bitmask_and(
-    cudf::host_span<cudf::bitmask_type const* const>{masks.data(), masks.size()},
-    cudf::host_span<cudf::size_type const>{begin_bits.data(), begin_bits.size()},
-    input.size(),
-    stream,
-    temp_mr);
+  auto [combined_mask_buf, combined_nc] =
+    cudf::bitmask_and(cudf::host_span<cudf::bitmask_type const* const>{masks.data(), masks.size()},
+                      cudf::host_span<cudf::size_type const>{begin_bits.data(), begin_bits.size()},
+                      input.size(),
+                      stream,
+                      temp_mr);
   auto const* mask_ptr = static_cast<cudf::bitmask_type const*>(combined_mask_buf.data());
 
   // combined_mask_buf stores valid bits starting at bit 0 for input.size() rows, so
   // result_view must use offset=0. For sliced input, slice the offsets child to start at
   // input.offset() so list row ranges remain correct with the new zero offset.
   auto const raw_offsets    = input.child(cudf::lists_column_view::offsets_column_index);
-  auto const sliced_offsets = cudf::column_view(
-    raw_offsets.type(),
-    input.size() + 1,
-    raw_offsets.head<void>(),
-    nullptr,
-    0,
-    raw_offsets.offset() + input.offset());
+  auto const sliced_offsets = cudf::column_view(raw_offsets.type(),
+                                                input.size() + 1,
+                                                raw_offsets.head<void>(),
+                                                nullptr,
+                                                0,
+                                                raw_offsets.offset() + input.offset());
 
-  auto const result_view = cudf::column_view(
-    input.type(), input.size(), nullptr, mask_ptr, combined_nc,
-    /*offset=*/0,
-    {sliced_offsets, input.child(cudf::lists_column_view::child_column_index)});
+  auto const result_view =
+    cudf::column_view(input.type(),
+                      input.size(),
+                      nullptr,
+                      mask_ptr,
+                      combined_nc,
+                      /*offset=*/0,
+                      {sliced_offsets, input.child(cudf::lists_column_view::child_column_index)});
   // purge_nonempty_nulls adjusts list offsets so each null outer row has an empty span,
   // satisfying cudf's invariant that null rows in nested columns are empty.
   return cudf::purge_nonempty_nulls(result_view, stream, mr);
