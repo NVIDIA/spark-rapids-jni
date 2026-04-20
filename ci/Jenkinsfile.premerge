@@ -30,8 +30,8 @@ import ipp.blossom.*
 
 def githubHelper // blossom github helper
 def TEMP_IMAGE_BUILD = true
-def IMAGE_PREMERGE_CU12 = "${common.ARTIFACTORY_NAME_V2}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.9.1-blossom"
-def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME_V2}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.1.0-blossom"
+def IMAGE_PREMERGE_CU12 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.9.1-blossom"
+def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.1.0-blossom"
 def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE_CU12)
 def PREMERGE_DOCKERFILE = 'ci/Dockerfile'
 def PREMERGE_TAG_CU12
@@ -70,10 +70,10 @@ pipeline {
         JENKINS_ROOT = 'jenkins'
         GITHUB_TOKEN = credentials("github-token")
 
-        ART_URL = "https://${common.ARTIFACTORY_NAME_V2}/artifactory/sw-spark-maven"
+        ART_URL = "https://${common.ARTIFACTORY_NAME}/artifactory/sw-spark-maven"
         MVN_MIRROR = '-s ci/settings.xml -P mirror-apache-to-urm'
-        ART_CREDS = credentials("urm_creds_v2")
-        ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME_V2}"
+        ART_CREDS = credentials("urm_creds")
+        ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME}"
 
         PVC = credentials("pvc")
         CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
