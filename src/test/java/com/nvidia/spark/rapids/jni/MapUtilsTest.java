@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -168,6 +168,38 @@ public class MapUtilsTest {
     try (ColumnVector input    = ColumnVector.fromLists(LIST_TYPE, null, row1);
          ColumnVector result   = MapUtils.mapFromEntries(input, true);
          ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, null, row1)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void allOuterNullRowsRemainNull() {
+    // All rows are outer-null — contains_nulls returns null for each, reduce(any) returns
+    // an invalid scalar.  The is_valid guard must prevent reading the invalid scalar's value.
+    try (ColumnVector input    = ColumnVector.fromLists(LIST_TYPE, null, null);
+         ColumnVector result   = MapUtils.mapFromEntries(input, true);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, null, null)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void allOuterNullRowsRemainNullNoThrowPolicy() {
+    // Same as allOuterNullRowsRemainNull but with throwOnNullKey=false,
+    // independently verifying the is_valid guard in bool_scalar_value (map_utils.cu:44).
+    try (ColumnVector input    = ColumnVector.fromLists(LIST_TYPE, null, null);
+         ColumnVector result   = MapUtils.mapFromEntries(input, false);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, null, null)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void singleOuterNullRowRemainNull() {
+    // Single-row all-outer-null: boundary check for the is_valid guard on the reduce scalar.
+    try (ColumnVector input    = ColumnVector.fromLists(LIST_TYPE, (List<?>) null);
+         ColumnVector result   = MapUtils.mapFromEntries(input, true);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, (List<?>) null)) {
       assertColumnsAreEqual(expected, result);
     }
   }

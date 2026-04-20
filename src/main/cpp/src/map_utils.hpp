@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
@@ -49,7 +48,7 @@ namespace spark_rapids_jni {
  * @throws cudf::logic_error if @p throw_on_null_key is true and any row (with no null struct
  *         entries) contains a null key inside a valid struct.
  */
-std::unique_ptr<cudf::column> map_from_entries(
+[[nodiscard]] std::unique_ptr<cudf::column> map_from_entries(
   cudf::column_view const& input,
   bool throw_on_null_key,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
