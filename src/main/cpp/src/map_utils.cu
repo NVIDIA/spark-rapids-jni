@@ -106,6 +106,9 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
     // All struct entries are valid. Use segmented_reduce over the slice-correct offsets to
     // check for null keys — structs.child(0) is the un-sliced underlying column, so
     // keys.null_count() would count nulls outside the visible slice range.
+    // Outer-null LIST rows satisfy cudf's invariant of empty child segments
+    // (offsets[i]==offsets[i+1]), so they contribute zero keys to the child column and cannot
+    // inflate null_count().
     auto const keys = structs.child(0);
     if (throw_on_null_key && keys.nullable() && keys.null_count() > 0) {
       auto key_is_null_fp = cudf::is_null(keys, stream, temp_mr);
@@ -121,7 +124,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
       auto input_is_valid = cudf::is_valid(input, stream, temp_mr);
       auto row_throw      = cudf::binary_operation(*row_hnk_fp,
                                               *input_is_valid,
-                                              cudf::binary_operator::BITWISE_AND,
+                                              cudf::binary_operator::LOGICAL_AND,
                                               cudf::data_type{cudf::type_id::BOOL8},
                                               stream,
                                               temp_mr);
@@ -144,7 +147,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   auto struct_is_valid = cudf::is_valid(structs, stream, temp_mr);  // Single kernel vs. is_null+NOT
   auto null_key_in_valid = cudf::binary_operation(*key_is_null,
                                                   *struct_is_valid,
-                                                  cudf::binary_operator::BITWISE_AND,
+                                                  cudf::binary_operator::LOGICAL_AND,
                                                   cudf::data_type{cudf::type_id::BOOL8},
                                                   stream,
                                                   temp_mr);
@@ -170,10 +173,11 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   // For rows with null struct entries (has_null_entry = true), the whole output row is masked
   // to null below, so their null keys are irrelevant — no exception is thrown for them.
   if (throw_on_null_key) {
-    // NULL AND anything = NULL; reduce(any) skips nulls, so null rows are safely ignored.
+    // LOGICAL_AND: null AND true = null; null AND false = false — both safe: reduce(any) skips
+    // nulls.
     auto should_throw = cudf::binary_operation(*no_null_entry,
                                                *row_has_null_key,
-                                               cudf::binary_operator::BITWISE_AND,
+                                               cudf::binary_operator::LOGICAL_AND,
                                                cudf::data_type{cudf::type_id::BOOL8},
                                                stream,
                                                temp_mr);

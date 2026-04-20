@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
 
@@ -72,7 +73,7 @@ public class MapUtilsTest {
     // [{null_key, 10}]  →  must throw because the struct is valid but key is null
     List<HostColumnVector.StructData> row0 = Arrays.asList(entry(null, 10));
     try (ColumnVector input = ColumnVector.fromLists(LIST_TYPE, row0)) {
-      assertThrows(Exception.class, () -> MapUtils.mapFromEntries(input, true).close());
+      assertThrows(CudfException.class, () -> MapUtils.mapFromEntries(input, true).close());
     }
   }
 
@@ -143,7 +144,7 @@ public class MapUtilsTest {
         Arrays.asList((HostColumnVector.StructData) null);
     List<HostColumnVector.StructData> row1 = Arrays.asList(entry(null, 20));
     try (ColumnVector input = ColumnVector.fromLists(LIST_TYPE, row0, row1)) {
-      assertThrows(Exception.class, () -> MapUtils.mapFromEntries(input, true).close());
+      assertThrows(CudfException.class, () -> MapUtils.mapFromEntries(input, true).close());
     }
   }
 
