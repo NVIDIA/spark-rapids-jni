@@ -206,6 +206,17 @@ public class MapUtilsTest {
   }
 
   @Test
+  void emptyColumnReturnsEmptyColumn() {
+    // Zero-row column: exercises the `if (input.size() == 0)` early-return path.
+    // Result must be an empty LIST column of the same type — no error thrown.
+    try (ColumnVector input    = ColumnVector.fromLists(LIST_TYPE);
+         ColumnVector result   = MapUtils.mapFromEntries(input, true);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
   void outerNullRowAndNullStructEntryRowBothNull() {
     // Exercises the bitmask_and path: input already has a null row (outer null) AND
     // another row with a null struct entry.  Both must appear null in the output.
