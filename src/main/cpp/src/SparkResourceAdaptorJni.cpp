@@ -2125,7 +2125,7 @@ class spark_resource_adaptor final {
       }
     }
     // we should never reach this point, but just in case
-    throw rmm::bad_alloc("Internal Error");
+    throw rmm::bad_alloc("Unexpected internal Error");
   }
 
   void* allocate_sync(std::size_t num_bytes, std::size_t alignment = alignof(std::max_align_t))
