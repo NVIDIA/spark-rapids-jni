@@ -160,7 +160,7 @@ struct shuffle_assemble_result {
   std::vector<buffer_slice>
     buffer_slices;  // slices into the shared buffer (needed for cudf::column_view creation)
   std::vector<std::unique_ptr<cudf::column_view>>
-    column_views;   // non-owning column_view objects pointing to slices in shared_buffer
+    column_views;  // non-owning column_view objects pointing to slices in shared_buffer
 
   shuffle_assemble_result(rmm::device_buffer&& buf, std::vector<buffer_slice>&& slices)
     : shared_buffer(std::move(buf)), buffer_slices(std::move(slices)), column_views{}

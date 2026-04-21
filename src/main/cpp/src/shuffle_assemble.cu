@@ -830,7 +830,7 @@ struct assemble_batch {
 
   uint8_t const* src;
   uint8_t* dst;
-  size_t size;                   // bytes
+  size_t size;  // bytes
   buffer_type btype;
   int value_shift;               // amount to shift values down by (for offset buffers)
   int src_bit_shift;             // source bit (right) shift. easy way to think about this is
@@ -1656,7 +1656,7 @@ std::vector<assemble_column_info> create_empty_assemble_data(
     info.type         = col.type;
     info.has_validity = true;  // Assume columns have validity for consistency
     info.num_rows     = 0;
-    info.valid_count  = 0;     // No rows, so valid_count = 0
+    info.valid_count  = 0;  // No rows, so valid_count = 0
     info.num_children = col.num_children();
     // Other fields are not used for empty columns
     result.push_back(info);

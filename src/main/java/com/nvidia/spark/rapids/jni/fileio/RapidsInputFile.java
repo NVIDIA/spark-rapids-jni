@@ -18,8 +18,10 @@ package com.nvidia.spark.rapids.jni.fileio;
 
 import ai.rapids.cudf.HostMemoryBuffer;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 import java.util.OptionalLong;
 
 /**
@@ -65,8 +67,21 @@ public interface RapidsInputFile {
    */
   default void readVectored(HostMemoryBuffer output, List<CopyRange> copyRanges)
       throws IOException {
-    throw new UnsupportedOperationException(
-        "readVectored is not supported for " + getClass().getName());
+    Objects.requireNonNull(output, "output can't be null");
+    Objects.requireNonNull(copyRanges, "copyRanges can't be null");
+    if (copyRanges.isEmpty()) {
+      return;
+    }
+    for (CopyRange copyRange : copyRanges) {
+      Objects.requireNonNull(copyRange, "copyRange can't be null");
+    }
+
+    try (SeekableInputStream input = open()) {
+      for (CopyRange copyRange : copyRanges) {
+        input.seek(copyRange.getInputOffset());
+        output.copyFromStream(copyRange.getOutputOffset(), input, copyRange.getLength());
+      }
+    }
   }
 
   /**
@@ -78,13 +93,33 @@ public interface RapidsInputFile {
    * <p>Data is written starting at offset 0 of the output buffer. The output buffer must have
    * capacity for at least {@code length} bytes.</p>
    *
+   * <p>This default implementation computes the tail offset using {@link #getLength()} before
+   * calling {@link #open()}. If the file is truncated between those calls, the read may still
+   * fail with an I/O error.</p>
+   *
    * @param length the number of bytes to read from the tail
    * @param output the buffer to read data into
    * @throws IOException if an I/O error occurs during reading
    */
   default void readTail(long length, HostMemoryBuffer output) throws IOException {
-    throw new UnsupportedOperationException(
-        "readTail is not supported for " + getClass().getName());
+    Objects.requireNonNull(output, "output can't be null");
+    if (length < 0) {
+      throw new IllegalArgumentException("length must be non-negative");
+    }
+    if (length == 0) {
+      return;
+    }
+
+    long fileLength = getLength();
+    if (length > fileLength) {
+      throw new EOFException(
+          "Cannot read tail of length " + length + " from file of length " + fileLength);
+    }
+
+    try (SeekableInputStream input = open()) {
+      input.seek(fileLength - length);
+      output.copyFromStream(0, input, length);
+    }
   }
 
   /**

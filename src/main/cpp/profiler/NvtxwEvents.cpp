@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,10 +23,8 @@
 
 namespace NvidiaNvtxw {
 
-#define PAYLOAD_ENTRY_SIMPLE(flags, type, name)              \
-  {                                                          \
-    (flags), (type), (name), nullptr, 0, 0, nullptr, nullptr \
-  }
+#define PAYLOAD_ENTRY_SIMPLE(flags, type, name) \
+  {(flags), (type), (name), nullptr, 0, 0, nullptr, nullptr}
 
 // The C string containing the event's name must be provided in a special way.
 static const nvtxPayloadSchemaEntry_t nameSchema[] = {PAYLOAD_ENTRY_SIMPLE(

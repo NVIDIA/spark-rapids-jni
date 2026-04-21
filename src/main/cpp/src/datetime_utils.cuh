@@ -86,10 +86,10 @@ struct date_time_utils {
     uint32_t const doe = static_cast<uint32_t>(z - era * 146097);                // [0, 146096]
     uint32_t const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;  // [0, 399]
     int32_t const y    = static_cast<uint32_t>(yoe) + era * 400;
-    uint32_t const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);                // [0, 365]
-    uint32_t const mp  = (5 * doy + 2) / 153;                                    // [0, 11]
-    day                = doy - (153 * mp + 2) / 5 + 1;                           // [1, 31]
-    month              = mp < 10 ? mp + 3 : mp - 9;                              // [1, 12]
+    uint32_t const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);  // [0, 365]
+    uint32_t const mp  = (5 * doy + 2) / 153;                      // [0, 11]
+    day                = doy - (153 * mp + 2) / 5 + 1;             // [1, 31]
+    month              = mp < 10 ? mp + 3 : mp - 9;                // [1, 12]
     year               = y + (month <= 2);
   }
 

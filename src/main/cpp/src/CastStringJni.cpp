@@ -299,8 +299,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_bytesToHex(
       switch (col.type().id()) {
         case cudf::type_id::LIST: {
           auto const lv = cudf::lists_column_view(col);
-          CUDF_EXPECTS(lv.child().type().id() == cudf::type_id::INT8,
-                       "bytesToHex: LIST child must be INT8 (BinaryType)");
+          CUDF_EXPECTS(lv.child().type().id() == cudf::type_id::UINT8,
+                       "bytesToHex: LIST child must be UINT8 (BinaryType)");
           return cudf::column_view(cudf::data_type{cudf::type_id::STRING},
                                    col.size(),
                                    lv.child().head<char>(),
