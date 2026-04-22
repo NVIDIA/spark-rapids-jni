@@ -191,6 +191,7 @@ add_library(
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
+  src/CharsetDecodeJni.cpp
   src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
   src/DeviceAttrJni.cpp
@@ -228,6 +229,7 @@ add_library(
   src/cast_string.cu
   src/cast_string_to_datetime.cu
   src/cast_string_to_float.cu
+  src/charset_decode.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
