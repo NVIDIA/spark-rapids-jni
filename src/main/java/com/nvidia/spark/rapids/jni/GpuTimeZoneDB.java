@@ -122,9 +122,18 @@ public class GpuTimeZoneDB {
    * If loading was failed, throws an exception
    * @throws RuntimeException if Timezone database loading was failed
    */
-  public static synchronized void verifyDatabaseCached() {
-    if (tzNameToIndexMap == null) {
-      throw new RuntimeException("Timezone DB loading was failed.");
+  public static void verifyDatabaseCached() {
+    if (tzNameToIndexMap != null) {
+      // already loaded, this is the fast path
+      return;
+    }
+
+    // wait until loading is done
+    synchronized (GpuTimeZoneDB.class) {
+      if (tzNameToIndexMap == null) {
+        // null indicates error
+        throw new RuntimeException("Timezone DB loading was failed.");
+      }
     }
   }
 
