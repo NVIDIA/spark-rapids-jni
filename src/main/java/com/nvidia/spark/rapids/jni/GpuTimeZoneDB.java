@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2023-2025, NVIDIA CORPORATION.
+* Copyright (c) 2023-2026, NVIDIA CORPORATION.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -116,22 +116,14 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Verify the timezone database is loaded.
-   * If not loaded, throw IllegalStateException.
+   * Verify Timezone database is already cached.
+   * If not, throws an exception
+   * @throws RuntimeException if Timezone database is not cached
    */
-  private static synchronized void verifyDatabaseCachedSync() {
-    if (tzNameToIndexMap == null) {
-      throw new IllegalStateException("Timezone DB is not loaded, or the loading was failed.");
-    }
-  }
-
   public static void verifyDatabaseCached() {
-    if (tzNameToIndexMap != null) {
-      // already loaded
-      return;
+    if (tzNameToIndexMap == null) {
+      throw new RuntimeException("Timezone DB is not loaded, or the loading was failed.");
     }
-    // wait for the loading thread to finish
-    verifyDatabaseCachedSync();
   }
 
   /**
