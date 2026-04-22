@@ -30,7 +30,7 @@ FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RE
 
 # Dependency versions
 # Act as default GCC toolset in the image
-ARG TOOLSET_VERSION=14
+ARG TOOLSET_VERSION=13
 ARG CMAKE_VERSION=3.30.4
 ARG CCACHE_VERSION=4.11.2
 
