@@ -2103,6 +2103,7 @@ class spark_resource_adaptor final {
     return true;
   }
 
+ public:
   void* allocate(cuda::stream_ref stream,
                  std::size_t num_bytes,
                  std::size_t alignment = alignof(std::max_align_t))
@@ -2202,8 +2203,14 @@ class spark_resource_adaptor final {
     return resource == other.resource;
   }
 
-  friend void get_property(spark_resource_adaptor const&, cuda::mr::device_accessible) noexcept {}
+  bool operator!=(spark_resource_adaptor const& other) const noexcept { return !(*this == other); }
+
+  constexpr friend void get_property(spark_resource_adaptor const&,
+                                     cuda::mr::device_accessible) noexcept
+  {
+  }
 };
+static_assert(cuda::mr::resource_with<spark_resource_adaptor, cuda::mr::device_accessible>);
 
 }  // namespace
 
