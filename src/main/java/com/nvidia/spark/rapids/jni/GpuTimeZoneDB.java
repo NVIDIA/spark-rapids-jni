@@ -117,12 +117,14 @@ public class GpuTimeZoneDB {
 
   /**
    * Verify Timezone database is already cached.
-   * If not, throws an exception
-   * @throws RuntimeException if Timezone database is not cached
+   * This function is synchronized, wait until the loading is done.
+   * Refer to `cacheDatabaseImpl` which is also synchronized.
+   * If loading was failed, throws an exception
+   * @throws RuntimeException if Timezone database loading was failed
    */
   public static synchronized void verifyDatabaseCached() {
     if (tzNameToIndexMap == null) {
-      throw new RuntimeException("Timezone DB is not loaded, or the loading was failed.");
+      throw new RuntimeException("Timezone DB loading was failed.");
     }
   }
 
