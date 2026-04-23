@@ -34,6 +34,7 @@
 #include <exception>
 #include <format>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -2436,9 +2437,13 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
   {
     auto adaptor = spark_resource_adaptor(env, cudf::jni::get_resource(child));
     auto handle  = cudf::jni::make_jni_resource(adaptor);
-    {
+    try {
       std::lock_guard<std::mutex> lock(spark_adaptor_map_mutex);
       spark_adaptor_map.emplace(handle, adaptor);
+    } catch (...) {
+      // In case `emplace` throws, clean up the allocated jni resource.
+      cudf::jni::delete_jni_resource(handle);
+      throw;
     }
     return handle;
   }
@@ -2450,14 +2455,16 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_releaseAdaptor(JNIEnv* env
 {
   JNI_TRY
   {
+    std::optional<spark_resource_adaptor> adaptor;
     {
       std::lock_guard<std::mutex> lock(spark_adaptor_map_mutex);
       auto it = spark_adaptor_map.find(ptr);
       if (it != spark_adaptor_map.end()) {
-        it->second.all_done();
+        adaptor = std::move(it->second);
         spark_adaptor_map.erase(it);
       }
     }
+    if (adaptor) { adaptor->all_done(); }
     cudf::jni::delete_jni_resource(ptr);
   }
   JNI_CATCH(env, );
