@@ -2396,6 +2396,14 @@ class spark_resource_adaptor final {
 };
 static_assert(cuda::mr::resource_with<spark_resource_adaptor, cuda::mr::device_accessible>);
 
+// The JNI handle returned by createNewAdaptor is a pointer to a heap-allocated
+// any_resource (via make_jni_resource), which type-erases the concrete
+// spark_resource_adaptor.  JNI methods like startDedicatedTaskThread,
+// forceRetryOOM, etc. need to call adaptor-specific methods that are not part
+// of the type-erased allocate/deallocate interface.  This map stores a copy of
+// the typed wrapper keyed by handle so those methods remain accessible.  Because
+// the wrapper holds a shared_ptr to the impl, the copy here and the copy inside
+// the any_resource share the same underlying state.
 std::mutex spark_adaptor_map_mutex;
 std::unordered_map<jlong, spark_resource_adaptor> spark_adaptor_map;
 
