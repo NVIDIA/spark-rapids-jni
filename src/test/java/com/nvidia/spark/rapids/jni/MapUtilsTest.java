@@ -233,4 +233,75 @@ public class MapUtilsTest {
       }
     }
   }
+
+  // --------------------------------------------------------------------------
+  // Sliced-input tests: exercise input.offset() != 0 — the offsets_begin() path
+  // on the fast path and the bitmask_and(begin_bits) path on the slow path.
+  // --------------------------------------------------------------------------
+
+  @Test
+  void slicedInputSkipsNullKeyOutsideSlice() {
+    // Fast-path sliced: a null key exists in the underlying column at row 0, but the
+    // visible slice starts at row 1.  Must NOT throw — offsets_begin() / offsets_span
+    // must cover only the visible range.
+    List<HostColumnVector.StructData> row0NullKey = Arrays.asList(entry(null, 10));
+    List<HostColumnVector.StructData> row1        = Arrays.asList(entry(2, 20));
+    List<HostColumnVector.StructData> row2        = Arrays.asList(entry(3, 30));
+    try (ColumnVector full = ColumnVector.fromLists(LIST_TYPE, row0NullKey, row1, row2);
+         ColumnVector sliced   = full.subVector(1, 3);
+         ColumnVector result   = MapUtils.mapFromEntries(sliced, true);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, row1, row2)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void slicedInputThrowsOnNullKeyInsideSlice() {
+    // Fast-path sliced: a null key exists inside the visible slice — must throw.
+    // Guard against a regression where the throw check still ran against the unsliced column.
+    List<HostColumnVector.StructData> row0 = Arrays.asList(entry(1, 10));
+    List<HostColumnVector.StructData> row1NullKey = Arrays.asList(entry(null, 20));
+    List<HostColumnVector.StructData> row2        = Arrays.asList(entry(3, 30));
+    try (ColumnVector full = ColumnVector.fromLists(LIST_TYPE, row0, row1NullKey, row2);
+         ColumnVector sliced = full.subVector(1, 3)) {
+      assertThrows(CudfException.class, () -> MapUtils.mapFromEntries(sliced, true).close());
+    }
+  }
+
+  @Test
+  void slicedInputSkipsNullStructOutsideSlice() {
+    // Slow-path gating: a null struct entry exists at row 0 but the slice starts at row 1.
+    // contains_nulls on the sliced lists_cv reports no null entries, so the fast path is
+    // taken and the slice passes through unchanged — verifies lists_cv slice-awareness.
+    List<HostColumnVector.StructData> row0Null = Arrays.asList(null, entry(1, 10));
+    List<HostColumnVector.StructData> row1     = Arrays.asList(entry(2, 20));
+    List<HostColumnVector.StructData> row2     = Arrays.asList(entry(3, 30));
+    try (ColumnVector full = ColumnVector.fromLists(LIST_TYPE, row0Null, row1, row2);
+         ColumnVector sliced   = full.subVector(1, 3);
+         ColumnVector result   = MapUtils.mapFromEntries(sliced, true);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, row1, row2)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void slicedInputWithOuterNullAndNullStructInsideSlice() {
+    // Slow-path sliced bitmask_and: visible slice contains an outer-null row AND a row
+    // with a null struct entry — exercises bitmask_and with begin_bits = input.offset().
+    //
+    // Underlying rows (only rows 1..4 visible after subVector(1, 4)):
+    //   row 0: [{0,0}]                  — outside slice
+    //   row 1: null outer row           — inside slice, must stay null (existing null mask)
+    //   row 2: [null_struct, {2,20}]    — inside slice, must become null
+    //   row 3: [{3,30}]                 — inside slice, unchanged
+    List<HostColumnVector.StructData> row0   = Arrays.asList(entry(0, 0));
+    List<HostColumnVector.StructData> row2   = Arrays.asList(null, entry(2, 20));
+    List<HostColumnVector.StructData> row3   = Arrays.asList(entry(3, 30));
+    try (ColumnVector full = ColumnVector.fromLists(LIST_TYPE, row0, null, row2, row3);
+         ColumnVector sliced = full.subVector(1, 4);
+         ColumnVector result = MapUtils.mapFromEntries(sliced, true);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, null, null, row3)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
 }
