@@ -187,7 +187,7 @@ public class MapUtilsTest {
   @Test
   void allOuterNullRowsRemainNullNoThrowPolicy() {
     // Same as allOuterNullRowsRemainNull but with throwOnNullKey=false,
-    // independently verifying the is_valid guard in bool_scalar_value (map_utils.cu:44).
+    // independently verifying the is_valid guard in bool_scalar_value.
     try (ColumnVector input    = ColumnVector.fromLists(LIST_TYPE, null, null);
          ColumnVector result   = MapUtils.mapFromEntries(input, false);
          ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, null, null)) {
@@ -301,6 +301,58 @@ public class MapUtilsTest {
          ColumnVector sliced = full.subVector(1, 4);
          ColumnVector result = MapUtils.mapFromEntries(sliced, true);
          ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, null, null, row3)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Slow-path with throwOnNullKey=false: mirrors the fast-path test
+  // `nullKeyInValidStructNoThrowWhenPolicyAllows` to exercise the opt-out branch
+  // on the slow path, where the `if (throw_on_null_key)` guard is skipped.
+  // --------------------------------------------------------------------------
+
+  @Test
+  void slowPathNullKeyNoThrowWhenPolicyAllows() {
+    // Slow path (row 0 has a null struct entry) plus a null-key entry in row 1.
+    // With throwOnNullKey=false, row 1 must be returned as-is (no throw), while
+    // row 0 is masked to null by the null-struct-entry rule.
+    List<HostColumnVector.StructData> row0 = Arrays.asList(null, entry(1, 10));
+    List<HostColumnVector.StructData> row1 = Arrays.asList(entry(null, 20));
+    try (ColumnVector input    = ColumnVector.fromLists(LIST_TYPE, row0, row1);
+         ColumnVector result   = MapUtils.mapFromEntries(input, false);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, null, row1)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Bitmask-boundary coverage: exercise the bools_to_mask + bitmask_and +
+  // purge_nonempty_nulls path with a null mask that crosses the 32-row warp
+  // boundary and the 64-row bitmask-word boundary.
+  // --------------------------------------------------------------------------
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void slowPathAcrossMultipleBitmaskWords() {
+    // 70 rows: rows 0, 33, 65 contain a null struct entry — each must become null
+    // in the output.  Crosses the 32-row warp boundary and the 64-row bitmask-word
+    // boundary to guard against bit-alignment regressions in bools_to_mask +
+    // bitmask_and.
+    final int numRows = 70;
+    List<HostColumnVector.StructData>[] rows        = new List[numRows];
+    List<HostColumnVector.StructData>[] expectedRows = new List[numRows];
+    for (int i = 0; i < numRows; i++) {
+      if (i == 0 || i == 33 || i == 65) {
+        rows[i]         = Arrays.asList(null, entry(i, i * 10));
+        expectedRows[i] = null;
+      } else {
+        rows[i]         = Arrays.asList(entry(i, i * 10));
+        expectedRows[i] = rows[i];
+      }
+    }
+    try (ColumnVector input    = ColumnVector.fromLists(LIST_TYPE, rows);
+         ColumnVector result   = MapUtils.mapFromEntries(input, true);
+         ColumnVector expected = ColumnVector.fromLists(LIST_TYPE, expectedRows)) {
       assertColumnsAreEqual(expected, result);
     }
   }
