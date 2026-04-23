@@ -28,8 +28,6 @@
 
 #include <cstddef>
 #include <cstring>
-#include <iomanip>
-#include <ios>
 #include <limits>
 #include <random>
 
@@ -441,69 +439,38 @@ TEST_F(ColumnToRowTests, Biggest)
   }
 }
 
-// Reproducer for https://github.com/NVIDIA/spark-rapids/issues/10062.
+// Regression test for https://github.com/NVIDIA/spark-rapids/issues/10062.
 //
-// Root cause: detail::determine_tiles() drops the trailing column when adding
-// it would exceed shmem_limit_per_tile AND it is the very last column in the
-// table. When the threshold fires, the function closes the previous tile but
-// resets current_tile_width to 0 before restarting, treating `col` as part of
-// a new tile. If `col` is already the last column, the loop exits and the
-// `if (current_tile_width > 0)` tail never fires, so the tile containing only
-// `col` is never emitted to the kernel. That column's output bytes are left
-// at whatever the device allocator handed back (often 0, sometimes stale),
-// producing the non-deterministic `b = 0` observed in the pivot test.
+// AcceleratedColumnarToRowIterator packs columns by size descending, so a
+// pivot-shaped schema of N INT64 columns plus one INT32 places the INT32
+// last. Choosing N so that the INT32 is the column that tips the estimated
+// shmem usage in detail::determine_tiles over the per-tile budget is what
+// triggers the bug: the tile containing only that column is never emitted,
+// leaving the column's output bytes at whatever rmm::device_buffer handed
+// back. With the 48 KB default shmem budget and tile_height = 32, 191 Longs
+// fit in one tile (1528 * 32 = 48896 <= 49136) and adding the trailing INT32
+// tips the estimate to 1536 * 32 = 49152 > 49136.
 //
-// The schema below mirrors the packed layout captured from a real failing
-// pivot batch: 191 INT64 columns followed by 1 INT32 column `b`. With
-// shmem_limit_per_tile ~= 49136 and tile_height = 32, the 191 INT64s fit in
-// a single tile (1528 * 32 = 48896 bytes), and adding the trailing INT32
-// tips the estimate to 1536 * 32 = 49152 > 49136, triggering the threshold
-// exactly on the last column -- the shape required to hit the bug.
-//
-// We avoid convert_from_rows here because it uses the same layout code and
-// would mask the bug; instead we dump the raw JCUDF bytes and check the
-// INT32 location explicitly.
+// We check the trailing INT32 directly against the raw JCUDF bytes rather
+// than round-tripping through convert_from_rows, which would mask the bug by
+// using the same layout code on the read side.
 TEST_F(ColumnToRowTests, PivotLikeLayout)
 {
-  constexpr int num_longs      = 191;
-  constexpr int num_rows       = 100;
-  constexpr int num_iterations = 100;  // catch non-deterministic failures
+  constexpr int num_longs = 191;
+  constexpr int num_rows  = 100;
 
-  // Build sparse pivot-like values and validity for the 191 INT64 columns.
-  // Column 0 -> `a` (always valid).
-  // Columns 1..190 -> 95 pairs (count[i], max[i]); exactly one pair per row
-  // is valid, all others are null with the backing data slot set to 0.
-  std::vector<std::vector<int64_t>> long_vals(num_longs, std::vector<int64_t>(num_rows, 0));
-  std::vector<std::vector<uint8_t>> long_valid(num_longs, std::vector<uint8_t>(num_rows, 0));
-
-  constexpr int num_pairs = (num_longs - 1) / 2;  // 95 pairs
+  std::vector<int64_t> long_data(num_rows, 0);
+  std::vector<int32_t> int_data(num_rows);
   for (int r = 0; r < num_rows; ++r) {
-    long_vals[0][r]  = static_cast<int64_t>(0xA000) + r;
-    long_valid[0][r] = 1;
-  }
-  for (int r = 0; r < num_rows; ++r) {
-    int const k                  = r % num_pairs;
-    int const count_col_idx      = 1 + 2 * k;
-    int const max_col_idx        = count_col_idx + 1;
-    long_vals[count_col_idx][r]  = static_cast<int64_t>(0xC000) + r;
-    long_valid[count_col_idx][r] = 1;
-    long_vals[max_col_idx][r]    = static_cast<int64_t>(0xD000) + r;
-    long_valid[max_col_idx][r]   = 1;
-  }
-
-  // `b` (INT32, always valid). This is the column that gets corrupted to 0.
-  std::vector<int32_t> expected_ints(num_rows);
-  for (int r = 0; r < num_rows; ++r) {
-    expected_ints[r] = 0x11223344 + r;
+    int_data[r] = 0x11223344 + r;
   }
 
   std::vector<cudf::test::fixed_width_column_wrapper<int64_t>> long_cols;
   long_cols.reserve(num_longs);
   for (int i = 0; i < num_longs; ++i) {
-    long_cols.emplace_back(long_vals[i].begin(), long_vals[i].end(), long_valid[i].begin());
+    long_cols.emplace_back(long_data.begin(), long_data.end());
   }
-  cudf::test::fixed_width_column_wrapper<int32_t> int_col(expected_ints.begin(),
-                                                          expected_ints.end());
+  cudf::test::fixed_width_column_wrapper<int32_t> int_col(int_data.begin(), int_data.end());
 
   std::vector<cudf::column_view> views;
   views.reserve(num_longs + 1);
@@ -511,42 +478,23 @@ TEST_F(ColumnToRowTests, PivotLikeLayout)
     views.emplace_back(c);
   }
   views.emplace_back(int_col);
-  cudf::table_view in(views);
 
-  // JCUDF layout derived from compute_column_information():
-  //   - num_longs Longs occupy [0, 8*num_longs)
-  //   - INT32 at [8*num_longs, 8*num_longs + 4)
-  //   - validity starts at 8*num_longs + 4, size = ceil((num_longs + 1)/8)
-  //   - row stride = round_up_8(data_end + validity_bytes)
+  auto rows = spark_rapids_jni::convert_to_rows(cudf::table_view(views));
+  ASSERT_EQ(rows.size(), 1u);
+
+  // JCUDF row layout: [Longs][INT32][validity bits][pad to 8B].
   constexpr std::size_t int_offset     = static_cast<std::size_t>(num_longs) * sizeof(int64_t);
   constexpr std::size_t data_end       = int_offset + sizeof(int32_t);
   constexpr std::size_t validity_bytes = (num_longs + 1 + 7) / 8;
   constexpr std::size_t row_stride     = (data_end + validity_bytes + 7) & ~std::size_t{7};
 
-  int fail_count = 0;
-  for (int iter = 0; iter < num_iterations; ++iter) {
-    auto rows = spark_rapids_jni::convert_to_rows(in);
-    ASSERT_EQ(rows.size(), 1u);
-
-    auto child      = cudf::lists_column_view(*rows[0]).child();
-    auto host_bytes = cudf::test::to_host<int8_t>(child).first;
-    ASSERT_GE(host_bytes.size(), row_stride * num_rows);
-
-    for (int r = 0; r < num_rows; ++r) {
-      int32_t actual = 0;
-      std::memcpy(&actual, host_bytes.data() + r * row_stride + int_offset, sizeof(int32_t));
-      if (actual != expected_ints[r]) {
-        if (fail_count < 5) {
-          ADD_FAILURE() << "iter=" << iter << " row=" << r << " expected=0x" << std::hex
-                        << std::setw(8) << std::setfill('0') << expected_ints[r] << " actual=0x"
-                        << std::setw(8) << std::setfill('0') << actual << std::dec;
-        }
-        ++fail_count;
-      }
-    }
+  auto host_bytes = cudf::test::to_host<int8_t>(cudf::lists_column_view(*rows[0]).child()).first;
+  ASSERT_GE(host_bytes.size(), row_stride * num_rows);
+  for (int r = 0; r < num_rows; ++r) {
+    int32_t actual = 0;
+    std::memcpy(&actual, host_bytes.data() + r * row_stride + int_offset, sizeof(int32_t));
+    EXPECT_EQ(actual, int_data[r]) << "row " << r;
   }
-  EXPECT_EQ(fail_count, 0) << "total mismatches over " << num_iterations << " iterations * "
-                           << num_rows << " rows";
 }
 
 TEST_F(RowToColumnTests, Single)

@@ -1733,12 +1733,7 @@ void determine_tiles(std::vector<size_type> const& column_sizes,
       row_size += col_size;  // alignment required for shared memory tile boundary to match
                              // alignment of output row
       current_tile_start_col = col;
-      // `col` becomes the first (and so far only) column of the new tile, so
-      // width starts at 1. Leaving it at 0 caused the tail-close below to be
-      // skipped whenever the threshold fired on the final column, silently
-      // dropping that column from the output; see
-      // https://github.com/NVIDIA/spark-rapids/issues/10062.
-      current_tile_width = 1;
+      current_tile_width     = 1;
     } else {
       row_size = row_size_with_this_col;
       current_tile_width++;
