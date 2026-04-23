@@ -113,6 +113,9 @@ ConfigureTest(LIST_SLICE
 ConfigureTest(MAP_ZIP_WITH
     map_zip_with_utils.cpp)
 
+ConfigureTest(MAP_UTILS
+    map_utils.cpp)
+
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
 
