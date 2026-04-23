@@ -15,8 +15,10 @@
  */
 
 #include "map_utils.hpp"
+
 #include "nvtx_ranges.hpp"
 
+#include <cudf/aggregation.hpp>
 #include <cudf/binaryop.hpp>
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
@@ -66,7 +68,7 @@ auto reduce_any(cudf::column_view const& col,
 }
 
 // Error message used by both fast-path and slow-path null-key checks.
-constexpr char kNullKeyError[] = "Cannot use null as map key.";
+constexpr char null_key_error[] = "Cannot use null as map key.";
 
 // Returns true iff any row has a null-key entry AND passes the per-row guard.
 // Shared by fast path (guard = is_valid(input)) and slow path (guard = no_null_entry):
@@ -140,6 +142,11 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
     // Outer-null LIST rows satisfy cudf's invariant of empty child segments
     // (offsets[i]==offsets[i+1]), so they contribute zero keys to the child column and cannot
     // inflate null_count().
+    //
+    // SAFETY: keys is structs.child(0) from a cudf lists column; any column constructed via the
+    // public cudf API has a materialized null_count (not UNKNOWN_NULL_COUNT), so null_count()
+    // here is a concrete integer — a sentinel value would indicate a cudf bug, not a case we
+    // need to guard against.
     auto const keys = structs.child(0);
     if (throw_on_null_key && keys.nullable() && keys.null_count() > 0) {
       // Guard is is_valid(input): outer-null rows must not trigger a throw.
@@ -147,7 +154,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
       auto input_is_valid = cudf::is_valid(input, stream, temp_mr);
       if (any_null_key_in_guarded_row(
             *key_is_null, offsets_span, *input_is_valid, stream, temp_mr)) {
-        throw cudf::logic_error(kNullKeyError);
+        throw cudf::logic_error(null_key_error);
       }
     }
     return std::make_unique<cudf::column>(input, stream, mr);
@@ -172,11 +179,17 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   // contain a null struct entry the guard is false, so their entries are ignored; we also
   // don't need to mask null-struct positions out of key_is_null before the segmented reduce
   // because the per-row guard short-circuits any contribution from those rows.
+  // Gate on keys.nullable() && keys.null_count() > 0 to mirror the fast-path guard — when
+  // the key column has no nulls there is no throw to perform, so the BOOL8 alloc + kernel
+  // launches + device→host syncs can be skipped entirely.
   if (throw_on_null_key) {
-    auto const keys  = structs.child(0);
-    auto key_is_null = cudf::is_null(keys, stream, temp_mr);
-    if (any_null_key_in_guarded_row(*key_is_null, offsets_span, *no_null_entry, stream, temp_mr)) {
-      throw cudf::logic_error(kNullKeyError);
+    auto const keys = structs.child(0);
+    if (keys.nullable() && keys.null_count() > 0) {
+      auto key_is_null = cudf::is_null(keys, stream, temp_mr);
+      if (any_null_key_in_guarded_row(
+            *key_is_null, offsets_span, *no_null_entry, stream, temp_mr)) {
+        throw cudf::logic_error(null_key_error);
+      }
     }
   }
 

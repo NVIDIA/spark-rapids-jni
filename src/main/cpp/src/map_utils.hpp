@@ -22,6 +22,8 @@
 
 #include <rmm/cuda_stream_view.hpp>
 
+#include <memory>
+
 namespace spark_rapids_jni {
 
 /**
@@ -38,15 +40,18 @@ namespace spark_rapids_jni {
  * This function only handles null-struct masking and null-key validation.
  * Duplicate-key deduplication is left to the caller.
  *
+ * Sliced inputs are supported: only rows in the range
+ * `[input.offset(), input.offset() + input.size())` are inspected.
+ *
+ * @throws cudf::logic_error if the input is not a LIST(STRUCT(KEY,...)) column.
+ * @throws cudf::logic_error if @p throw_on_null_key is true and any row (with no null struct
+ *         entries) contains a null key inside a valid struct.
  * @param input           Input LIST(STRUCT(KEY, VALUE)) column.
  * @param throw_on_null_key  When true, throw if any valid-struct entry has a null key.
  * @param stream          CUDA stream used for device memory operations and kernel launches.
  * @param mr              Device memory resource used to allocate the returned column's memory.
  * @return A new column equal to @p input except that rows containing null struct entries are
  *         replaced with a null outer row.
- * @throws cudf::logic_error if the input is not a LIST(STRUCT(KEY,...)) column.
- * @throws cudf::logic_error if @p throw_on_null_key is true and any row (with no null struct
- *         entries) contains a null key inside a valid struct.
  */
 [[nodiscard]] std::unique_ptr<cudf::column> map_from_entries(
   cudf::column_view const& input,

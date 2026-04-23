@@ -253,7 +253,7 @@ add_library(
   src/join_primitives.cu
   src/list_slice.cu
   src/map.cu
-  src/map_utils.cu
+  src/map_utils.cpp
   src/map_zip_with_utils.cu
   src/multiply.cu
   src/number_converter.cu
