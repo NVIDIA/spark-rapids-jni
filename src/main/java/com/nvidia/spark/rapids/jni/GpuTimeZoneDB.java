@@ -116,13 +116,13 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Verify Timezone database is already cached.
+   * Verify Timezone database is already cached. Only for test purpose
    * This function is synchronized, wait until the loading is done.
    * Refer to `cacheDatabaseImpl` which is also synchronized.
    * If loading was failed, throws an exception
    * @throws RuntimeException if Timezone database loading was failed
    */
-  public static void verifyDatabaseCached() {
+  static void verifyDatabaseCached() {
     if (tzNameToIndexMap != null) {
       // already loaded, this is the fast path
       return;
