@@ -2120,7 +2120,12 @@ class spark_resource_adaptor_impl {
       } catch (rmm::out_of_memory const& e) {
         // rmm::out_of_memory is what is thrown when an allocation failed
         // but there are other rmm::bad_alloc exceptions that could be
-        // thrown as well, which are handled by the std::exception case.
+        // thrown as well, which are handled by the std::bad_alloc case below.
+        if (!post_alloc_failed(tid, true, likely_spill)) { throw; }
+      } catch (std::bad_alloc const& e) {
+        // Treat std::bad_alloc (including rmm::bad_alloc that is not
+        // rmm::out_of_memory) as a recoverable allocation failure, allowing
+        // the retry path used for rmm::out_of_memory.
         if (!post_alloc_failed(tid, true, likely_spill)) { throw; }
       } catch (std::exception const& e) {
         post_alloc_failed(tid, false, likely_spill);
