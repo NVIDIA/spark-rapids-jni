@@ -1733,7 +1733,7 @@ void determine_tiles(std::vector<size_type> const& column_sizes,
       row_size += col_size;  // alignment required for shared memory tile boundary to match
                              // alignment of output row
       current_tile_start_col = col;
-      current_tile_width     = 0;
+      current_tile_width     = 1;
     } else {
       row_size = row_size_with_this_col;
       current_tile_width++;
