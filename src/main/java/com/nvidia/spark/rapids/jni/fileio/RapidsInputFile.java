@@ -72,8 +72,14 @@ public interface RapidsInputFile {
     if (copyRanges.isEmpty()) {
       return;
     }
+    long outputLength = output.getLength();
     for (CopyRange copyRange : copyRanges) {
       Objects.requireNonNull(copyRange, "copyRange can't be null");
+      long end = copyRange.getOutputOffset() + copyRange.getLength();
+      if (end > outputLength) {
+        throw new IllegalArgumentException(
+            "Output buffer length " + outputLength + " is smaller than requested end " + end);
+      }
     }
 
     try (SeekableInputStream input = open()) {
