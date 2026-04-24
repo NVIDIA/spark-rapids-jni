@@ -76,7 +76,7 @@ public interface RapidsInputFile {
     for (CopyRange copyRange : copyRanges) {
       Objects.requireNonNull(copyRange, "copyRange can't be null");
       long end = copyRange.getOutputOffset() + copyRange.getLength();
-      if (end > outputLength) {
+      if (end < 0 || end > outputLength) {
         throw new IllegalArgumentException(
             "Output buffer length " + outputLength + " is smaller than requested end " + end);
       }
