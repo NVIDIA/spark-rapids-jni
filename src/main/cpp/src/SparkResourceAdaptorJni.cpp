@@ -2299,7 +2299,12 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_releaseAdaptor(JNIEnv* env
         spark_adaptor_map.erase(it);
       }
     }
-    if (adaptor) { (*adaptor)->all_done(); }
+    try {
+      if (adaptor) { (*adaptor)->all_done(); }
+    } catch (...) {
+      cudf::jni::delete_jni_resource(ptr);
+      throw;
+    }
     cudf::jni::delete_jni_resource(ptr);
   }
   JNI_CATCH(env, );
