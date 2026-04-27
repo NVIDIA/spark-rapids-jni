@@ -30,7 +30,7 @@ FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RE
 
 # Dependency versions
 # Act as default GCC toolset in the image
-ARG TOOLSET_VERSION=14
+ARG TOOLSET_VERSION=13
 ARG CMAKE_VERSION=3.30.4
 ARG CCACHE_VERSION=4.11.2
 
@@ -42,7 +42,7 @@ ARG CMAKE_ARCH=x86_64
 
 ### Install basic requirements
 # pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
-RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-13 gcc-toolset-${TOOLSET_VERSION} python39 \
+RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-11 gcc-toolset-${TOOLSET_VERSION} python39 \
     zlib-devel maven tar wget patch ninja-build git zip && \
   alternatives --set python /usr/bin/python3 && \
   python -m pip install requests 'urllib3<2.0'
