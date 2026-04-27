@@ -1096,4 +1096,47 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
     num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
 }
 
+// ============================================================================
+// Host wrapper declarations for kernel launches
+// ============================================================================
+
+void launch_scan_all_fields(cudf::column_device_view const& d_in,
+                            field_descriptor const* field_descs,
+                            int num_fields,
+                            int const* field_lookup,
+                            int field_lookup_size,
+                            field_location* locations,
+                            int* error_flag,
+                            bool* row_has_invalid_data,
+                            int num_rows,
+                            rmm::cuda_stream_view stream);
+
+void launch_validate_enum_values(int32_t const* values,
+                                 bool* valid,
+                                 bool* row_has_invalid_enum,
+                                 int32_t const* valid_enum_values,
+                                 int num_valid_values,
+                                 int num_rows,
+                                 rmm::cuda_stream_view stream);
+
+void launch_compute_enum_string_lengths(int32_t const* values,
+                                        bool const* valid,
+                                        int32_t const* valid_enum_values,
+                                        int32_t const* enum_name_offsets,
+                                        int num_valid_values,
+                                        int32_t* lengths,
+                                        int num_rows,
+                                        rmm::cuda_stream_view stream);
+
+void launch_copy_enum_string_chars(int32_t const* values,
+                                   bool const* valid,
+                                   int32_t const* valid_enum_values,
+                                   int32_t const* enum_name_offsets,
+                                   uint8_t const* enum_name_chars,
+                                   int num_valid_values,
+                                   int32_t const* output_offsets,
+                                   char* out_chars,
+                                   int num_rows,
+                                   rmm::cuda_stream_view stream);
+
 }  // namespace spark_rapids_jni::protobuf::detail

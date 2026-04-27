@@ -1197,7 +1197,6 @@ CUDF_KERNEL void check_required_fields_kernel(
  * The valid_values array must be sorted for binary search.
  *
  * @note Time complexity: O(log(num_valid_values)) per row.
-
  */
 CUDF_KERNEL void validate_enum_values_kernel(
   int32_t const* values,             // [num_rows] extracted enum values
@@ -1244,7 +1243,6 @@ CUDF_KERNEL void validate_enum_values_kernel(
  * Compute output UTF-8 length for enum-as-string rows.
  * Invalid/missing values produce length 0 (null row/field semantics handled by valid[] and
  * row_has_invalid_enum).
-
  */
 CUDF_KERNEL void compute_enum_string_lengths_kernel(
   int32_t const* values,             // [num_rows] enum numeric values

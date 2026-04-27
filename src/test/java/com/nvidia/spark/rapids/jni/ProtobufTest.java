@@ -165,7 +165,8 @@ public class ProtobufTest {
     if (typeId == DType.LIST.getTypeId().getNativeId()) return Protobuf.WT_LEN;
     if (typeId == DType.STRUCT.getTypeId().getNativeId()) return Protobuf.WT_LEN;
     if (encoding == Protobuf.ENC_FIXED) {
-      if (typeId == DType.INT64.getTypeId().getNativeId()) return Protobuf.WT_64BIT;
+      if (typeId == DType.INT64.getTypeId().getNativeId()
+          || typeId == DType.UINT64.getTypeId().getNativeId()) return Protobuf.WT_64BIT;
       return Protobuf.WT_32BIT;
     }
     return Protobuf.WT_VARINT;
@@ -315,6 +316,9 @@ public class ProtobufTest {
     Byte[] row2 = null;
 
     try (Table input = new Table.TestBuilder().column(row0, row1, row2).build();
+         ColumnVector expectedId = ColumnVector.fromBoxedLongs(100L, 200L, null);
+         ColumnVector expectedName = ColumnVector.fromStrings("alice", null, null);
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedId, expectedName);
          ColumnVector actualStruct = decodeAllFields(
              input.getColumn(0),
              new int[]{1, 2},

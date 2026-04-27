@@ -232,6 +232,10 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
     0, std::move(offsets_col), std::move(element_col), 0, rmm::device_buffer{});
 }
 
+// ============================================================================
+// Enum-as-string column builders
+// ============================================================================
+
 struct enum_string_lookup_tables {
   rmm::device_uvector<int32_t> d_valid_enums;
   rmm::device_uvector<int32_t> d_name_offsets;
@@ -275,7 +279,7 @@ enum_string_lookup_tables make_enum_string_lookup_tables(
       return cudf::detail::make_device_uvector_async(
         h_name_chars, stream, cudf::get_current_device_resource_ref());
     }
-    return rmm::device_uvector<uint8_t>(0, stream, mr);
+    return rmm::device_uvector<uint8_t>(0, stream, cudf::get_current_device_resource_ref());
   }();
 
   return {std::move(d_valid_enums), std::move(d_name_offsets), std::move(d_name_chars)};
@@ -289,7 +293,7 @@ std::unique_ptr<cudf::column> build_enum_string_values_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  rmm::device_uvector<int32_t> lengths(num_rows, stream, mr);
+  rmm::device_uvector<int32_t> lengths(num_rows, stream, cudf::get_current_device_resource_ref());
   launch_compute_enum_string_lengths(enum_values.data(),
                                      valid.data(),
                                      lookup.d_valid_enums.data(),
@@ -334,7 +338,8 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   bool propagate_invalid_rows)
 {
   auto lookup = make_enum_string_lookup_tables(valid_enums, enum_name_bytes, stream, mr);
-  rmm::device_uvector<bool> d_item_has_invalid_enum(num_rows, stream, mr);
+  rmm::device_uvector<bool> d_item_has_invalid_enum(
+    num_rows, stream, cudf::get_current_device_resource_ref());
   thrust::fill(rmm::exec_policy_nosync(stream),
                d_item_has_invalid_enum.begin(),
                d_item_has_invalid_enum.end(),

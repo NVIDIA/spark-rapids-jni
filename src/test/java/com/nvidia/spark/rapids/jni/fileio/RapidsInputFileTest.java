@@ -67,6 +67,20 @@ public class RapidsInputFileTest {
   }
 
   @Test
+  public void readVectoredRejectsRangeExceedingOutputBeforeOpeningStream() throws IOException {
+    TestRapidsInputFile inputFile = new TestRapidsInputFile(FILE_DATA);
+    try (HostMemoryBuffer output = HostMemoryBuffer.allocate(3)) {
+      assertThrows(IllegalArgumentException.class,
+          () -> inputFile.readVectored(output,
+              Collections.singletonList(new RapidsInputFile.CopyRange(0, 4, 0))));
+      assertThrows(IllegalArgumentException.class,
+          () -> inputFile.readVectored(output,
+              Collections.singletonList(new RapidsInputFile.CopyRange(0, 2, 2))));
+    }
+    assertEquals(0, inputFile.getOpenCount());
+  }
+
+  @Test
   public void readTailUsesSeekableStreamFallback() throws IOException {
     RapidsInputFile inputFile = new TestRapidsInputFile(FILE_DATA);
     try (HostMemoryBuffer output = HostMemoryBuffer.allocate(4)) {
