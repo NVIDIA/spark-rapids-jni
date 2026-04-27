@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 namespace spark_rapids_jni::protobuf::detail {
