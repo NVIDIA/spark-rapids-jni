@@ -34,6 +34,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
 public class CharsetDecodeTest {
 
   /** Helper: convert a byte array to a List<Byte> for ColumnVector.fromLists. */
@@ -255,6 +258,124 @@ public class CharsetDecodeTest {
          ColumnVector result = CharsetDecode.decode(input, CharsetDecode.GBK);
          ColumnVector expected = ColumnVector.fromStrings(javaExpected)) {
       AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testReportModeCleanInput() {
+    // Pure ASCII + valid GBK pairs -> REPORT mode must succeed and match Java REPLACE output.
+    byte[] nihao = {(byte) 0xC4, (byte) 0xE3, (byte) 0xBA, (byte) 0xC3};
+    byte[] ascii = "Hello".getBytes();
+
+    try (ColumnVector input = binaryColumn(ascii, nihao);
+         ColumnVector result = CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT);
+         ColumnVector expected = ColumnVector.fromStrings("Hello", "你好")) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testReportModeNullRowsNoMalformed() {
+    byte[] nihao = {(byte) 0xC4, (byte) 0xE3, (byte) 0xBA, (byte) 0xC3};
+
+    try (ColumnVector input = binaryColumn(nihao, null, nihao);
+         ColumnVector result = CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT);
+         ColumnVector expected = ColumnVector.fromStrings("你好", null, "你好")) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testReportModeInvalidLeadByte() {
+    // 0xFF is not a valid GBK lead byte -> malformed.
+    byte[] invalid = {(byte) 0xFF};
+    try (ColumnVector input = binaryColumn(invalid)) {
+      assertThrows(CharsetDecode.MalformedInputException.class,
+          () -> CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT));
+    }
+  }
+
+  @Test
+  void testReportModeTruncatedLead() {
+    // Lead byte 0x81 with no second byte -> malformed under REPORT.
+    byte[] truncated = {(byte) 0x81};
+    try (ColumnVector input = binaryColumn(truncated)) {
+      assertThrows(CharsetDecode.MalformedInputException.class,
+          () -> CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT));
+    }
+  }
+
+  @Test
+  void testReportModeLeadWithInvalidSecond() {
+    // 0x81 + 0x30 -> second byte below 0x40, not consumed as pair -> malformed.
+    byte[] bad = {(byte) 0x81, (byte) 0x30};
+    try (ColumnVector input = binaryColumn(bad)) {
+      assertThrows(CharsetDecode.MalformedInputException.class,
+          () -> CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT));
+    }
+  }
+
+  @Test
+  void testReportModeSecondByteFF() {
+    // 0x81 + 0xFF: Java maps this pair to U+FFFD (unmappable), so REPORT must fail.
+    byte[] bad = {(byte) 0x81, (byte) 0xFF};
+    try (ColumnVector input = binaryColumn(bad)) {
+      assertThrows(CharsetDecode.MalformedInputException.class,
+          () -> CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT));
+    }
+  }
+
+  @Test
+  void testReportModeMixedValidAndInvalid() {
+    // A single bad row among many must still trigger REPORT.
+    byte[] nihao  = {(byte) 0xC4, (byte) 0xE3, (byte) 0xBA, (byte) 0xC3};
+    byte[] ascii  = "Hello".getBytes();
+    byte[] badRow = {(byte) 0x81};
+    try (ColumnVector input = binaryColumn(ascii, nihao, badRow, nihao)) {
+      assertThrows(CharsetDecode.MalformedInputException.class,
+          () -> CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT));
+    }
+  }
+
+  @Test
+  void testReportAgreesWithJavaOnAllPairs() {
+    // Partition every byte pair (0x81..0xFE) x (0x40..0xFE) by whether Java's GBK decoder
+    // in REPORT mode raises. REPORT must raise iff the "bad" bucket is non-empty, and must
+    // agree with Java's REPLACE output on the "good" bucket.
+    Charset gbk = Charset.forName("GBK");
+    List<byte[]> good = new ArrayList<>();
+    List<String> goodExpected = new ArrayList<>();
+    List<byte[]> bad = new ArrayList<>();
+
+    for (int first = 0x81; first <= 0xFE; first++) {
+      for (int second = 0x40; second <= 0xFE; second++) {
+        byte[] pair = {(byte) first, (byte) second};
+        CharsetDecoder reporter = gbk.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT);
+        try {
+          reporter.decode(ByteBuffer.wrap(pair));
+          good.add(pair);
+          goodExpected.add(decodeGbkJava(pair));
+        } catch (java.nio.charset.CharacterCodingException e) {
+          bad.add(pair);
+        }
+      }
+    }
+    org.junit.jupiter.api.Assertions.assertFalse(good.isEmpty());
+    org.junit.jupiter.api.Assertions.assertFalse(bad.isEmpty());
+
+    // All pairs Java accepts: GPU REPORT must succeed and match Java REPLACE output.
+    try (ColumnVector input = binaryColumn(good.toArray(new byte[0][]));
+         ColumnVector result = CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT);
+         ColumnVector expected = ColumnVector.fromStrings(goodExpected.toArray(new String[0]))) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+
+    // All pairs Java rejects: GPU REPORT must raise.
+    try (ColumnVector input = binaryColumn(bad.toArray(new byte[0][]))) {
+      assertThrows(CharsetDecode.MalformedInputException.class,
+          () -> CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT));
     }
   }
 

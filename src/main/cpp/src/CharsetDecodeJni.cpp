@@ -22,19 +22,36 @@
 
 extern "C" {
 
+/**
+ * Decode a binary column. Returns the native column pointer on success.
+ * In REPORT mode, malformed/unmappable input causes this function to throw a
+ * Java RuntimeException and return 0; the caller is expected to translate it
+ * into Spark's MALFORMED_CHARACTER_CODING error class.
+ */
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CharsetDecode_decodeNative(
-  JNIEnv* env, jclass, jlong input_column, jint charset)
+  JNIEnv* env, jclass, jlong input_column, jint charset, jint error_action)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_TRY
   {
     cudf::jni::auto_set_device(env);
     auto const input = *reinterpret_cast<cudf::column_view const*>(input_column);
-    return cudf::jni::release_as_jlong(
+    auto result =
       spark_rapids_jni::decode_charset(input,
                                        static_cast<spark_rapids_jni::charset_type>(charset),
+                                       static_cast<spark_rapids_jni::error_action>(error_action),
                                        cudf::get_default_stream(),
-                                       cudf::get_current_device_resource_ref()));
+                                       cudf::get_current_device_resource_ref());
+    if (result.malformed) {
+      // Destroy the decoded column before signaling the error.
+      result.output.reset();
+      cudf::jni::throw_java_exception(
+        env,
+        "com/nvidia/spark/rapids/jni/CharsetDecode$MalformedInputException",
+        "malformed or unmappable input for charset decode");
+      return 0;
+    }
+    return cudf::jni::release_as_jlong(std::move(result.output));
   }
   JNI_CATCH(env, 0);
 }

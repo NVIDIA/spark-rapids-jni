@@ -34,24 +34,42 @@ enum class charset_type : int32_t {
 };
 
 /**
+ * @brief How to handle malformed / unmappable byte sequences when decoding.
+ *
+ * Mirrors java.nio.charset.CodingErrorAction. REPORT is signaled to the caller
+ * via decode_result::malformed; the caller is expected to raise an exception
+ * from Java.
+ */
+enum class error_action : int32_t {
+  REPLACE = 0,
+  REPORT  = 1,
+};
+
+/**
+ * @brief Result of a charset decode.
+ *
+ * `output` is always populated. In REPORT mode, malformed bytes are still
+ * written as U+FFFD so the column is well-formed; `malformed` indicates whether
+ * any input row contained a malformed or unmappable byte sequence.
+ */
+struct decode_result {
+  std::unique_ptr<cudf::column> output;
+  bool malformed;
+};
+
+/**
  * @brief Decode a binary column from the specified charset encoding to a UTF-8 strings column.
- *
- * Each row of the input column contains bytes in the source charset encoding.
- * The output is a strings column with the same number of rows, where each row
- * contains the UTF-8 encoded string.
- *
- * Invalid byte sequences in the source encoding are replaced with the Unicode
- * replacement character U+FFFD.
  *
  * @param input The input column of type LIST<UINT8> (Spark BinaryType)
  * @param charset The source charset encoding
+ * @param action How to treat malformed/unmappable sequences
  * @param stream CUDA stream used for device operations
  * @param mr Device memory resource used for allocating output column
- * @return A new strings column containing the decoded UTF-8 strings
  */
-[[nodiscard]] std::unique_ptr<cudf::column> decode_charset(cudf::column_view const& input,
-                                                           charset_type charset,
-                                                           rmm::cuda_stream_view stream,
-                                                           rmm::device_async_resource_ref mr);
+[[nodiscard]] decode_result decode_charset(cudf::column_view const& input,
+                                           charset_type charset,
+                                           error_action action,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::device_async_resource_ref mr);
 
 }  // namespace spark_rapids_jni
