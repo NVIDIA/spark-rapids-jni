@@ -124,9 +124,10 @@ struct gbk_decode_fn {
 
   __device__ __forceinline__ void flag_malformed() const
   {
-    // Any non-zero write is fine; use a plain store guarded by a load to avoid
-    // unnecessary atomic traffic once someone else has already flagged.
-    if (malformed_flag != nullptr && *malformed_flag == 0) { atomicExch(malformed_flag, 1); }
+    // make_strings_children invokes the functor twice (size pass with d_chars == nullptr,
+    // then the write pass). Detection in the size pass is sufficient, so skip the second
+    // pass entirely to avoid redundant atomics. Use atomicOr for a properly-atomic store.
+    if (malformed_flag != nullptr && d_chars == nullptr) { atomicOr(malformed_flag, 1); }
   }
 
   __device__ void operator()(cudf::size_type idx)
