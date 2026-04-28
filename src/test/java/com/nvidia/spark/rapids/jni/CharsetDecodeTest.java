@@ -34,7 +34,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class CharsetDecodeTest {
@@ -225,6 +225,27 @@ public class CharsetDecodeTest {
   }
 
   @Test
+  void testReportModeZeroRowColumn() {
+    // The zero-row early-exit path must return malformed=false in REPORT mode.
+    byte[][] empty = {};
+
+    try (ColumnVector cv = binaryColumn(empty);
+         ColumnVector result = CharsetDecode.decode(cv, CharsetDecode.GBK, CharsetDecode.REPORT);
+         ColumnVector expected = ColumnVector.fromStrings()) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testInvalidErrorActionThrows() {
+    byte[] ascii = "Hello".getBytes();
+    try (ColumnVector input = binaryColumn(ascii)) {
+      assertThrows(IllegalArgumentException.class,
+          () -> CharsetDecode.decode(input, CharsetDecode.GBK, 99));
+    }
+  }
+
+  @Test
   void testAllGbkDoubleBytePairs() {
     // End-to-end verification: for every valid GBK double-byte pair,
     // compare GPU decode output against Java's GBK charset decoder.
@@ -362,8 +383,8 @@ public class CharsetDecodeTest {
         }
       }
     }
-    org.junit.jupiter.api.Assertions.assertFalse(good.isEmpty());
-    org.junit.jupiter.api.Assertions.assertFalse(bad.isEmpty());
+    assertFalse(good.isEmpty());
+    assertFalse(bad.isEmpty());
 
     // All pairs Java accepts: GPU REPORT must succeed and match Java REPLACE output.
     try (ColumnVector input = binaryColumn(good.toArray(new byte[0][]));
@@ -394,6 +415,28 @@ public class CharsetDecodeTest {
          ColumnVector result = CharsetDecode.decode(sliced, CharsetDecode.GBK);
          ColumnVector expected = ColumnVector.fromStrings("你好", "世界")) {
       AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testSlicedInputReportMode() {
+    // REPORT mode must honor the parent slice offset like REPLACE mode does.
+    byte[] nihao = {(byte) 0xC4, (byte) 0xE3, (byte) 0xBA, (byte) 0xC3};  // 你好
+    byte[] bad   = {(byte) 0x81};                                          // truncated lead byte
+    byte[] ascii = {'A', 'B', 'C'};
+    try (ColumnVector full = binaryColumn(ascii, nihao, ascii, bad)) {
+      // Slice rows [1, 3) excludes the bad row -> must succeed in REPORT mode.
+      try (ColumnVector cleanSlice = full.subVector(1, 3);
+           ColumnVector result =
+               CharsetDecode.decode(cleanSlice, CharsetDecode.GBK, CharsetDecode.REPORT);
+           ColumnVector expected = ColumnVector.fromStrings("你好", "ABC")) {
+        AssertUtils.assertColumnsAreEqual(expected, result);
+      }
+      // Slice rows [2, 4) includes the bad row -> must throw.
+      try (ColumnVector badSlice = full.subVector(2, 4)) {
+        assertThrows(CharsetDecode.MalformedInputException.class,
+            () -> CharsetDecode.decode(badSlice, CharsetDecode.GBK, CharsetDecode.REPORT));
+      }
     }
   }
 }

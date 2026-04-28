@@ -27,6 +27,8 @@
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
+#include <cuda/atomic>
+
 #include <mutex>
 #include <stdexcept>
 
@@ -122,19 +124,18 @@ struct gbk_decode_fn {
   char* d_chars{};
   cudf::detail::input_offsetalator d_offsets;
 
-  __device__ __forceinline__ void flag_malformed() const
-  {
-    // make_strings_children invokes the functor twice (size pass with d_chars == nullptr,
-    // then the write pass). Detection in the size pass is sufficient, so skip the second
-    // pass entirely to avoid redundant atomics. Use atomicOr for a properly-atomic store.
-    if (malformed_flag != nullptr && d_chars == nullptr) { atomicOr(malformed_flag, 1); }
-  }
-
   __device__ void operator()(cudf::size_type idx)
   {
     auto const start = input_offsets[idx];
     auto const end   = input_offsets[idx + 1];
     auto const len   = end - start;
+
+    // `make_strings_children` invokes the functor twice (size pass with d_chars == nullptr,
+    // then the write pass). Detection in the size pass is sufficient, so we skip the write
+    // pass entirely. Within the size pass, accumulate locally and issue at most one atomic
+    // per row at the end to avoid redundant atomic operations on the shared flag.
+    bool const report    = (malformed_flag != nullptr) && (d_chars == nullptr);
+    bool local_malformed = false;
 
     cudf::size_type output_size = 0;
     char* out_ptr               = d_chars ? d_chars + d_offsets[idx] : nullptr;
@@ -161,12 +162,12 @@ struct gbk_decode_fn {
             unicode = gbk_table[table_idx];
             // Table entries equal to U+FFFD mark GBK pairs with no Unicode mapping (Java reports
             // these as unmappable when onUnmappableCharacter == REPORT).
-            if (unicode == UNICODE_REPLACEMENT) { flag_malformed(); }
+            if (unicode == UNICODE_REPLACEMENT) { local_malformed = true; }
           } else {
             // second == 0xFF: Java treats this as a valid pair that maps to U+FFFD. Mirror the
             // unmappable treatment so REPORT mode raises, matching CPU semantics.
-            unicode = UNICODE_REPLACEMENT;
-            flag_malformed();
+            unicode         = UNICODE_REPLACEMENT;
+            local_malformed = true;
           }
           int utf8_len = codepoint_to_utf8(unicode, out_ptr);
           if (out_ptr) { out_ptr += utf8_len; }
@@ -175,16 +176,16 @@ struct gbk_decode_fn {
         } else {
           // Second byte < 0x40 or == 0x7F: not consumed as pair.
           // Emit replacement for the lead byte only, re-process second byte.
-          flag_malformed();
-          int utf8_len = codepoint_to_utf8(UNICODE_REPLACEMENT, out_ptr);
+          local_malformed = true;
+          int utf8_len    = codepoint_to_utf8(UNICODE_REPLACEMENT, out_ptr);
           if (out_ptr) { out_ptr += utf8_len; }
           output_size += utf8_len;
           i += 1;
         }
       } else {
         // Invalid lead byte (0x80, 0xFF, or lead byte at end of row) -> replacement character
-        flag_malformed();
-        int utf8_len = codepoint_to_utf8(UNICODE_REPLACEMENT, out_ptr);
+        local_malformed = true;
+        int utf8_len    = codepoint_to_utf8(UNICODE_REPLACEMENT, out_ptr);
         if (out_ptr) { out_ptr += utf8_len; }
         output_size += utf8_len;
         i += 1;
@@ -192,6 +193,10 @@ struct gbk_decode_fn {
     }
 
     if (!d_chars) { d_sizes[idx] = output_size; }
+    if (report && local_malformed) {
+      cuda::atomic_ref<int32_t, cuda::thread_scope_device> ref(*malformed_flag);
+      ref.fetch_or(1, cuda::memory_order_relaxed);
+    }
   }
 };
 
@@ -222,7 +227,7 @@ decode_result decode_gbk(cudf::column_view const& input,
   std::unique_ptr<rmm::device_scalar<int32_t>> flag;
   int32_t* flag_ptr = nullptr;
   if (action == error_action::REPORT) {
-    flag     = std::make_unique<rmm::device_scalar<int32_t>>(0, stream);
+    flag     = std::make_unique<rmm::device_scalar<int32_t>>(0, stream, mr);
     flag_ptr = flag->data();
   }
 
@@ -233,15 +238,16 @@ decode_result decode_gbk(cudf::column_view const& input,
     stream,
     mr);
 
-  bool malformed = false;
-  if (flag) { malformed = flag->value(stream) != 0; }
+  // In REPORT mode, skip building the output column when malformed bytes were detected: the
+  // caller will discard it. This avoids the column / bitmask allocations on the error path.
+  if (flag && flag->value(stream) != 0) { return decode_result{nullptr, true}; }
 
   auto column = cudf::make_strings_column(num_rows,
                                           std::move(new_offsets),
                                           new_chars.release(),
                                           input.null_count(),
                                           cudf::copy_bitmask(input, stream, mr));
-  return decode_result{std::move(column), malformed};
+  return decode_result{std::move(column), false};
 }
 
 }  // anonymous namespace

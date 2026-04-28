@@ -18,9 +18,11 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <cstdint>
 
@@ -48,9 +50,10 @@ enum class error_action : int32_t {
 /**
  * @brief Result of a charset decode.
  *
- * `output` is always populated. In REPORT mode, malformed bytes are still
- * written as U+FFFD so the column is well-formed; `malformed` indicates whether
- * any input row contained a malformed or unmappable byte sequence.
+ * When `malformed == false`, `output` is a UTF-8 strings column (malformed bytes
+ * within rows are emitted as U+FFFD so the column is well-formed). When
+ * `malformed == true` (only possible with `error_action::REPORT`), the caller
+ * MUST treat `output` as discardable; the column may be null.
  */
 struct decode_result {
   std::unique_ptr<cudf::column> output;
@@ -65,11 +68,16 @@ struct decode_result {
  * @param action How to treat malformed/unmappable sequences
  * @param stream CUDA stream used for device operations
  * @param mr Device memory resource used for allocating output column
+ * @return A `decode_result` whose `output` is the decoded UTF-8 strings column
+ *         and whose `malformed` flag is true (REPORT mode only) iff any input
+ *         row contained a malformed or unmappable byte sequence; when set,
+ *         `output` is discardable.
  */
-[[nodiscard]] decode_result decode_charset(cudf::column_view const& input,
-                                           charset_type charset,
-                                           error_action action,
-                                           rmm::cuda_stream_view stream,
-                                           rmm::device_async_resource_ref mr);
+[[nodiscard]] decode_result decode_charset(
+  cudf::column_view const& input,
+  charset_type charset,
+  error_action action,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni

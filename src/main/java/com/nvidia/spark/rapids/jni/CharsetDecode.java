@@ -36,6 +36,8 @@ public class CharsetDecode {
    * translating this into a Spark {@code MALFORMED_CHARACTER_CODING} error.
    */
   public static final class MalformedInputException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
     public MalformedInputException(String message) {
       super(message);
     }
@@ -45,6 +47,10 @@ public class CharsetDecode {
    * Decode a binary column from the specified charset encoding to a UTF-8 strings column.
    *
    * Invalid or unmappable byte sequences are replaced with U+FFFD.
+   *
+   * @param cv Binary column (LIST of UINT8) to decode
+   * @param charset Charset identifier (use constants like {@link #GBK})
+   * @return UTF-8 string column
    */
   public static ColumnVector decode(ColumnView cv, int charset) {
     return decode(cv, charset, REPLACE);
@@ -58,6 +64,7 @@ public class CharsetDecode {
    * @param errorAction {@link #REPLACE} or {@link #REPORT}
    * @return UTF-8 string column (only when no malformed bytes are found, for REPORT mode)
    * @throws MalformedInputException in REPORT mode if malformed/unmappable bytes are present
+   * @throws IllegalArgumentException if {@code charset} or {@code errorAction} is not a recognized value
    */
   public static ColumnVector decode(ColumnView cv, int charset, int errorAction) {
     if (charset != GBK) {
