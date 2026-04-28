@@ -410,7 +410,10 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
       int i = fn_to_rep_idx[fn];
       if (i >= 0) {
         int schema_idx = repeated_field_indices[i];
-        if (schema[schema_idx].depth == depth_level &&
+        // Defensive: also verify field_number matches, mirroring the linear-scan fallback below.
+        // A correct lookup table guarantees this, but failing closed on a buggy table is cheap
+        // and avoids dispatching to the wrong field index silently.
+        if (schema[schema_idx].field_number == fn && schema[schema_idx].depth == depth_level &&
             !count_repeated_element(
               cur,
               msg_end,
@@ -481,7 +484,8 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
       int i = fn_to_nested_idx[fn];
       if (i >= 0) {
         int schema_idx = nested_field_indices[i];
-        if (schema[schema_idx].depth == depth_level) {
+        // Defensive: verify field_number matches the lookup, mirroring the linear-scan fallback.
+        if (schema[schema_idx].field_number == fn && schema[schema_idx].depth == depth_level) {
           if (!handle_nested(i)) return;
         }
       }
@@ -573,7 +577,10 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
 
     if (fn_to_desc_idx != nullptr && fn > 0 && fn < fn_to_desc_size) {
       int f = fn_to_desc_idx[fn];
-      if (f >= 0 && f < num_scan_fields) {
+      // Defensive sanity check: a correct lookup table guarantees scan_descs[f].field_number == fn,
+      // but verifying matches the linear-scan fallback's behavior so a buggy table cannot dispatch
+      // to the wrong descriptor silently.
+      if (f >= 0 && f < num_scan_fields && scan_descs[f].field_number == fn) {
         if (!try_scan(f)) return;
       }
     } else {

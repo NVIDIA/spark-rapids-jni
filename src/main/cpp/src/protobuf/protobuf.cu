@@ -991,8 +991,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       // Reduce in int64 to detect overflow before truncating to int32 (cudf list offsets are
       // int32). Mirrors the guard already used in `build_repeated_child_list_column`.
-      // `thrust::reduce` syncs the stream by returning the value, so subsequent host code can
-      // safely consume `w.total_count` without a separate stream.synchronize() per field.
+      //
+      // NOTE: `thrust::reduce` returns the value to the host, which implicitly syncs the stream
+      // once per repeated field — i.e. Phase A is O(num_repeated) syncs. We accept this for
+      // correctness: an async device-side reduce (e.g. `cub::DeviceReduce::Sum` writing to a
+      // device buffer + a single batched D2H) would let us keep one synchronize per decode call,
+      // but requires a transform-iterator promotion to int64 to keep the accumulator wide. With
+      // typical schemas carrying <16 top-level repeated fields the saved syncs are µs-scale and
+      // not worth the extra complexity at this point. Revisit alongside benchmarks in part 4.
       int64_t total_64 = thrust::reduce(
         rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), int64_t{0});
       CUDF_EXPECTS(total_64 <= std::numeric_limits<int32_t>::max(),
