@@ -343,6 +343,19 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   auto const& default_strings   = context.default_strings;
   auto const& enum_valid_values = context.enum_valid_values;
   auto const& enum_names        = context.enum_names;
+  // Per-decode cache keyed by schema index for enum-as-string lookup tables. Reusing the
+  // device buffers across recursive call sites (each `build_repeated_child_list_column`
+  // invocation that hits the same enum field) avoids re-uploading the same metadata.
+  enum_string_lookup_cache enum_lookup_cache;
+  // Bundle defaults + enum metadata into a single view so the recursive nested/repeated
+  // builders take one parameter instead of six identical references.
+  schema_context_view const schema_ctx{default_ints,
+                                       default_floats,
+                                       default_bools,
+                                       default_strings,
+                                       enum_valid_values,
+                                       enum_names,
+                                       &enum_lookup_cache};
   bool fail_on_errors           = context.fail_on_errors;
   CUDF_EXPECTS(binary_input.type().id() == cudf::type_id::LIST,
                "binary_input must be a LIST<INT8/UINT8> column");
@@ -394,10 +407,21 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   auto const message_data_size = static_cast<cudf::size_type>(in_list_view.child().size());
   auto const* list_offsets     = in_list_view.offsets().data<cudf::size_type>();
 
-  cudf::size_type base_offset = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    &base_offset, list_offsets, sizeof(cudf::size_type), cudaMemcpyDeviceToHost, stream.value()));
+  // Stage list_offsets[0] through pinned host memory so the D2H stays truly async (pageable
+  // destinations turn small cudaMemcpyAsync calls into synchronous bounce-buffer copies).
+  auto h_base_offset =
+    cudf::detail::make_pinned_vector_async<cudf::size_type>(1, stream);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(h_base_offset.data(),
+                                list_offsets,
+                                sizeof(cudf::size_type),
+                                cudaMemcpyDeviceToHost,
+                                stream.value()));
   stream.synchronize();
+  cudf::size_type base_offset = h_base_offset[0];
+
+  // Scratch allocations consumed inside this function go through the current device resource;
+  // only buffers that flow into the returned column should use the caller-supplied `mr`.
+  auto const scratch_mr = cudf::get_current_device_resource_ref();
 
   // Copy schema to device
   std::vector<device_nested_field_descriptor> h_device_schema(num_fields);
@@ -405,7 +429,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     h_device_schema[i] = device_nested_field_descriptor{schema[i]};
   }
 
-  rmm::device_uvector<device_nested_field_descriptor> d_schema(num_fields, stream, mr);
+  rmm::device_uvector<device_nested_field_descriptor> d_schema(num_fields, stream, scratch_mr);
   CUDF_CUDA_TRY(cudaMemcpyAsync(d_schema.data(),
                                 h_device_schema.data(),
                                 num_fields * sizeof(device_nested_field_descriptor),
@@ -451,7 +475,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       case ERR_REQUIRED: return "Protobuf decode error: missing required field";
       case ERR_SCHEMA_TOO_LARGE:
         return "Protobuf decode error: schema exceeds maximum supported repeated fields per kernel "
-               "(128)";
+               "(32)";
       case ERR_MISSING_ENUM_META:
         return "Protobuf decode error: missing or mismatched enum metadata for enum-as-string "
                "field";
@@ -477,12 +501,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Allocate for counting repeated fields
   rmm::device_uvector<repeated_field_info> d_repeated_info(
-    num_repeated > 0 ? static_cast<size_t>(num_rows) * num_repeated : 1, stream, mr);
+    num_repeated > 0 ? static_cast<size_t>(num_rows) * num_repeated : 1, stream, scratch_mr);
   rmm::device_uvector<field_location> d_nested_locations(
-    num_nested > 0 ? static_cast<size_t>(num_rows) * num_nested : 1, stream, mr);
+    num_nested > 0 ? static_cast<size_t>(num_rows) * num_nested : 1, stream, scratch_mr);
 
-  rmm::device_uvector<int> d_repeated_indices(num_repeated > 0 ? num_repeated : 1, stream, mr);
-  rmm::device_uvector<int> d_nested_indices(num_nested > 0 ? num_nested : 1, stream, mr);
+  rmm::device_uvector<int> d_repeated_indices(
+    num_repeated > 0 ? num_repeated : 1, stream, scratch_mr);
+  rmm::device_uvector<int> d_nested_indices(
+    num_nested > 0 ? num_nested : 1, stream, scratch_mr);
 
   if (num_repeated > 0) {
     CUDF_CUDA_TRY(cudaMemcpyAsync(d_repeated_indices.data(),
@@ -500,8 +526,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   }
 
   // Count repeated fields at depth 0 (with O(1) field_number lookup tables)
-  rmm::device_uvector<int> d_fn_to_rep(0, stream, mr);
-  rmm::device_uvector<int> d_fn_to_nested(0, stream, mr);
+  rmm::device_uvector<int> d_fn_to_rep(0, stream, scratch_mr);
+  rmm::device_uvector<int> d_fn_to_nested(0, stream, scratch_mr);
 
   if (num_repeated > 0 || num_nested > 0) {
     auto h_fn_to_rep =
@@ -510,7 +536,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       build_index_lookup_table(schema.data(), nested_field_indices.data(), num_nested);
 
     if (!h_fn_to_rep.empty()) {
-      d_fn_to_rep = rmm::device_uvector<int>(h_fn_to_rep.size(), stream, mr);
+      d_fn_to_rep = rmm::device_uvector<int>(h_fn_to_rep.size(), stream, scratch_mr);
       CUDF_CUDA_TRY(cudaMemcpyAsync(d_fn_to_rep.data(),
                                     h_fn_to_rep.data(),
                                     h_fn_to_rep.size() * sizeof(int),
@@ -518,7 +544,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                     stream.value()));
     }
     if (!h_fn_to_nested.empty()) {
-      d_fn_to_nested = rmm::device_uvector<int>(h_fn_to_nested.size(), stream, mr);
+      d_fn_to_nested = rmm::device_uvector<int>(h_fn_to_nested.size(), stream, scratch_mr);
       CUDF_CUDA_TRY(cudaMemcpyAsync(d_fn_to_nested.data(),
                                     h_fn_to_nested.data(),
                                     h_fn_to_nested.size() * sizeof(int),
@@ -702,7 +728,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           int si                  = scalar_field_indices[idxs[j]];
           auto dt                 = cudf::data_type{schema[si].output_type};
           auto& bp                = *bufs[j];
-          auto [mask, null_count] = make_null_mask_from_valid(bp.valid, stream, mr);
+          auto [mask, null_count] = make_null_mask_from_valid(bp.valid, num_rows, stream, mr);
           column_map[si]          = std::make_unique<cudf::column>(
             dt, num_rows, bp.out_bytes.release(), std::move(mask), null_count);
         }
@@ -953,10 +979,15 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     std::vector<std::unique_ptr<repeated_field_work>> rep_work;
     rep_work.reserve(num_repeated);
 
+    // Stage all per-field totals into a pinned host buffer with a single synchronize at the end,
+    // so the per-iteration D2H copies stay truly async (pageable destinations would force the
+    // driver into a synchronous bounce path on every copy).
+    auto h_total_counts = cudf::detail::make_pinned_vector_async<int32_t>(num_repeated, stream);
+
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx = repeated_field_indices[ri];
       auto& w        = *rep_work.emplace_back(
-        std::make_unique<repeated_field_work>(schema_idx, num_rows, stream, mr));
+        std::make_unique<repeated_field_work>(schema_idx, num_rows, stream, scratch_mr));
 
       thrust::transform(rmm::exec_policy_nosync(stream),
                         thrust::make_counting_iterator(0),
@@ -964,17 +995,27 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                         w.counts.data(),
                         extract_strided_count{d_repeated_info.data(), ri, num_repeated});
 
-      CUDF_CUDA_TRY(cudaMemsetAsync(w.offsets.data(), 0, sizeof(int32_t), stream.value()));
-      thrust::inclusive_scan(
-        rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), w.offsets.data() + 1);
+      // exclusive_scan writes offsets[0..num_rows-1] (the leading 0 falls out for free, no memset
+      // needed); the trailing offsets[num_rows] = total is written by a single-element transform
+      // computing offsets[num_rows-1] + counts[num_rows-1] on the same stream.
+      thrust::exclusive_scan(
+        rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), w.offsets.begin(), 0);
+      auto* d_total = w.offsets.data() + num_rows;
+      thrust::transform(rmm::exec_policy_nosync(stream),
+                        w.counts.end() - 1,
+                        w.counts.end(),
+                        w.offsets.data() + (num_rows - 1),
+                        d_total,
+                        thrust::plus<int32_t>{});
 
-      CUDF_CUDA_TRY(cudaMemcpyAsync(&w.total_count,
-                                    w.offsets.data() + num_rows,
+      CUDF_CUDA_TRY(cudaMemcpyAsync(h_total_counts.data() + ri,
+                                    d_total,
                                     sizeof(int32_t),
                                     cudaMemcpyDeviceToHost,
                                     stream.value()));
     }
     stream.synchronize();
+    for (int ri = 0; ri < num_repeated; ri++) { rep_work[ri]->total_count = h_total_counts[ri]; }
 
     // Phase B: Allocate occurrence buffers and launch ONE combined scan kernel.
     std::vector<repeated_field_scan_desc> h_scan_descs;
@@ -982,8 +1023,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
     for (auto& wp : rep_work) {
       if (wp->total_count > 0) {
-        wp->occurrences =
-          std::make_unique<rmm::device_uvector<repeated_occurrence>>(wp->total_count, stream, mr);
+        wp->occurrences = std::make_unique<rmm::device_uvector<repeated_occurrence>>(
+          wp->total_count, stream, scratch_mr);
         h_scan_descs.push_back({schema[wp->schema_idx].field_number,
                                 static_cast<int>(schema[wp->schema_idx].wire_type),
                                 wp->offsets.data(),
@@ -992,7 +1033,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     }
 
     if (!h_scan_descs.empty()) {
-      rmm::device_uvector<repeated_field_scan_desc> d_scan_descs(h_scan_descs.size(), stream, mr);
+      rmm::device_uvector<repeated_field_scan_desc> d_scan_descs(
+        h_scan_descs.size(), stream, scratch_mr);
       CUDF_CUDA_TRY(cudaMemcpyAsync(d_scan_descs.data(),
                                     h_scan_descs.data(),
                                     h_scan_descs.size() * sizeof(h_scan_descs[0]),
@@ -1004,14 +1046,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       for (auto const& sd : h_scan_descs) {
         max_scan_fn = std::max(max_scan_fn, sd.field_number);
       }
-      rmm::device_uvector<int> d_fn_to_scan(0, stream, mr);
+      rmm::device_uvector<int> d_fn_to_scan(0, stream, scratch_mr);
       int fn_to_scan_size = 0;
       if (max_scan_fn <= FIELD_LOOKUP_TABLE_MAX) {
         std::vector<int> h_fn_to_scan(max_scan_fn + 1, -1);
         for (int i = 0; i < static_cast<int>(h_scan_descs.size()); i++) {
           h_fn_to_scan[h_scan_descs[i].field_number] = i;
         }
-        d_fn_to_scan = rmm::device_uvector<int>(h_fn_to_scan.size(), stream, mr);
+        d_fn_to_scan = rmm::device_uvector<int>(h_fn_to_scan.size(), stream, scratch_mr);
         CUDF_CUDA_TRY(cudaMemcpyAsync(d_fn_to_scan.data(),
                                       h_fn_to_scan.data(),
                                       h_fn_to_scan.size() * sizeof(int),
@@ -1231,13 +1273,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                     num_rows,
                                                                     h_device_schema,
                                                                     child_field_indices,
-                                                                    default_ints,
-                                                                    default_floats,
-                                                                    default_bools,
-                                                                    default_strings,
                                                                     schema,
-                                                                    enum_valid_values,
-                                                                    enum_names,
+                                                                    schema_ctx,
                                                                     d_row_force_null,
                                                                     d_error,
                                                                     stream,
@@ -1305,7 +1342,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       }
 
       // Extract parent locations for this nested field directly on GPU
-      rmm::device_uvector<field_location> d_parent_locs(num_rows, stream, mr);
+      rmm::device_uvector<field_location> d_parent_locs(num_rows, stream, scratch_mr);
       launch_extract_strided_locations(
         d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
 
@@ -1317,12 +1354,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                  child_field_indices,
                                                                  schema,
                                                                  num_fields,
-                                                                 default_ints,
-                                                                 default_floats,
-                                                                 default_bools,
-                                                                 default_strings,
-                                                                 enum_valid_values,
-                                                                 enum_names,
+                                                                 schema_ctx,
                                                                  d_row_force_null,
                                                                  d_error,
                                                                  num_rows,

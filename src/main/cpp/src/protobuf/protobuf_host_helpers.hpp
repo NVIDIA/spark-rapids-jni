@@ -28,9 +28,51 @@
 #include <cstdint>
 #include <memory>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 namespace spark_rapids_jni::protobuf::detail {
+
+// ============================================================================
+// Enum-as-string lookup tables
+// ============================================================================
+
+/**
+ * Device-side lookup tables for an enum-as-string field. `make_enum_string_lookup_tables`
+ * builds them; the per-decode cache (`enum_string_lookup_cache`) keeps them alive across
+ * call sites so deeply-nested decoders don't rebuild and re-upload the same metadata.
+ */
+struct enum_string_lookup_tables {
+  rmm::device_uvector<int32_t> d_valid_enums;
+  rmm::device_uvector<int32_t> d_name_offsets;
+  rmm::device_uvector<uint8_t> d_name_chars;
+};
+
+// Map keyed by schema field index. unordered_map is chosen because element references stay
+// stable across insertions (only erase invalidates), so callers can hold `auto const&` into
+// it during recursion.
+using enum_string_lookup_cache = std::unordered_map<int, enum_string_lookup_tables>;
+
+// ============================================================================
+// Schema-context bundle
+// ============================================================================
+
+/**
+ * View of the per-decode default-value and enum metadata. Reduces parameter pressure on the
+ * recursive nested/repeated builders, which all consume the same six host vectors. The struct
+ * holds non-owning references — its lifetime must enclose the calls. Optionally carries a
+ * pointer to a mutable enum lookup cache; when present, builders reuse cached lookup tables
+ * across recursive call sites instead of re-running `make_enum_string_lookup_tables`.
+ */
+struct schema_context_view {
+  std::vector<int64_t> const& default_ints;
+  std::vector<double> const& default_floats;
+  std::vector<bool> const& default_bools;
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings;
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values;
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names;
+  enum_string_lookup_cache* enum_lookup_cache = nullptr;
+};
 
 // ============================================================================
 // Field number lookup table helpers
@@ -240,12 +282,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int> const& child_field_indices,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  std::vector<int64_t> const& default_ints,
-  std::vector<double> const& default_floats,
-  std::vector<bool> const& default_bools,
-  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
-  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
+  schema_context_view const& ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   int num_rows,
@@ -265,12 +302,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   int child_schema_idx,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  std::vector<int64_t> const& default_ints,
-  std::vector<double> const& default_floats,
-  std::vector<bool> const& default_bools,
-  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
-  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
+  schema_context_view const& ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -292,13 +324,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   int num_rows,
   std::vector<device_nested_field_descriptor> const& h_device_schema,
   std::vector<int> const& child_field_indices,
-  std::vector<int64_t> const& default_ints,
-  std::vector<double> const& default_floats,
-  std::vector<bool> const& default_bools,
-  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
   std::vector<nested_field_descriptor> const& schema,
-  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
+  schema_context_view const& ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error_top,
   rmm::cuda_stream_view stream,
