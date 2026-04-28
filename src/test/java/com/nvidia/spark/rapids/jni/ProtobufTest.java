@@ -24,7 +24,6 @@ import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.HostColumnVectorCore;
 import ai.rapids.cudf.HostColumnVector.*;
 import ai.rapids.cudf.Table;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -1916,10 +1915,19 @@ public class ProtobufTest {
           new byte[][]{null},              // defaultStrings
           new int[][]{null},               // enumValidValues
           false)) {                        // failOnErrors
-        // Result should be STRUCT<ids: LIST<INT32>>
-        // The list should contain [1, 2, 3]
+        // Result should be STRUCT<ids: LIST<INT32>> containing [1, 2, 3]
         assertNotNull(result);
         assertEquals(DType.STRUCT, result.getType());
+        try (ColumnVector listCol = result.getChildColumnView(0).copyToColumnVector();
+             ColumnVector children = listCol.getChildColumnView(0).copyToColumnVector();
+             HostColumnVector hostChildren = children.copyToHost()) {
+          assertEquals(DType.LIST, listCol.getType());
+          assertEquals(DType.INT32, children.getType());
+          assertEquals(3, children.getRowCount());
+          assertEquals(1, hostChildren.getInt(0));
+          assertEquals(2, hostChildren.getInt(1));
+          assertEquals(3, hostChildren.getInt(2));
+        }
       }
     }
   }
@@ -2066,6 +2074,11 @@ public class ProtobufTest {
           false)) {
         assertNotNull(result);
         assertEquals(DType.STRUCT, result.getType());
+        try (ColumnVector expectedX = ColumnVector.fromBoxedInts(42);
+             ColumnVector expectedInner = ColumnVector.makeStruct(expectedX);
+             ColumnVector expectedOuter = ColumnVector.makeStruct(expectedInner)) {
+          AssertUtils.assertStructColumnsAreEqual(expectedOuter, result);
+        }
       }
     }
   }
@@ -2294,9 +2307,13 @@ public class ProtobufTest {
              new int[][]{null},
              false)) {
       try (ColumnVector list = result.getChildColumnView(0).copyToColumnVector();
-           ColumnVector vals = list.getChildColumnView(0).copyToColumnVector()) {
+           ColumnVector vals = list.getChildColumnView(0).copyToColumnVector();
+           HostColumnVector hostVals = vals.copyToHost()) {
         assertEquals(DType.UINT32, vals.getType());
         assertEquals(3, vals.getRowCount());
+        assertEquals(1, Integer.toUnsignedLong(hostVals.getInt(0)));
+        assertEquals(2, Integer.toUnsignedLong(hostVals.getInt(1)));
+        assertEquals(3, Integer.toUnsignedLong(hostVals.getInt(2)));
       }
     }
   }
@@ -2327,9 +2344,13 @@ public class ProtobufTest {
              new int[][]{null},
              false)) {
       try (ColumnVector list = result.getChildColumnView(0).copyToColumnVector();
-           ColumnVector vals = list.getChildColumnView(0).copyToColumnVector()) {
+           ColumnVector vals = list.getChildColumnView(0).copyToColumnVector();
+           HostColumnVector hostVals = vals.copyToHost()) {
         assertEquals(DType.UINT64, vals.getType());
         assertEquals(3, vals.getRowCount());
+        assertEquals(11L, hostVals.getLong(0));
+        assertEquals(22L, hostVals.getLong(1));
+        assertEquals(33L, hostVals.getLong(2));
       }
     }
   }
@@ -3426,8 +3447,14 @@ public class ProtobufTest {
              false)) {
       assertNotNull(result);
       assertEquals(DType.STRUCT, result.getType());
-      try (ColumnVector list = result.getChildColumnView(0).copyToColumnVector()) {
+      try (ColumnVector list = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector vals = list.getChildColumnView(0).copyToColumnVector();
+           HostColumnVector hostVals = vals.copyToHost()) {
         assertEquals(DType.LIST, list.getType());
+        assertEquals(100000, vals.getRowCount(), "All 100K elements should be decoded");
+        assertEquals(0, hostVals.getInt(0));
+        assertEquals(50000, hostVals.getInt(50000));
+        assertEquals(99999, hostVals.getInt(99999));
       }
     }
   }
@@ -3641,6 +3668,12 @@ public class ProtobufTest {
              defaultStrings, enumValidValues, false)) {
       assertNotNull(result);
       assertEquals(DType.STRUCT, result.getType());
+      // Verify the deepest leaf (encoded as 1 in this synthetic schema) actually decodes to 1.
+      try (ColumnVector firstChild = result.getChildColumnView(0).copyToColumnVector();
+           HostColumnVector hostChild = firstChild.copyToHost()) {
+        assertEquals(DType.INT32, firstChild.getType());
+        assertEquals(1, hostChild.getInt(0));
+      }
     }
   }
 

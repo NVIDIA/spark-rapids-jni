@@ -438,6 +438,7 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
                 error_flag)) {
             return;
           }
+          break;  // Each tag dispatches to at most one repeated index (mirrors lookup-table path)
         }
       }
     }
@@ -530,7 +531,11 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
   uint8_t const* cur     = bytes + start;
   uint8_t const* msg_end = bytes + end;
 
-  constexpr int MAX_STACK_FIELDS = 128;
+  // Tighter bound matches realistic Spark schemas (typical: <16 top-level repeated fields per
+  // message). Keeping the cap small keeps `write_idx` in registers / L1 instead of spilling into
+  // local memory, which would otherwise cost 4x the per-thread footprint at MAX_STACK_FIELDS=128
+  // and pressure occupancy. ERR_SCHEMA_TOO_LARGE remains the host-visible cap.
+  constexpr int MAX_STACK_FIELDS = 32;
   if (num_scan_fields > MAX_STACK_FIELDS) {
     set_error_once(error_flag, ERR_SCHEMA_TOO_LARGE);
     return;
@@ -575,6 +580,7 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
       for (int f = 0; f < num_scan_fields; f++) {
         if (scan_descs[f].field_number == fn) {
           if (!try_scan(f)) return;
+          break;  // Each tag dispatches to at most one scan descriptor
         }
       }
     }
@@ -897,6 +903,7 @@ CUDF_KERNEL void count_repeated_in_nested_kernel(uint8_t const* message_data,
                                     error_flag)) {
           return;
         }
+        break;  // Each tag dispatches to at most one repeated index
       }
     }
 
@@ -1186,6 +1193,30 @@ CUDF_KERNEL void check_required_fields_kernel(
 }
 
 /**
+ * Binary search a sorted enum-value array. Returns the matched index or -1 if not found.
+ * Shared between the validate / lengths / chars enum-as-string kernels.
+ */
+__device__ inline int enum_binary_search(int32_t const* valid_enum_values,
+                                         int num_valid_values,
+                                         int32_t val)
+{
+  int left  = 0;
+  int right = num_valid_values - 1;
+  while (left <= right) {
+    int mid         = left + (right - left) / 2;
+    int32_t mid_val = valid_enum_values[mid];
+    if (mid_val == val) {
+      return mid;
+    } else if (mid_val < val) {
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  return -1;
+}
+
+/**
  * Validate enum values against a set of valid values.
  * If a value is not in the valid set:
  * 1. Mark the field as invalid (valid[row] = false)
@@ -1212,27 +1243,7 @@ CUDF_KERNEL void validate_enum_values_kernel(
   // Skip if already invalid (field was missing) - missing field is not an enum error
   if (!valid[row]) return;
 
-  int32_t val = values[row];
-
-  // Binary search for the value in valid_enum_values
-  int left   = 0;
-  int right  = num_valid_values - 1;
-  bool found = false;
-
-  while (left <= right) {
-    int mid = left + (right - left) / 2;
-    if (valid_enum_values[mid] == val) {
-      found = true;
-      break;
-    } else if (valid_enum_values[mid] < val) {
-      left = mid + 1;
-    } else {
-      right = mid - 1;
-    }
-  }
-
-  // If not found, mark as invalid
-  if (!found) {
+  if (enum_binary_search(valid_enum_values, num_valid_values, values[row]) < 0) {
     valid[row] = false;
     // Also mark the row as having an invalid enum - this will null the entire struct row
     row_has_invalid_enum[row] = true;
@@ -1261,24 +1272,9 @@ CUDF_KERNEL void compute_enum_string_lengths_kernel(
     return;
   }
 
-  int32_t val = values[row];
-  int left    = 0;
-  int right   = num_valid_values - 1;
-  while (left <= right) {
-    int mid         = left + (right - left) / 2;
-    int32_t mid_val = valid_enum_values[mid];
-    if (mid_val == val) {
-      lengths[row] = enum_name_offsets[mid + 1] - enum_name_offsets[mid];
-      return;
-    } else if (mid_val < val) {
-      left = mid + 1;
-    } else {
-      right = mid - 1;
-    }
-  }
-
+  int idx = enum_binary_search(valid_enum_values, num_valid_values, values[row]);
   // Should not happen when validate_enum_values_kernel has already run, but keep safe.
-  lengths[row] = 0;
+  lengths[row] = idx >= 0 ? (enum_name_offsets[idx + 1] - enum_name_offsets[idx]) : 0;
 }
 
 /**
@@ -1299,26 +1295,13 @@ CUDF_KERNEL void copy_enum_string_chars_kernel(
   if (row >= num_rows) return;
   if (!valid[row]) return;
 
-  int32_t val = values[row];
-  int left    = 0;
-  int right   = num_valid_values - 1;
-  while (left <= right) {
-    int mid         = left + (right - left) / 2;
-    int32_t mid_val = valid_enum_values[mid];
-    if (mid_val == val) {
-      int32_t src_begin = enum_name_offsets[mid];
-      int32_t src_end   = enum_name_offsets[mid + 1];
-      int32_t dst_begin = output_offsets[row];
-      memcpy(out_chars + dst_begin,
-             enum_name_chars + src_begin,
-             static_cast<size_t>(src_end - src_begin));
-      return;
-    } else if (mid_val < val) {
-      left = mid + 1;
-    } else {
-      right = mid - 1;
-    }
-  }
+  int idx = enum_binary_search(valid_enum_values, num_valid_values, values[row]);
+  if (idx < 0) return;
+  int32_t src_begin = enum_name_offsets[idx];
+  int32_t src_end   = enum_name_offsets[idx + 1];
+  int32_t dst_begin = output_offsets[row];
+  memcpy(
+    out_chars + dst_begin, enum_name_chars + src_begin, static_cast<size_t>(src_end - src_begin));
 }
 
 }  // anonymous namespace
