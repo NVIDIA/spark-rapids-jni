@@ -21,6 +21,7 @@
 
 #include <thrust/binary_search.h>
 
+#include <limits>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -356,7 +357,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                        enum_valid_values,
                                        enum_names,
                                        &enum_lookup_cache};
-  bool fail_on_errors           = context.fail_on_errors;
+  bool fail_on_errors = context.fail_on_errors;
   CUDF_EXPECTS(binary_input.type().id() == cudf::type_id::LIST,
                "binary_input must be a LIST<INT8/UINT8> column");
   cudf::lists_column_view const in_list(binary_input);
@@ -409,8 +410,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Stage list_offsets[0] through pinned host memory so the D2H stays truly async (pageable
   // destinations turn small cudaMemcpyAsync calls into synchronous bounce-buffer copies).
-  auto h_base_offset =
-    cudf::detail::make_pinned_vector_async<cudf::size_type>(1, stream);
+  auto h_base_offset = cudf::detail::make_pinned_vector_async<cudf::size_type>(1, stream);
   CUDF_CUDA_TRY(cudaMemcpyAsync(h_base_offset.data(),
                                 list_offsets,
                                 sizeof(cudf::size_type),
@@ -507,8 +507,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   rmm::device_uvector<int> d_repeated_indices(
     num_repeated > 0 ? num_repeated : 1, stream, scratch_mr);
-  rmm::device_uvector<int> d_nested_indices(
-    num_nested > 0 ? num_nested : 1, stream, scratch_mr);
+  rmm::device_uvector<int> d_nested_indices(num_nested > 0 ? num_nested : 1, stream, scratch_mr);
 
   if (num_repeated > 0) {
     CUDF_CUDA_TRY(cudaMemcpyAsync(d_repeated_indices.data(),
@@ -979,11 +978,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     std::vector<std::unique_ptr<repeated_field_work>> rep_work;
     rep_work.reserve(num_repeated);
 
-    // Stage all per-field totals into a pinned host buffer with a single synchronize at the end,
-    // so the per-iteration D2H copies stay truly async (pageable destinations would force the
-    // driver into a synchronous bounce path on every copy).
-    auto h_total_counts = cudf::detail::make_pinned_vector_async<int32_t>(num_repeated, stream);
-
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx = repeated_field_indices[ri];
       auto& w        = *rep_work.emplace_back(
@@ -995,27 +989,25 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                         w.counts.data(),
                         extract_strided_count{d_repeated_info.data(), ri, num_repeated});
 
-      // exclusive_scan writes offsets[0..num_rows-1] (the leading 0 falls out for free, no memset
-      // needed); the trailing offsets[num_rows] = total is written by a single-element transform
-      // computing offsets[num_rows-1] + counts[num_rows-1] on the same stream.
-      thrust::exclusive_scan(
-        rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), w.offsets.begin(), 0);
-      auto* d_total = w.offsets.data() + num_rows;
-      thrust::transform(rmm::exec_policy_nosync(stream),
-                        w.counts.end() - 1,
-                        w.counts.end(),
-                        w.offsets.data() + (num_rows - 1),
-                        d_total,
-                        thrust::plus<int32_t>{});
+      // Reduce in int64 to detect overflow before truncating to int32 (cudf list offsets are
+      // int32). Mirrors the guard already used in `build_repeated_child_list_column`.
+      // `thrust::reduce` syncs the stream by returning the value, so subsequent host code can
+      // safely consume `w.total_count` without a separate stream.synchronize() per field.
+      int64_t total_64 = thrust::reduce(
+        rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), int64_t{0});
+      CUDF_EXPECTS(total_64 <= std::numeric_limits<int32_t>::max(),
+                   "Top-level repeated field total element count exceeds 2^31-1");
+      w.total_count = static_cast<int32_t>(total_64);
 
-      CUDF_CUDA_TRY(cudaMemcpyAsync(h_total_counts.data() + ri,
-                                    d_total,
-                                    sizeof(int32_t),
-                                    cudaMemcpyDeviceToHost,
-                                    stream.value()));
+      if (num_rows > 0) {
+        // offsets[0] must start at 0; inclusive scan into offsets+1 fills offsets[1..num_rows].
+        // Empty input (num_rows == 0) has w.counts.begin() == w.counts.end() and offsets size 1,
+        // so we skip both writes — the offsets buffer goes unused on the no-row path.
+        CUDF_CUDA_TRY(cudaMemsetAsync(w.offsets.data(), 0, sizeof(int32_t), stream.value()));
+        thrust::inclusive_scan(
+          rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), w.offsets.data() + 1);
+      }
     }
-    stream.synchronize();
-    for (int ri = 0; ri < num_repeated; ri++) { rep_work[ri]->total_count = h_total_counts[ri]; }
 
     // Phase B: Allocate occurrence buffers and launch ONE combined scan kernel.
     std::vector<repeated_field_scan_desc> h_scan_descs;
