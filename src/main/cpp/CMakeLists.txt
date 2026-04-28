@@ -140,6 +140,15 @@ else()
   rapids_find_package(cudf REQUIRED)
 endif()
 
+# cuCollections
+# As of rapidsai/cudf PR #22277 (commit 5a375a3417ef70c55564bd0c4c6255a2da5dca49), libcudf
+# wraps its `cuco::cuco` link with `$<BUILD_LOCAL_INTERFACE:...>`, so the cuco headers are no
+# longer transitively exposed to downstream consumers via `find_package(cudf)`. Several
+# spark-rapids-jni sources (e.g. the hash kernels) include cudf detail headers that pull in
+# `<cuco/hash_functions.cuh>`, so we need to fetch cuco ourselves.
+include(${rapids-cmake-dir}/cpm/cuco.cmake)
+rapids_cpm_cuco()
+
 # Get the compilation flags and definitions from cudf.
 get_target_property(CUDF_CXX_FLAGS cudf::cudf CUDF_CXX_FLAGS)
 get_target_property(CUDF_CUDA_FLAGS cudf::cudf CUDF_CUDA_FLAGS)
@@ -321,6 +330,7 @@ target_link_libraries(
     cudf::cudf
     nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
+    cuco::cuco
     spdlog::spdlog_header_only
     ${ARROW_LIB}
     ${PARQUET_LIB}
