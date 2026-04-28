@@ -38,8 +38,10 @@ inline rmm::device_uvector<int32_t> make_list_offsets_from_counts(
   rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
     rmm::exec_policy_nosync(stream), counts.begin(), counts.end(), offsets.begin(), 0);
-  thrust::fill_n(
-    rmm::exec_policy_nosync(stream), offsets.data() + num_rows, 1, static_cast<int32_t>(total_count));
+  thrust::fill_n(rmm::exec_policy_nosync(stream),
+                 offsets.data() + num_rows,
+                 1,
+                 static_cast<int32_t>(total_count));
   return offsets;
 }
 
@@ -96,8 +98,8 @@ make_single_repeated_schema(int child_schema_idx,
 
   int const zero = 0;
   rmm::device_uvector<int> d_indices(1, stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    d_indices.data(), &zero, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
+  CUDF_CUDA_TRY(
+    cudaMemcpyAsync(d_indices.data(), &zero, sizeof(int), cudaMemcpyHostToDevice, stream.value()));
   return {std::move(d_schema), std::move(d_indices)};
 }
 
@@ -600,7 +602,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
 
   // Build the final LIST<STRING> column from the per-row counts and decoded child strings.
-  auto lo            = make_list_offsets_from_counts(d_field_counts, total_count, num_rows, stream, mr);
+  auto lo = make_list_offsets_from_counts(d_field_counts, total_count, num_rows, stream, mr);
   auto list_offs_col = std::make_unique<cudf::column>(
     cudf::data_type{cudf::type_id::INT32}, num_rows + 1, lo.release(), rmm::device_buffer{}, 0);
 
@@ -851,8 +853,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   auto h_lookup_vec = build_field_lookup_table(h_child_descs.data(), num_child_fields);
   rmm::device_uvector<int> d_child_lookup(0, stream, scratch_mr);
   if (!h_lookup_vec.empty()) {
-    auto h_child_lookup =
-      cudf::detail::make_pinned_vector_async<int>(h_lookup_vec.size(), stream);
+    auto h_child_lookup = cudf::detail::make_pinned_vector_async<int>(h_lookup_vec.size(), stream);
     std::copy(h_lookup_vec.begin(), h_lookup_vec.end(), h_child_lookup.begin());
     d_child_lookup = rmm::device_uvector<int>(h_child_lookup.size(), stream, scratch_mr);
     CUDF_CUDA_TRY(cudaMemcpyAsync(d_child_lookup.data(),
