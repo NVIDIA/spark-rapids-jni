@@ -54,7 +54,7 @@ namespace {
 constexpr std::uint8_t STATE_NULL  = 0;  // outer-null OR row contains a null struct entry
 constexpr std::uint8_t STATE_VALID = 1;  // row valid; no null key OR throw policy off
 constexpr std::uint8_t STATE_NULL_KEY =
-  2;                                     // row valid + null key in valid struct + throw policy on
+  2;  // row valid + null key in valid struct + throw policy on
 
 constexpr char kNullKeyError[] = "Cannot use null as map key.";
 
