@@ -22,8 +22,6 @@
 
 #include <rmm/cuda_stream_view.hpp>
 
-#include <memory>
-
 namespace spark_rapids_jni {
 
 /**
@@ -37,21 +35,29 @@ namespace spark_rapids_jni {
  *      - true  → throws a logic_error ("Cannot use null as map key.")
  *      - false → returns the row as-is (caller is responsible for deduplication policy)
  *
- * This function only handles null-struct masking and null-key validation.
+ * Fast-path contract: when every row would be returned unchanged (no null struct entries, and
+ * either no null key in a valid struct, or @p throw_on_null_key is false), this function
+ * returns @c nullptr.  A Spark MAP<K,V> and a cuDF LIST<STRUCT<K,V>> share the same physical
+ * layout (offsets, struct child, null mask), so the caller can reinterpret the input as the
+ * result with a single @c incRefCount — no device allocation, no kernel past Phase 1, no copy.
+ * An empty input also returns @c nullptr under the same contract.
+ *
+ * Sliced input is not supported: this function throws if @c input.offset() != 0 or the struct
+ * child has a non-zero offset.  Callers must materialize a slice (e.g. via @c cudf::copy)
+ * before invoking.
+ *
  * Duplicate-key deduplication is left to the caller.
  *
- * Sliced inputs are supported: only rows in the range
- * `[input.offset(), input.offset() + input.size())` are inspected.
- *
+ * @param input              Input LIST(STRUCT(KEY, VALUE)) column.  Must not be sliced.
+ * @param throw_on_null_key  When true, throw if any valid-struct entry has a null key.
+ * @param stream             CUDA stream used for device memory operations and kernel launches.
+ * @param mr                 Device memory resource used to allocate the returned column's memory.
+ * @return A new column equal to @p input except that rows containing null struct entries are
+ *         replaced with null outer rows; or @c nullptr if no row needs masking (fast path).
  * @throws cudf::logic_error if the input is not a LIST(STRUCT(KEY,...)) column.
+ * @throws cudf::logic_error if @p input or its struct child has a non-zero offset.
  * @throws cudf::logic_error if @p throw_on_null_key is true and any row (with no null struct
  *         entries) contains a null key inside a valid struct.
- * @param input           Input LIST(STRUCT(KEY, VALUE)) column.
- * @param throw_on_null_key  When true, throw if any valid-struct entry has a null key.
- * @param stream          CUDA stream used for device memory operations and kernel launches.
- * @param mr              Device memory resource used to allocate the returned column's memory.
- * @return A new column equal to @p input except that rows containing null struct entries are
- *         replaced with a null outer row.
  */
 [[nodiscard]] std::unique_ptr<cudf::column> map_from_entries(
   cudf::column_view const& input,

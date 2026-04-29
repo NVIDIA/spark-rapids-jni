@@ -34,8 +34,9 @@ struct MapUtilsTests : public cudf::test::BaseFixture {};
 TEST_F(MapUtilsTests, NonListInputThrows)
 {
   auto const input = int_col{1, 2, 3};
-  EXPECT_THROW(spark_rapids_jni::map_from_entries(input, /*throw_on_null_key=*/true),
-               cudf::logic_error);
+  EXPECT_THROW(
+    static_cast<void>(spark_rapids_jni::map_from_entries(input, /*throw_on_null_key=*/true)),
+    cudf::logic_error);
 }
 
 TEST_F(MapUtilsTests, ListOfNonStructThrows)
@@ -45,7 +46,7 @@ TEST_F(MapUtilsTests, ListOfNonStructThrows)
   auto children = int_col{1, 2, 3}.release();
   auto list =
     cudf::make_lists_column(2, std::move(offsets), std::move(children), 0, rmm::device_buffer{});
-  EXPECT_THROW(spark_rapids_jni::map_from_entries(list->view(), true), cudf::logic_error);
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list->view(), true)), cudf::logic_error);
 }
 
 TEST_F(MapUtilsTests, StructWithWrongArityThrows)
@@ -56,7 +57,7 @@ TEST_F(MapUtilsTests, StructWithWrongArityThrows)
   auto offsets = size_col{0, 2, 3}.release();
   auto list =
     cudf::make_lists_column(2, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
-  EXPECT_THROW(spark_rapids_jni::map_from_entries(list->view(), true), cudf::logic_error);
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list->view(), true)), cudf::logic_error);
 }
 
 // Contract check also fires for empty inputs — the nested-child validation runs
@@ -64,7 +65,7 @@ TEST_F(MapUtilsTests, StructWithWrongArityThrows)
 TEST_F(MapUtilsTests, EmptyNonListInputStillThrows)
 {
   auto const input = int_col{};
-  EXPECT_THROW(spark_rapids_jni::map_from_entries(input, true), cudf::logic_error);
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(input, true)), cudf::logic_error);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,12 +85,13 @@ TEST_F(MapUtilsTests, StringKeyNullThrows)
   auto offsets = size_col{0, 2}.release();
   auto list_col =
     cudf::make_lists_column(1, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
-  EXPECT_THROW(spark_rapids_jni::map_from_entries(list_col->view(), true), cudf::logic_error);
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list_col->view(), true)), cudf::logic_error);
 }
 
-TEST_F(MapUtilsTests, StringKeyNonNullSucceeds)
+TEST_F(MapUtilsTests, StringKeyNonNullFastPath)
 {
-  // All-valid string keys: should pass through without throwing and without masking.
+  // All-valid string keys: every row is STATE_VALID, so the function returns nullptr
+  // (fast-path signal).  The caller is expected to reinterpret the input as the result.
   auto keys    = cudf::test::strings_column_wrapper({"a", "b", "c"});
   auto values  = int_col{10, 20, 30};
   auto structs = cudf::test::structs_column_wrapper({keys, values}).release();
@@ -98,6 +100,5 @@ TEST_F(MapUtilsTests, StringKeyNonNullSucceeds)
     cudf::make_lists_column(2, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
   std::unique_ptr<cudf::column> result;
   EXPECT_NO_THROW(result = spark_rapids_jni::map_from_entries(list_col->view(), true));
-  EXPECT_EQ(result->size(), 2);
-  EXPECT_EQ(result->null_count(), 0);
+  EXPECT_EQ(result, nullptr);
 }
