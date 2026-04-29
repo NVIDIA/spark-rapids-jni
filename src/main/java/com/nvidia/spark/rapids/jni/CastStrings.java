@@ -341,6 +341,60 @@ public class CastStrings {
     }
   }
 
+  /**
+   * Format identifiers for {@link #parseTimestampWithFormat}. The {@code id} of each entry
+   * is the wire contract with the C++ {@code simple_ts_format} enum.
+   *
+   * <p>{@code yyyy-mm-dd} / {@code yyyymmdd} legacy aliases share IDs with
+   * {@code yyyy-MM-dd} / {@code yyyyMMdd} because the parsing rules are identical.
+   */
+  public enum SimpleTimestampFormat {
+    CORRECTED_YYYY_DASH_MM_DASH_DD(0),
+    CORRECTED_YYYY_SLASH_MM_SLASH_DD(1),
+    CORRECTED_YYYY_DASH_MM(2),
+    CORRECTED_YYYY_SLASH_MM(3),
+    CORRECTED_DD_SLASH_MM_SLASH_YYYY(4),
+    CORRECTED_YYYY_DASH_MM_DASH_DD_HH_MM_SS(5),
+    CORRECTED_MM_DASH_DD(6),
+    CORRECTED_MM_SLASH_DD(7),
+    CORRECTED_DD_DASH_MM(8),
+    CORRECTED_DD_SLASH_MM(9),
+    CORRECTED_MM_SLASH_YYYY(10),
+    CORRECTED_MM_DASH_YYYY(11),
+    CORRECTED_MM_SLASH_DD_SLASH_YYYY(12),
+    CORRECTED_MM_DASH_DD_DASH_YYYY(13),
+    CORRECTED_MMYYYY(14),
+
+    LEGACY_YYYY_DASH_MM_DASH_DD(15),
+    LEGACY_YYYY_SLASH_MM_SLASH_DD(16),
+    LEGACY_DD_DASH_MM_DASH_YYYY(17),
+    LEGACY_DD_SLASH_MM_SLASH_YYYY(18),
+    LEGACY_YYYY_DASH_MM_DASH_DD_HH_MM_SS(19),
+    LEGACY_YYYY_SLASH_MM_SLASH_DD_HH_MM_SS(20),
+    LEGACY_YYYYMMDD_HH_MM_SS(21),
+    LEGACY_YYYYMMDD(22);
+
+    private final int id;
+    SimpleTimestampFormat(int id) { this.id = id; }
+    public int getId() { return id; }
+  }
+
+  /**
+   * Parse a string column into a microsecond timestamp column for one of the supported
+   * Spark format patterns. Replaces the cuDF regex-validate + regex-rewrite + asTimestamp
+   * chain previously used in {@code GpuToTimestamp}; see the JNI-side documentation in
+   * {@code cast_string.hpp} for the parsing semantics. Parsed values are wall-clock UTC;
+   * timezone rebasing remains the caller's responsibility.
+   *
+   * @param input the input string column.
+   * @param format the pre-resolved format/policy combination.
+   * @return a timestamp_us column where invalid rows have nulls.
+   */
+  public static ColumnVector parseTimestampWithFormat(ColumnView input,
+      SimpleTimestampFormat format) {
+    return new ColumnVector(parseTimestampWithFormat(input.getNativeView(), format.getId()));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -361,5 +415,7 @@ public class CastStrings {
       int sparkMajor, int sparkMinor, int sparkPatch);
 
   private static native long parseDateStringsToDate(long input);
+
+  private static native long parseTimestampWithFormat(long input, int formatId);
 
 }

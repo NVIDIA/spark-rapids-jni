@@ -196,6 +196,32 @@ std::unique_ptr<cudf::column> parse_strings_to_date(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
+ * @brief Parse a string column into a microsecond-resolution timestamp column for a fixed
+ *        Spark format pattern.
+ *
+ * Replaces the cuDF regex-validate + regex-rewrite + asTimestamp chain that
+ * `GpuToTimestamp.parseStringAsTimestampWithLegacyParserPolicy` and
+ * `GpuToTimestamp.isTimestamp` use for the 24 supported `LEGACY_COMPATIBLE_FORMATS` /
+ * `CORRECTED_COMPATIBLE_FORMATS` patterns. Each pattern is a small anchored character-class
+ * state machine; the legacy `REMOVE_WHITESPACE_FROM_MONTH_DAY` rewrite is folded into that
+ * state machine instead of materializing a rewritten string column.
+ *
+ * Parsed values are interpreted as wall-clock UTC. Timezone rebasing is the caller's
+ * responsibility, mirroring the existing Spark plugin contract.
+ *
+ * @param input The input string column.
+ * @param format_id Format identifier matching the simple_ts_format enum.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for the returned column.
+ * @return A timestamp_us column, with nulls for invalid inputs.
+ */
+std::unique_ptr<cudf::column> parse_timestamp_strings_with_format(
+  cudf::strings_column_view const& input,
+  int32_t format_id,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+/**
  * @brief Convert a strings column to its hexadecimal representation.
  *
  * Each byte of each string is converted to a 2-character hex string (uppercase).
