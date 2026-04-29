@@ -461,12 +461,9 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   if (is_bytes) {
     // Transfer ownership of the chars buffer instead of copying — the strings path below uses
     // `chars.release()` for the same reason.
-    auto bytes_child = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::UINT8},
-                                                      total_chars,
-                                                      chars.release(),
-                                                      rmm::device_buffer{},
-                                                      0);
-    child_col        = cudf::make_lists_column(
+    auto bytes_child = std::make_unique<cudf::column>(
+      cudf::data_type{cudf::type_id::UINT8}, total_chars, chars.release(), rmm::device_buffer{}, 0);
+    child_col = cudf::make_lists_column(
       total_count, std::move(str_offsets_col), std::move(bytes_child), 0, rmm::device_buffer{});
   } else {
     child_col = cudf::make_strings_column(
