@@ -404,19 +404,8 @@ CUDF_KERNEL void extract_lengths_kernel(LocationProvider loc_provider,
 }
 
 // ============================================================================
-// Host wrapper declarations for kernel launches
+// Host wrapper declarations for kernel launches (repeated + nested)
 // ============================================================================
-
-void launch_scan_all_fields(cudf::column_device_view const& d_in,
-                            field_descriptor const* field_descs,
-                            int num_fields,
-                            int const* field_lookup,
-                            int field_lookup_size,
-                            field_location* locations,
-                            int* error_flag,
-                            bool* row_has_invalid_data,
-                            int num_rows,
-                            rmm::cuda_stream_view stream);
 
 void launch_count_repeated_fields(cudf::column_device_view const& d_in,
                                   device_nested_field_descriptor const* schema,
@@ -541,34 +530,6 @@ void launch_compute_msg_locations_from_occurrences(repeated_occurrence const* oc
                                                    int total_count,
                                                    int* error_flag,
                                                    rmm::cuda_stream_view stream);
-
-void launch_validate_enum_values(int32_t const* values,
-                                 bool* valid,
-                                 bool* row_has_invalid_enum,
-                                 int32_t const* valid_enum_values,
-                                 int num_valid_values,
-                                 int num_rows,
-                                 rmm::cuda_stream_view stream);
-
-void launch_compute_enum_string_lengths(int32_t const* values,
-                                        bool const* valid,
-                                        int32_t const* valid_enum_values,
-                                        int32_t const* enum_name_offsets,
-                                        int num_valid_values,
-                                        int32_t* lengths,
-                                        int num_rows,
-                                        rmm::cuda_stream_view stream);
-
-void launch_copy_enum_string_chars(int32_t const* values,
-                                   bool const* valid,
-                                   int32_t const* valid_enum_values,
-                                   int32_t const* enum_name_offsets,
-                                   uint8_t const* enum_name_chars,
-                                   int num_valid_values,
-                                   int32_t const* output_offsets,
-                                   char* out_chars,
-                                   int num_rows,
-                                   rmm::cuda_stream_view stream);
 
 // ============================================================================
 // Host-side template helpers that launch CUDA kernels

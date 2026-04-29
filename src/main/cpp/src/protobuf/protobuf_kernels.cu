@@ -58,9 +58,9 @@ CUDF_KERNEL void scan_all_fields_kernel(
   cudf::column_device_view const d_in,
   field_descriptor const* field_descs,  // [num_fields]
   int num_fields,
-  int const* field_lookup,              // direct-mapped lookup table (nullable)
-  int field_lookup_size,                // size of lookup table (0 if null)
-  field_location* locations,            // [num_rows * num_fields] row-major
+  int const* field_lookup,    // direct-mapped lookup table (nullable)
+  int field_lookup_size,      // size of lookup table (0 if null)
+  field_location* locations,  // [num_rows * num_fields] row-major
   int* error_flag,
   bool* row_has_invalid_data)
 {
@@ -1268,7 +1268,7 @@ CUDF_KERNEL void compute_enum_string_lengths_kernel(
   int32_t const* valid_enum_values,  // sorted enum numeric values
   int32_t const* enum_name_offsets,  // [num_valid_values + 1]
   int num_valid_values,
-  int32_t* lengths,                  // [num_rows]
+  int32_t* lengths,  // [num_rows]
   int num_rows)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1294,8 +1294,8 @@ CUDF_KERNEL void copy_enum_string_chars_kernel(
   int32_t const* enum_name_offsets,  // [num_valid_values + 1]
   uint8_t const* enum_name_chars,    // concatenated enum UTF-8 names
   int num_valid_values,
-  int32_t const* output_offsets,     // [num_rows + 1]
-  char* out_chars,                   // [total_chars]
+  int32_t const* output_offsets,  // [num_rows + 1]
+  char* out_chars,                // [total_chars]
   int num_rows)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
