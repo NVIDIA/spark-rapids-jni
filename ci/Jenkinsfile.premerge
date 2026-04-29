@@ -246,7 +246,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
 
                 stage ('cuda13') {
                     options {
-                        lock(label: "${params.GPU_POOL}", quantity: 1, variable: 'GPU_RESOURCE')
+                        lock(label: "cuda13", quantity: 1, variable: 'GPU_RESOURCE')
                     }
                     agent {
                         kubernetes {
