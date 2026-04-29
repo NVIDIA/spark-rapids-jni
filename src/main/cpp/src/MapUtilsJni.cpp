@@ -28,8 +28,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_MapUtils_mapFromEntries
   {
     cudf::jni::auto_set_device(env);
     auto const& input = *reinterpret_cast<cudf::column_view const*>(input_handle);
-    auto result =
-      spark_rapids_jni::map_from_entries(input, static_cast<bool>(throw_on_null_key));
+    auto result = spark_rapids_jni::map_from_entries(input, static_cast<bool>(throw_on_null_key));
     // 0 is the fast-path signal: caller reinterprets the input as the result.
     return result ? cudf::jni::release_as_jlong(std::move(result)) : 0L;
   }

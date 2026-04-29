@@ -46,7 +46,8 @@ TEST_F(MapUtilsTests, ListOfNonStructThrows)
   auto children = int_col{1, 2, 3}.release();
   auto list =
     cudf::make_lists_column(2, std::move(offsets), std::move(children), 0, rmm::device_buffer{});
-  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list->view(), true)), cudf::logic_error);
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list->view(), true)),
+               cudf::logic_error);
 }
 
 TEST_F(MapUtilsTests, StructWithWrongArityThrows)
@@ -57,7 +58,8 @@ TEST_F(MapUtilsTests, StructWithWrongArityThrows)
   auto offsets = size_col{0, 2, 3}.release();
   auto list =
     cudf::make_lists_column(2, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
-  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list->view(), true)), cudf::logic_error);
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list->view(), true)),
+               cudf::logic_error);
 }
 
 // Contract check also fires for empty inputs — the nested-child validation runs
@@ -65,7 +67,8 @@ TEST_F(MapUtilsTests, StructWithWrongArityThrows)
 TEST_F(MapUtilsTests, EmptyNonListInputStillThrows)
 {
   auto const input = int_col{};
-  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(input, true)), cudf::logic_error);
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(input, true)),
+               cudf::logic_error);
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +88,8 @@ TEST_F(MapUtilsTests, StringKeyNullThrows)
   auto offsets = size_col{0, 2}.release();
   auto list_col =
     cudf::make_lists_column(1, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
-  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list_col->view(), true)), cudf::logic_error);
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list_col->view(), true)),
+               cudf::logic_error);
 }
 
 TEST_F(MapUtilsTests, StringKeyNonNullFastPath)

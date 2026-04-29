@@ -51,9 +51,10 @@ namespace {
 // Per-row state — ordering MUST be NULL=0 < VALID=1 < NULL_KEY=2 so that:
 //   cub::DeviceReduce::Max(row_state) == 2  ⇒  some row would throw
 //   cub::DeviceReduce::Min(row_state) == 1  ⇒  every row valid ⇒ fast-path signal
-constexpr std::uint8_t STATE_NULL     = 0;  // outer-null OR row contains a null struct entry
-constexpr std::uint8_t STATE_VALID    = 1;  // row valid; no null key OR throw policy off
-constexpr std::uint8_t STATE_NULL_KEY = 2;  // row valid + null key in valid struct + throw policy on
+constexpr std::uint8_t STATE_NULL  = 0;  // outer-null OR row contains a null struct entry
+constexpr std::uint8_t STATE_VALID = 1;  // row valid; no null key OR throw policy off
+constexpr std::uint8_t STATE_NULL_KEY =
+  2;                                     // row valid + null key in valid struct + throw policy on
 
 constexpr char kNullKeyError[] = "Cannot use null as map key.";
 
@@ -93,8 +94,7 @@ __global__ void compute_row_state_kernel(cudf::bitmask_type const* list_null_mas
       break;  // STATE_NULL wins; no need to inspect remaining entries
     }
     if (throw_on_null_key) {
-      bool const key_valid =
-        (key_null_mask == nullptr) || cudf::bit_is_set(key_null_mask, j);
+      bool const key_valid = (key_null_mask == nullptr) || cudf::bit_is_set(key_null_mask, j);
       if (!key_valid) any_null_key_in_valid = true;
     }
   }
@@ -152,8 +152,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
                "map_from_entries: list child must be a STRUCT column");
   CUDF_EXPECTS(structs.num_children() == 2,
                "map_from_entries: struct must have exactly 2 children (KEY, VALUE)");
-  CUDF_EXPECTS(structs.offset() == 0,
-               "map_from_entries: list struct child must not be sliced");
+  CUDF_EXPECTS(structs.offset() == 0, "map_from_entries: list struct child must not be sliced");
 
   // Empty input ⇒ fast-path signal (caller incRefCount the empty input as the result).
   if (input.size() == 0) { return nullptr; }
@@ -169,23 +168,21 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   {
     constexpr int block_size = 256;
     auto const grid_size     = (num_rows + block_size - 1) / block_size;
-    compute_row_state_kernel<<<grid_size, block_size, 0, stream.value()>>>(
-      input.null_mask(),
-      lists_cv.offsets_begin(),
-      structs.null_mask(),
-      keys.null_mask(),
-      throw_on_null_key,
-      num_rows,
-      row_state.data(),
-      row_size.data());
+    compute_row_state_kernel<<<grid_size, block_size, 0, stream.value()>>>(input.null_mask(),
+                                                                           lists_cv.offsets_begin(),
+                                                                           structs.null_mask(),
+                                                                           keys.null_mask(),
+                                                                           throw_on_null_key,
+                                                                           num_rows,
+                                                                           row_state.data(),
+                                                                           row_size.data());
     CUDF_CHECK_CUDA(stream.value());
   }
 
   // ── Phase 1.5: device reductions + scan + bundled host pull ────────────────
   // Output offsets: scanned row_size with leading 0.
   rmm::device_uvector<cudf::size_type> out_offsets(num_rows + 1, stream, temp_mr);
-  CUDF_CUDA_TRY(
-    cudaMemsetAsync(out_offsets.data(), 0, sizeof(cudf::size_type), stream.value()));
+  CUDF_CUDA_TRY(cudaMemsetAsync(out_offsets.data(), 0, sizeof(cudf::size_type), stream.value()));
   thrust::inclusive_scan(rmm::exec_policy_nosync(stream, temp_mr),
                          row_size.begin(),
                          row_size.end(),
@@ -216,16 +213,10 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   std::uint8_t max_state{};
   std::uint8_t min_state{};
   cudf::size_type total_entries{};
-  CUDF_CUDA_TRY(cudaMemcpyAsync(&max_state,
-                                max_state_d.data(),
-                                sizeof(std::uint8_t),
-                                cudaMemcpyDeviceToHost,
-                                stream.value()));
-  CUDF_CUDA_TRY(cudaMemcpyAsync(&min_state,
-                                min_state_d.data(),
-                                sizeof(std::uint8_t),
-                                cudaMemcpyDeviceToHost,
-                                stream.value()));
+  CUDF_CUDA_TRY(cudaMemcpyAsync(
+    &max_state, max_state_d.data(), sizeof(std::uint8_t), cudaMemcpyDeviceToHost, stream.value()));
+  CUDF_CUDA_TRY(cudaMemcpyAsync(
+    &min_state, min_state_d.data(), sizeof(std::uint8_t), cudaMemcpyDeviceToHost, stream.value()));
   CUDF_CUDA_TRY(cudaMemcpyAsync(&total_entries,
                                 out_offsets.data() + num_rows,
                                 sizeof(cudf::size_type),
@@ -239,7 +230,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   // ── Phase 2: clean output construction (no dirty intermediate result) ─────
   // 2a. Null mask straight from row_state. bools_to_mask treats uint8_t==0 as false (bit 0)
   //     and !=0 as true (bit 1), which matches our state ordering exactly.
-  auto const state_view = cudf::column_view(cudf::data_type{cudf::type_id::BOOL8},
+  auto const state_view            = cudf::column_view(cudf::data_type{cudf::type_id::BOOL8},
                                             num_rows,
                                             static_cast<void const*>(row_state.data()),
                                             nullptr,
@@ -252,11 +243,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
     constexpr int block_size = 256;
     auto const grid_size     = (num_rows + block_size - 1) / block_size;
     build_gather_map_kernel<<<grid_size, block_size, 0, stream.value()>>>(
-      row_state.data(),
-      lists_cv.offsets_begin(),
-      out_offsets.data(),
-      num_rows,
-      gather_map.data());
+      row_state.data(), lists_cv.offsets_begin(), out_offsets.data(), num_rows, gather_map.data());
     CUDF_CHECK_CUDA(stream.value());
   }
 
