@@ -21,10 +21,11 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/detail/utilities/integer_utils.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/table/table_view.hpp>
-#include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/default_stream.hpp>
@@ -39,6 +40,7 @@
 #include <rmm/resource_ref.hpp>
 
 #include <cub/device/device_reduce.cuh>
+#include <thrust/iterator/counting_iterator.h>
 #include <thrust/scan.h>
 
 #include <cstdint>
@@ -153,13 +155,19 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   CUDF_EXPECTS(structs.num_children() == 2,
                "map_from_entries: struct must have exactly 2 children (KEY, VALUE)");
   CUDF_EXPECTS(structs.offset() == 0, "map_from_entries: list struct child must not be sliced");
+  // The Phase 1 kernel reads `keys.null_mask()` directly using positions taken from the list
+  // offsets. cuDF list offsets are stored as physical positions when the child is at offset 0,
+  // but become logical (offset-aware) when the child carries its own non-zero offset — in that
+  // case a raw `bit_is_set(keys.null_mask(), j)` would be misaligned by `keys.offset()` bits.
+  // Reject up front so the kernel never has to reason about it.
+  auto const keys = structs.child(0);
+  CUDF_EXPECTS(keys.offset() == 0, "map_from_entries: struct key child must not be sliced");
 
   // Empty input ⇒ fast-path signal (caller incRefCount the empty input as the result).
   if (input.size() == 0) { return nullptr; }
 
   auto const num_rows = input.size();
   auto const temp_mr  = cudf::get_current_device_resource_ref();
-  auto const keys     = structs.child(0);
 
   rmm::device_uvector<std::uint8_t> row_state(num_rows, stream, temp_mr);
   rmm::device_uvector<cudf::size_type> row_size(num_rows, stream, temp_mr);
@@ -167,7 +175,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   // ── Phase 1: per-row state collection ──────────────────────────────────────
   {
     constexpr int block_size = 256;
-    auto const grid_size     = (num_rows + block_size - 1) / block_size;
+    auto const grid_size     = cudf::util::div_rounding_up_safe(num_rows, block_size);
     compute_row_state_kernel<<<grid_size, block_size, 0, stream.value()>>>(input.null_mask(),
                                                                            lists_cv.offsets_begin(),
                                                                            structs.null_mask(),
@@ -180,8 +188,10 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   }
 
   // ── Phase 1.5: device reductions + scan + bundled host pull ────────────────
-  // Output offsets: scanned row_size with leading 0.
-  rmm::device_uvector<cudf::size_type> out_offsets(num_rows + 1, stream, temp_mr);
+  // Output offsets: scanned row_size with leading 0.  Allocated from `mr` because the
+  // buffer is released into the returned column at the end of Phase 2; only true scratch
+  // (row_state, row_size, gather_map, cub temp) uses temp_mr.
+  rmm::device_uvector<cudf::size_type> out_offsets(num_rows + 1, stream, mr);
   CUDF_CUDA_TRY(cudaMemsetAsync(out_offsets.data(), 0, sizeof(cudf::size_type), stream.value()));
   thrust::inclusive_scan(rmm::exec_policy_nosync(stream, temp_mr),
                          row_size.begin(),
@@ -228,20 +238,24 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   if (min_state == STATE_VALID) { return nullptr; }  // every row valid ⇒ input == output
 
   // ── Phase 2: clean output construction (no dirty intermediate result) ─────
-  // 2a. Null mask straight from row_state. bools_to_mask treats uint8_t==0 as false (bit 0)
-  //     and !=0 as true (bit 1), which matches our state ordering exactly.
-  auto const state_view            = cudf::column_view(cudf::data_type{cudf::type_id::BOOL8},
-                                            num_rows,
-                                            static_cast<void const*>(row_state.data()),
-                                            nullptr,
-                                            0);
-  auto [null_mask_buf, null_count] = cudf::bools_to_mask(state_view, stream, mr);
+  // 2a. Null mask from row_state via an explicit `state == STATE_VALID` predicate.  Avoids
+  //     reinterpreting uint8_t bytes (which can hold 0/1/2) as `bool` lvalues — the
+  //     STATE_NULL_KEY=2 case is filtered by the throw above, but the invariant should not
+  //     live only as a comment: a future refactor that reorders the throw must not silently
+  //     introduce UB ([conv.bool] forbids reading non-canonical bool representations).
+  auto [null_mask_buf, null_count_sz] = cudf::detail::valid_if(
+    row_state.begin(),
+    row_state.end(),
+    [] __device__(std::uint8_t state) { return state == STATE_VALID; },
+    stream,
+    mr);
+  auto const null_count = static_cast<cudf::size_type>(null_count_sz);
 
   // 2b. Gather map: each STATE_VALID row writes its source indices to its scanned slot.
   rmm::device_uvector<cudf::size_type> gather_map(total_entries, stream, temp_mr);
   {
     constexpr int block_size = 256;
-    auto const grid_size     = (num_rows + block_size - 1) / block_size;
+    auto const grid_size     = cudf::util::div_rounding_up_safe(num_rows, block_size);
     build_gather_map_kernel<<<grid_size, block_size, 0, stream.value()>>>(
       row_state.data(), lists_cv.offsets_begin(), out_offsets.data(), num_rows, gather_map.data());
     CUDF_CHECK_CUDA(stream.value());
@@ -274,7 +288,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
                                  std::move(offsets_col),
                                  std::move(gathered_struct),
                                  null_count,
-                                 std::move(*null_mask_buf));
+                                 std::move(null_mask_buf));
 }
 
 }  // namespace spark_rapids_jni

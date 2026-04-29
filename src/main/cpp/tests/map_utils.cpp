@@ -106,3 +106,43 @@ TEST_F(MapUtilsTests, StringKeyNonNullFastPath)
   EXPECT_NO_THROW(result = spark_rapids_jni::map_from_entries(list_col->view(), true));
   EXPECT_EQ(result, nullptr);
 }
+
+// Pins the validation order: a zero-row LIST<INT32> input must throw on the
+// "list child must be a STRUCT column" CUDF_EXPECTS — not silently take the
+// empty-input fast-path.  Without this test, swapping the order of the
+// validation block and the `input.size() == 0` early return would let
+// invalid-shape empty inputs through.
+TEST_F(MapUtilsTests, EmptyListOfNonStructStillThrows)
+{
+  auto offsets  = size_col{0}.release();
+  auto children = int_col{}.release();
+  auto list_col =
+    cudf::make_lists_column(0, std::move(offsets), std::move(children), 0, rmm::device_buffer{});
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::map_from_entries(list_col->view(), true)),
+               cudf::logic_error);
+}
+
+// Slow path — exercises the Phase 2 pipeline (state collection, gather-map kernel,
+// valid_if mask, gather over the struct child, make_lists_column).  Inputs:
+//   row 0: [null_struct, {2, 20}]  →  STATE_NULL  →  output null
+//   row 1: [{3, 30}]                →  STATE_VALID →  output unchanged
+// This is the C++ counterpart to the Java MapUtilsTest case `nullStructEntryMasksRow`.
+TEST_F(MapUtilsTests, NullStructEntryMasksRowSlowPath)
+{
+  // 3 entries in the struct child:
+  //   index 0: null_struct (struct validity = false)
+  //   index 1: {2, 20}     (struct validity = true)
+  //   index 2: {3, 30}     (struct validity = true)
+  auto keys    = int_col{-1, 2, 3};  // index-0 key is don't-care because the struct is null
+  auto values  = int_col{-1, 20, 30};
+  auto structs = cudf::test::structs_column_wrapper({keys, values}, {0, 1, 1}).release();
+  auto offsets = size_col{0, 2, 3}.release();
+  auto list_col =
+    cudf::make_lists_column(2, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
+
+  std::unique_ptr<cudf::column> result;
+  EXPECT_NO_THROW(result = spark_rapids_jni::map_from_entries(list_col->view(), true));
+  ASSERT_NE(result, nullptr);  // slow path must not take the fast-path return
+  EXPECT_EQ(result->size(), 2);
+  EXPECT_EQ(result->null_count(), 1);  // exactly row 0 is null
+}
