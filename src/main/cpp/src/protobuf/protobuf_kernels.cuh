@@ -168,19 +168,9 @@ CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
   int32_t data_offset = 0;
   auto loc            = loc_provider.get(idx, data_offset);
 
-  // For BOOL8 (uint8_t), protobuf spec says any non-zero varint is true.
-  // A raw static_cast<uint8_t> would silently truncate values >= 256 to 0.
-  auto const write_value = [](OutputType* dst, uint64_t val) {
-    if constexpr (cuda::std::is_same_v<OutputType, uint8_t>) {
-      *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
-    } else {
-      *dst = static_cast<OutputType>(val);
-    }
-  };
-
   if (loc.offset < 0) {
     if (has_default) {
-      write_value(&out[idx], static_cast<uint64_t>(default_value));
+      write_varint_value(&out[idx], static_cast<uint64_t>(default_value));
       if (valid) valid[idx] = true;
     } else {
       if (valid) valid[idx] = false;
@@ -200,7 +190,7 @@ CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
   }
 
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  write_value(&out[idx], v);
+  write_varint_value(&out[idx], v);
   if (valid) valid[idx] = true;
 }
 
@@ -287,17 +277,9 @@ CUDF_KERNEL void extract_varint_batched_kernel(uint8_t const* message_data,
   auto loc         = locations[row * num_loc_fields + desc.loc_field_idx];
   auto* out        = static_cast<OutputType*>(desc.output);
 
-  auto const write_value = [](OutputType* dst, uint64_t val) {
-    if constexpr (cuda::std::is_same_v<OutputType, uint8_t>) {
-      *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
-    } else {
-      *dst = static_cast<OutputType>(val);
-    }
-  };
-
   if (loc.offset < 0) {
     if (desc.has_default) {
-      write_value(&out[row], static_cast<uint64_t>(desc.default_int));
+      write_varint_value(&out[row], static_cast<uint64_t>(desc.default_int));
       desc.valid[row] = true;
     } else {
       desc.valid[row] = false;
@@ -317,7 +299,7 @@ CUDF_KERNEL void extract_varint_batched_kernel(uint8_t const* message_data,
     return;
   }
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  write_value(&out[row], v);
+  write_varint_value(&out[row], v);
   desc.valid[row] = true;
 }
 
@@ -888,7 +870,8 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                                       offsets.release(),
                                                       rmm::device_buffer{},
                                                       0);
-    auto elem_type   = field_type_id == cudf::type_id::LIST ? cudf::type_id::UINT8 : field_type_id;
+    auto const elem_type =
+      field_type_id == cudf::type_id::LIST ? cudf::type_id::UINT8 : field_type_id;
     auto child_col   = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
 
     if (input_null_count > 0) {

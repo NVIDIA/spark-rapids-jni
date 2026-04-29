@@ -19,16 +19,9 @@
 #include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/strings/detail/strings_column_factories.cuh>
 
-#include <optional>
-
 namespace spark_rapids_jni::protobuf::detail {
 
-namespace {
-
-// Compute LIST<...> per-row offsets from a per-row count array. Produces a
-// `device_uvector<int32_t>` of size `num_rows + 1` with `offsets[num_rows] = total_count`.
-// `mr` should be the output memory resource since the returned offsets feed into the LIST column.
-inline rmm::device_uvector<int32_t> make_list_offsets_from_counts(
+rmm::device_uvector<int32_t> make_list_offsets_from_counts(
   rmm::device_uvector<int32_t> const& counts,
   int total_count,
   int num_rows,
@@ -45,10 +38,7 @@ inline rmm::device_uvector<int32_t> make_list_offsets_from_counts(
   return offsets;
 }
 
-// Build a LIST<...> column whose null mask comes from the input column when it has nulls.
-// Used by all repeated-* builders to wrap `(offsets_col, child_col)` into a LIST column with
-// input-null propagation in a single shape.
-inline std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
+std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
   int num_rows,
   std::unique_ptr<cudf::column> offsets_col,
   std::unique_ptr<cudf::column> child_col,
@@ -67,8 +57,6 @@ inline std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
   return cudf::make_lists_column(
     num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
 }
-
-}  // namespace
 
 std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
                                                cudf::size_type num_rows,
@@ -320,7 +308,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   auto const rep_blocks =
     static_cast<int>((total_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   auto const scratch_mr = cudf::get_current_device_resource_ref();
-  auto lookup           = make_enum_string_lookup_tables(valid_enums, enum_name_bytes, stream, mr);
+  auto const lookup = make_enum_string_lookup_tables(valid_enums, enum_name_bytes, stream, mr);
 
   // 1. Extract enum integer values from occurrences
   rmm::device_uvector<int32_t> enum_ints(total_count, stream, scratch_mr);

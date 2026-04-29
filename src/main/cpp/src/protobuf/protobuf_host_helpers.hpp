@@ -19,10 +19,13 @@
 #include "protobuf/protobuf_types.cuh"
 
 #include <cudf/column/column_factories.hpp>
+#include <cudf/column/column_view.hpp>
 #include <cudf/detail/utilities/host_vector.hpp>
 
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -197,6 +200,27 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   rmm::device_async_resource_ref mr,
   int32_t const* top_row_indices = nullptr,
   bool propagate_invalid_rows    = true);
+
+// LIST<...> offsets buffer of size `num_rows + 1` from per-row counts. The last entry is
+// `total_count` (caller-provided to avoid an extra reduction). Both the prefix scan and the
+// final write are issued on `stream` against `mr`.
+rmm::device_uvector<int32_t> make_list_offsets_from_counts(
+  rmm::device_uvector<int32_t> const& counts,
+  int total_count,
+  int num_rows,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
+
+// Wrap an offsets / child column pair into a LIST column, propagating the input column's null
+// mask when it has nulls. Used by every repeated-* builder so the input-null shape stays
+// consistent across paths.
+std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
+  int num_rows,
+  std::unique_ptr<cudf::column> offsets_col,
+  std::unique_ptr<cudf::column> child_col,
+  cudf::column_view const& binary_input,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
 
 // Complex builder forward declarations
 std::unique_ptr<cudf::column> build_repeated_enum_string_column(

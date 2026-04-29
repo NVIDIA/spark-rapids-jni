@@ -968,13 +968,21 @@ void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_
     return;
   }
 
+  // Multiple items may share the same `top_row_indices[idx]` (e.g. several occurrences of a
+  // packed repeated enum within one row), so concurrent threads can race on the same byte.
+  // Although every racing write stores the same value (`true`), non-atomic concurrent writes
+  // to the same address are UB under the CUDA memory model. Use atomic_ref like set_error_once.
   thrust::for_each(rmm::exec_policy_nosync(stream),
                    thrust::make_counting_iterator(0),
                    thrust::make_counting_iterator(num_items),
                    [item_invalid = item_invalid.data(),
                     top_row_indices,
                     row_invalid = row_invalid.data()] __device__(int idx) {
-                     if (item_invalid[idx]) row_invalid[top_row_indices[idx]] = true;
+                     if (item_invalid[idx]) {
+                       cuda::atomic_ref<bool, cuda::thread_scope_device> ref(
+                         row_invalid[top_row_indices[idx]]);
+                       ref.store(true, cuda::memory_order_relaxed);
+                     }
                    });
 }
 

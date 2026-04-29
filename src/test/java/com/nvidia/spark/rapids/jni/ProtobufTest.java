@@ -3188,4 +3188,150 @@ public class ProtobufTest {
           Protobuf.decodeToStruct(input.getColumn(0), null, true));
     }
   }
+
+  @Test
+  void testRepeatedString() {
+    // Exercises the build_repeated_string_column non-enum path (CUB DeviceMemcpy::Batched
+    // copy + length-extraction), which the existing testRepeatedEnumAsString does not cover.
+    byte[] s1 = "hello".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] s2 = "world".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] s3 = "foo".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    Byte[] row0 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(s1.length)), box(s1),
+        box(tag(1, WT_LEN)), box(encodeVarint(s2.length)), box(s2));
+    Byte[] row1 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(s3.length)), box(s3));
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{Protobuf.WT_LEN},
+             new int[]{DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      assertEquals(2, result.getRowCount());
+      try (ColumnView listCol = result.getChildColumnView(0)) {
+        assertEquals(DType.LIST, listCol.getType());
+        try (ColumnView strChild = listCol.getChildColumnView(0);
+             HostColumnVector hcv = strChild.copyToHost()) {
+          assertEquals(3, hcv.getRowCount());
+          assertEquals("hello", hcv.getJavaString(0));
+          assertEquals("world", hcv.getJavaString(1));
+          assertEquals("foo", hcv.getJavaString(2));
+        }
+      }
+    }
+  }
+
+  @Test
+  void testRepeatedSint32() {
+    // sint32 zigzag encoding: zigzag(-1) = 1, zigzag(-2) = 3, zigzag(3) = 6.
+    // Verifies the extract_varint_kernel<T, true, repeated_location_provider> instantiation.
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1L)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(3L)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(6L)));
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{Protobuf.WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_ZIGZAG},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false);
+         ColumnView listCol = result.getChildColumnView(0);
+         ColumnView vals = listCol.getChildColumnView(0);
+         HostColumnVector hcv = vals.copyToHost()) {
+      assertEquals(3, hcv.getRowCount());
+      assertEquals(-1, hcv.getInt(0));
+      assertEquals(-2, hcv.getInt(1));
+      assertEquals(3, hcv.getInt(2));
+    }
+  }
+
+  @Test
+  void testNullInputRowProducesNullListForRepeatedField() {
+    // Verifies make_list_column_with_input_nulls propagates the input null mask to the
+    // output LIST column; previously only exercised by scalar (non-LIST) schemas.
+    Byte[] row0 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(8)));
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, null}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{Protobuf.WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false)) {
+      assertEquals(DType.STRUCT, result.getType());
+      assertEquals(2, result.getRowCount());
+      try (ColumnView listCol = result.getChildColumnView(0);
+           HostColumnVector hList = listCol.copyToHost()) {
+        assertEquals(DType.LIST, hList.getType());
+        assertFalse(hList.isNull(0), "row 0 should have a valid list");
+        assertTrue(hList.isNull(1), "null input row 1 should produce a null list");
+      }
+    }
+  }
+
+  @Test
+  void testSchemaWithTooManyRepeatedFields() {
+    // Hits ERR_SCHEMA_TOO_LARGE: the scan_all_repeated_occurrences_kernel stack-array
+    // guard rejects schemas with more than 32 top-level repeated fields.
+    int n = 33;
+    int[] fns = new int[n];
+    int[] parents = new int[n];
+    int[] depths = new int[n];
+    int[] wts = new int[n];
+    int[] types = new int[n];
+    int[] encs = new int[n];
+    boolean[] rep = new boolean[n];
+    boolean[] req = new boolean[n];
+    boolean[] hasDef = new boolean[n];
+    long[] dInts = new long[n];
+    double[] dFlts = new double[n];
+    boolean[] dBools = new boolean[n];
+    byte[][] dStrs = new byte[n][];
+    int[][] enumVV = new int[n][];
+    for (int i = 0; i < n; i++) {
+      fns[i] = i + 1;
+      parents[i] = -1;
+      depths[i] = 0;
+      wts[i] = WT_VARINT;
+      types[i] = DType.INT32.getTypeId().getNativeId();
+      encs[i] = Protobuf.ENC_DEFAULT;
+      rep[i] = true;
+    }
+    // The MAX_STACK_FIELDS guard in scan_all_repeated_occurrences_kernel only fires when
+    // every field actually has occurrences (zero-count fields are filtered out before the
+    // kernel launch). Encode one occurrence per field so num_scan_fields == n.
+    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+    try {
+      for (int i = 0; i < n; i++) {
+        baos.write(tag(i + 1, WT_VARINT));
+        baos.write(encodeVarint(1));
+      }
+    } catch (java.io.IOException e) {
+      throw new RuntimeException(e);
+    }
+    Byte[] row = box(baos.toByteArray());
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(RuntimeException.class, () -> {
+        try (ColumnVector ignored = decodeRaw(input.getColumn(0),
+            fns, parents, depths, wts, types, encs, rep, req,
+            hasDef, dInts, dFlts, dBools, dStrs, enumVV, true)) {
+          // unreachable: should throw
+        }
+      });
+    }
+  }
 }

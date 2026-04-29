@@ -175,6 +175,26 @@ std::unique_ptr<cudf::column> make_null_column_with_schema(
   return make_null_column(dtype, num_rows, stream, mr);
 }
 
+// Per-field bookkeeping for the three-phase top-level repeated pipeline:
+// `counts` is filled in Phase A, `offsets` is the prefix-sum input to the Phase B scan
+// kernel, and `occurrences` stores the (offset,length,row_idx) tuples produced by Phase B
+// for Phase C builders to consume.
+struct repeated_field_work {
+  int schema_idx;
+  int32_t total_count{0};
+  rmm::device_uvector<int32_t> counts;
+  rmm::device_uvector<int32_t> offsets;
+  std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
+
+  repeated_field_work(int si,
+                      cudf::size_type n,
+                      rmm::cuda_stream_view s,
+                      rmm::device_async_resource_ref m)
+    : schema_idx(si), counts(n, s, m), offsets(n + 1, s, m)
+  {
+  }
+};
+
 }  // namespace
 
 bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_type const& type)
@@ -439,9 +459,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     }
   }
 
-  int num_repeated = static_cast<int>(repeated_field_indices.size());
-  int num_nested   = static_cast<int>(nested_field_indices.size());
-  int num_scalar   = static_cast<int>(scalar_field_indices.size());
+  int const num_repeated = static_cast<int>(repeated_field_indices.size());
+  int const num_nested   = static_cast<int>(nested_field_indices.size());
+  int const num_scalar   = static_cast<int>(scalar_field_indices.size());
 
   // Error flag
   rmm::device_uvector<int> d_error(1, stream, cudf::get_current_device_resource_ref());
@@ -471,9 +491,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   };
   // PERMISSIVE-mode row nulling support. Unknown enum values and malformed rows should both
   // surface as null structs instead of partially decoded data.
-  bool has_enum_fields = std::any_of(
-    enum_valid_values.begin(), enum_valid_values.end(), [](auto const& v) { return !v.empty(); });
-  bool track_permissive_null_rows = !fail_on_errors;
+  bool const track_permissive_null_rows = !fail_on_errors;
   rmm::device_uvector<bool> d_row_force_null(
     track_permissive_null_rows ? num_rows : 0, stream, cudf::get_current_device_resource_ref());
   if (track_permissive_null_rows) {
@@ -930,22 +948,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // Process repeated fields (three-phase: offsets → combined scan → build columns)
   if (num_repeated > 0) {
     // Phase A: Compute per-row offsets for each repeated field.
-    struct repeated_field_work {
-      int schema_idx;
-      int32_t total_count{0};
-      rmm::device_uvector<int32_t> counts;
-      rmm::device_uvector<int32_t> offsets;
-      std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
-
-      repeated_field_work(int si,
-                          cudf::size_type n,
-                          rmm::cuda_stream_view s,
-                          rmm::device_async_resource_ref m)
-        : schema_idx(si), counts(n, s, m), offsets(n + 1, s, m)
-      {
-      }
-    };
-
     std::vector<std::unique_ptr<repeated_field_work>> rep_work;
     rep_work.reserve(num_repeated);
 
@@ -977,12 +979,12 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       w.total_count = static_cast<int32_t>(total_64);
 
       if (num_rows > 0) {
-        // offsets[0] must start at 0; inclusive scan into offsets+1 fills offsets[1..num_rows].
-        // Empty input (num_rows == 0) has w.counts.begin() == w.counts.end() and offsets size 1,
-        // so we skip both writes — the offsets buffer goes unused on the no-row path.
-        CUDF_CUDA_TRY(cudaMemsetAsync(w.offsets.data(), 0, sizeof(int32_t), stream.value()));
-        thrust::inclusive_scan(
-          rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), w.offsets.data() + 1);
+        // Reuse the shared LIST offsets helper. Exclusive scan starting at 0 is equivalent to
+        // the previous inclusive-scan-into-offsets+1 pattern when offsets[0] is forced to 0.
+        // Empty input (num_rows == 0) is handled by skipping this branch — the offsets buffer
+        // goes unused on the no-row path.
+        w.offsets =
+          make_list_offsets_from_counts(w.counts, w.total_count, num_rows, stream, scratch_mr);
       }
     }
 
@@ -1228,20 +1230,20 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             break;
         }
       } else {
-        // All rows have count=0 - create list of empty elements
-        rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-        thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
+        // All rows have count=0 — produce an all-zeros offsets column wrapped in a LIST whose
+        // null mask comes from the input column. Reuses the same helpers the inner builders use.
+        auto offsets =
+          make_list_offsets_from_counts(w.counts, /*total_count*/ 0, num_rows, stream, mr);
         auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                           num_rows + 1,
                                                           offsets.release(),
                                                           rmm::device_buffer{},
                                                           0);
 
-        // Build appropriate empty child column
         std::unique_ptr<cudf::column> child_col;
-        auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
+        auto const child_type_id =
+          static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
         if (child_type_id == cudf::type_id::STRUCT) {
-          // Use helper to build empty struct with proper nested structure
           child_col =
             make_empty_struct_column_with_schema(schema, schema_idx, num_fields, stream, mr);
         } else {
@@ -1249,18 +1251,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             make_empty_column_safe(cudf::data_type{schema[schema_idx].output_type}, stream, mr);
         }
 
-        auto const input_null_count = binary_input.null_count();
-        if (input_null_count > 0) {
-          auto null_mask         = cudf::copy_bitmask(binary_input, stream, mr);
-          column_map[schema_idx] = cudf::make_lists_column(num_rows,
-                                                           std::move(offsets_col),
-                                                           std::move(child_col),
-                                                           input_null_count,
-                                                           std::move(null_mask));
-        } else {
-          column_map[schema_idx] = cudf::make_lists_column(
-            num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
-        }
+        column_map[schema_idx] = make_list_column_with_input_nulls(
+          num_rows, std::move(offsets_col), std::move(child_col), binary_input, stream, mr);
       }
     }
   }
