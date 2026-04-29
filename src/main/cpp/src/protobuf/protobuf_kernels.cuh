@@ -872,7 +872,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                                       0);
     auto const elem_type =
       field_type_id == cudf::type_id::LIST ? cudf::type_id::UINT8 : field_type_id;
-    auto child_col   = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
+    auto child_col = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
 
     if (input_null_count > 0) {
       auto null_mask = cudf::copy_bitmask(binary_input, stream, mr);

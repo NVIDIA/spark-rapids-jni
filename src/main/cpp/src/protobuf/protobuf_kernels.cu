@@ -169,8 +169,7 @@ CUDF_KERNEL void scan_all_fields_kernel(
 
 /**
  * Count a single repeated field occurrence (packed or unpacked).
- * Updates info.count and info.total_length.
- * Returns false on error (error_flag set), true on success.
+ * Updates info.count. Returns false on error (error_flag set), true on success.
  */
 __device__ bool count_repeated_element(uint8_t const* cur,
                                        uint8_t const* msg_end,
@@ -229,7 +228,6 @@ __device__ bool count_repeated_element(uint8_t const* cur,
     }
 
     info.count += count;
-    info.total_length += static_cast<int32_t>(packed_len);
   } else {
     int32_t data_offset, data_length;
     if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
@@ -237,7 +235,6 @@ __device__ bool count_repeated_element(uint8_t const* cur,
       return false;
     }
     info.count++;
-    info.total_length += data_length;
   }
   return true;
 }
@@ -378,7 +375,7 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
   for (int f = 0; f < num_repeated_fields; f++) {
     repeated_info[flat_index(
       static_cast<size_t>(row), static_cast<size_t>(num_repeated_fields), static_cast<size_t>(f))] =
-      {0, 0};
+      {0};
   }
 
   // Initialize nested locations to not found
@@ -494,6 +491,7 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
         int schema_idx = nested_field_indices[i];
         if (schema[schema_idx].field_number == fn && schema[schema_idx].depth == depth_level) {
           if (!handle_nested(i)) return;
+          break;  // Each tag dispatches to at most one nested index (mirrors lookup-table path)
         }
       }
     }
@@ -535,16 +533,14 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
   uint8_t const* cur     = bytes + start;
   uint8_t const* msg_end = bytes + end;
 
-  // Tighter bound matches realistic Spark schemas (typical: <16 top-level repeated fields per
-  // message). Keeping the cap small keeps `write_idx` in registers / L1 instead of spilling into
-  // local memory, which would otherwise cost 4x the per-thread footprint at MAX_STACK_FIELDS=128
-  // and pressure occupancy. ERR_SCHEMA_TOO_LARGE remains the host-visible cap.
-  constexpr int MAX_STACK_FIELDS = 32;
-  if (num_scan_fields > MAX_STACK_FIELDS) {
+  // The host validates `num_repeated <= MAX_REPEATED_FIELDS_PER_KERNEL` in
+  // `validate_decode_context`, so this device-side check is a defense-in-depth assert. Keeping
+  // the cap small keeps `write_idx` in registers / L1 instead of spilling into local memory.
+  if (num_scan_fields > MAX_REPEATED_FIELDS_PER_KERNEL) {
     set_error_once(error_flag, ERR_SCHEMA_TOO_LARGE);
     return;
   }
-  int write_idx[MAX_STACK_FIELDS];
+  int write_idx[MAX_REPEATED_FIELDS_PER_KERNEL];
   for (int f = 0; f < num_scan_fields; f++) {
     write_idx[f] = scan_descs[f].row_offsets[row];
   }
@@ -972,18 +968,18 @@ void propagate_invalid_enum_flags_to_rows(rmm::device_uvector<bool> const& item_
   // packed repeated enum within one row), so concurrent threads can race on the same byte.
   // Although every racing write stores the same value (`true`), non-atomic concurrent writes
   // to the same address are UB under the CUDA memory model. Use atomic_ref like set_error_once.
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   thrust::make_counting_iterator(0),
-                   thrust::make_counting_iterator(num_items),
-                   [item_invalid = item_invalid.data(),
-                    top_row_indices,
-                    row_invalid = row_invalid.data()] __device__(int idx) {
-                     if (item_invalid[idx]) {
-                       cuda::atomic_ref<bool, cuda::thread_scope_device> ref(
-                         row_invalid[top_row_indices[idx]]);
-                       ref.store(true, cuda::memory_order_relaxed);
-                     }
-                   });
+  thrust::for_each(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(num_items),
+    [item_invalid = item_invalid.data(),
+     top_row_indices,
+     row_invalid = row_invalid.data()] __device__(int idx) {
+      if (item_invalid[idx]) {
+        cuda::atomic_ref<bool, cuda::thread_scope_device> ref(row_invalid[top_row_indices[idx]]);
+        ref.store(true, cuda::memory_order_relaxed);
+      }
+    });
 }
 
 void validate_enum_and_propagate_rows(rmm::device_uvector<int32_t> const& values,

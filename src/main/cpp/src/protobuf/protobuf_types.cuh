@@ -44,6 +44,13 @@ constexpr int ERR_REPEATED_COUNT_MISMATCH = 12;
 // Field numbers above this threshold fall back to linear search.
 constexpr int FIELD_LOOKUP_TABLE_MAX = 4096;
 
+// Maximum number of top-level repeated fields the combined occurrence-scan kernel can process
+// in a single launch. The kernel keeps a per-thread `int write_idx[MAX_REPEATED_FIELDS_PER_KERNEL]`
+// array on the stack; raising the limit pushes the array into local memory, which would otherwise
+// cost 4x the per-thread footprint and pressure occupancy. Validated at the host level so the
+// error surface depends on the schema, not on which fields happen to have data in a given batch.
+constexpr int MAX_REPEATED_FIELDS_PER_KERNEL = 32;
+
 /**
  * Structure to record field location within a message.
  * offset < 0 means field was not found.
@@ -66,8 +73,7 @@ struct field_descriptor {
  * Information about repeated field occurrences in a row.
  */
 struct repeated_field_info {
-  int32_t count;         // Number of occurrences in this row
-  int32_t total_length;  // Total bytes for all occurrences (for varlen fields)
+  int32_t count;  // Number of occurrences in this row
 };
 
 /**

@@ -186,11 +186,13 @@ struct repeated_field_work {
   rmm::device_uvector<int32_t> offsets;
   std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
 
+  // `offsets` starts empty; Phase A overwrites it via `make_list_offsets_from_counts`, which
+  // returns a freshly-sized device_uvector. Allocating `n + 1` here would only be discarded.
   repeated_field_work(int si,
                       cudf::size_type n,
                       rmm::cuda_stream_view s,
                       rmm::device_async_resource_ref m)
-    : schema_idx(si), counts(n, s, m), offsets(n + 1, s, m)
+    : schema_idx(si), counts(n, s, m), offsets(0, s, m)
   {
   }
 };
@@ -335,6 +337,20 @@ void validate_decode_context(protobuf_decode_context const& context)
       }
     }
   }
+
+  // Reject schemas that exceed the combined-scan kernel's stack-array capacity. Counting
+  // here (rather than relying on the device-side guard hit during a particular batch) keeps
+  // the error surface schema-deterministic: a 40-field schema fails the same way regardless
+  // of which fields happen to carry data in the input.
+  int top_level_repeated = 0;
+  for (auto const& field : context.schema) {
+    if (field.parent_idx == -1 && field.is_repeated) { ++top_level_repeated; }
+  }
+  CUDF_EXPECTS(top_level_repeated <= MAX_REPEATED_FIELDS_PER_KERNEL,
+               "protobuf decode context: schema exceeds maximum supported top-level repeated "
+               "fields per kernel (" +
+                 std::to_string(MAX_REPEATED_FIELDS_PER_KERNEL) + ")",
+               std::invalid_argument);
 }
 
 protobuf_field_meta_view make_field_meta_view(protobuf_decode_context const& context,

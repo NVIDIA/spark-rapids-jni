@@ -308,7 +308,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   auto const rep_blocks =
     static_cast<int>((total_count + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   auto const scratch_mr = cudf::get_current_device_resource_ref();
-  auto const lookup = make_enum_string_lookup_tables(valid_enums, enum_name_bytes, stream, mr);
+  auto const lookup     = make_enum_string_lookup_tables(valid_enums, enum_name_bytes, stream, mr);
 
   // 1. Extract enum integer values from occurrences
   rmm::device_uvector<int32_t> enum_ints(total_count, stream, scratch_mr);
@@ -346,8 +346,16 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
                     d_occurrences.end(),
                     d_top_row_indices.begin(),
                     [] __device__(repeated_occurrence const& occ) { return occ.row_idx; });
-  propagate_invalid_enum_flags_to_rows(
-    d_elem_has_invalid_enum, d_row_force_null, total_count, d_top_row_indices.data(), true, stream);
+  // STRICT mode (fail_on_errors = true) leaves d_row_force_null sized 0; skip the row-level
+  // propagation in that case. Mirrors the pattern used by the scalar path in
+  // build_enum_string_column. The callee also guards on `row_invalid.size() == 0`, but pushing
+  // the gate to the call site keeps the intent local and survives future callee refactors.
+  propagate_invalid_enum_flags_to_rows(d_elem_has_invalid_enum,
+                                       d_row_force_null,
+                                       total_count,
+                                       d_top_row_indices.data(),
+                                       d_row_force_null.size() > 0,
+                                       stream);
 
   auto child_col =
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
@@ -451,13 +459,14 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   std::unique_ptr<cudf::column> child_col;
   if (is_bytes) {
-    auto bytes_child =
-      std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::UINT8},
-                                     total_chars,
-                                     rmm::device_buffer(chars.data(), total_chars, stream, mr),
-                                     rmm::device_buffer{},
-                                     0);
-    child_col = cudf::make_lists_column(
+    // Transfer ownership of the chars buffer instead of copying — the strings path below uses
+    // `chars.release()` for the same reason.
+    auto bytes_child = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::UINT8},
+                                                      total_chars,
+                                                      chars.release(),
+                                                      rmm::device_buffer{},
+                                                      0);
+    child_col        = cudf::make_lists_column(
       total_count, std::move(str_offsets_col), std::move(bytes_child), 0, rmm::device_buffer{});
   } else {
     child_col = cudf::make_strings_column(
