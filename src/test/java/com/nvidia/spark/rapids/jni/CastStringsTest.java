@@ -1482,6 +1482,29 @@ public class CastStringsTest {
   }
 
   @Test
+  void parseTimestampWithFormat_legacyLowerMmIsMinute() {
+    // SimpleDateFormat reads lowercase mm as minute. yyyymmdd / yyyy-mm-dd parse the middle
+    // 2 digits as minute-of-hour and produce a 00:mm:00 time on day 1 of January.
+    long y2024_min41_day12 = expectedUs(2024, 1, 12, 0, 41, 0);
+    assertParsedTimestamp(
+        new String[]{"20244112", "20240812", "20246012", "20240199", "20240131"},
+        CastStrings.SimpleTimestampFormat.LEGACY_YYYYMMDD_LOWER,
+        new Long[]{y2024_min41_day12,
+                    expectedUs(2024, 1, 12, 0, 8, 0),
+                    null,                                  // minute=60 rejected
+                    null,                                  // day=99 rejected
+                    expectedUs(2024, 1, 31, 0, 1, 0)});
+
+    assertParsedTimestamp(
+        new String[]{"2024-41-12", "2024-8-12", "2024-60-12", "2024-01-99"},
+        CastStrings.SimpleTimestampFormat.LEGACY_YYYY_DASH_MM_DASH_DD_LOWER,
+        new Long[]{y2024_min41_day12,
+                    expectedUs(2024, 1, 12, 0, 8, 0),
+                    null,
+                    null});
+  }
+
+  @Test
   void parseTimestampWithFormat_invalidCalendarDates() {
     assertParsedTimestamp(
         new String[]{"2024-02-29", "2023-02-29", "2024-04-31", "2024-13-01"},

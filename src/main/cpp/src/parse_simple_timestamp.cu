@@ -106,6 +106,10 @@ __device__ bool legacy_trailing_ok(unsigned char const* p, int pos, int end)
 __device__ bool corrected_trailing_ok(int pos, int end) { return pos == end; }
 
 // Wire contract: each id mirrors `CastStrings.SimpleTimestampFormat#getId` on the Java side.
+//
+// "_LOWER" variants are for Spark patterns whose middle field is `mm` (minute) rather than
+// `MM` (month) — `yyyy-mm-dd` and `yyyymmdd`. SimpleDateFormat reads the middle 2 digits as
+// minute-of-hour and produces a `00:mm:00` wall-clock time on day 1 of January.
 enum simple_ts_format : int32_t {
   C_YYYY_DASH_MM_DASH_DD          = 0,
   C_YYYY_SLASH_MM_SLASH_DD        = 1,
@@ -123,14 +127,16 @@ enum simple_ts_format : int32_t {
   C_MM_DASH_DD_DASH_YYYY          = 13,
   C_MMYYYY                        = 14,
 
-  L_YYYY_DASH_MM_DASH_DD           = 15,
-  L_YYYY_SLASH_MM_SLASH_DD         = 16,
-  L_DD_DASH_MM_DASH_YYYY           = 17,
-  L_DD_SLASH_MM_SLASH_YYYY         = 18,
-  L_YYYY_DASH_MM_DASH_DD_HH_MM_SS  = 19,
+  L_YYYY_DASH_MM_DASH_DD            = 15,
+  L_YYYY_SLASH_MM_SLASH_DD          = 16,
+  L_DD_DASH_MM_DASH_YYYY            = 17,
+  L_DD_SLASH_MM_SLASH_YYYY          = 18,
+  L_YYYY_DASH_MM_DASH_DD_HH_MM_SS   = 19,
   L_YYYY_SLASH_MM_SLASH_DD_HH_MM_SS = 20,
-  L_YYYYMMDD_HH_MM_SS              = 21,
-  L_YYYYMMDD                       = 22,
+  L_YYYYMMDD_HH_MM_SS               = 21,
+  L_YYYYMMDD                        = 22,
+  L_YYYY_DASH_MM_DASH_DD_LOWER      = 23,  // yyyy-mm-dd: middle field is minute
+  L_YYYYMMDD_LOWER                  = 24,  // yyyymmdd:   middle field is minute
 };
 
 // Reject any string whose first non-[ \t] char is '\n', mirroring rejectLeadingNewlineThenStrip.
@@ -323,6 +329,24 @@ __device__ bool parse_legacy(simple_ts_format fmt,
     case L_YYYYMMDD: {
       if (!read_n_digits(p, pos, end, 4, d.year)) return false;
       if (!read_n_digits(p, pos, end, 2, d.month)) return false;
+      if (!read_n_digits(p, pos, end, 2, d.day)) return false;
+      return legacy_trailing_ok(p, pos, end);
+    }
+    case L_YYYY_DASH_MM_DASH_DD_LOWER: {
+      // yyyy-mm-dd with lowercase mm: middle field is minute, month stays at default 1.
+      if (!read_n_digits(p, pos, end, 4, d.year)) return false;
+      if (!try_parse_char(p, pos, end, '-')) return false;
+      skip_ht_whitespace(p, pos, end);
+      if (!read_1_or_2_digits(p, pos, end, d.minute)) return false;
+      if (!try_parse_char(p, pos, end, '-')) return false;
+      skip_ht_whitespace(p, pos, end);
+      if (!read_1_or_2_digits(p, pos, end, d.day)) return false;
+      return legacy_trailing_ok(p, pos, end);
+    }
+    case L_YYYYMMDD_LOWER: {
+      // yyyymmdd with lowercase mm: middle field is minute, month stays at default 1.
+      if (!read_n_digits(p, pos, end, 4, d.year)) return false;
+      if (!read_n_digits(p, pos, end, 2, d.minute)) return false;
       if (!read_n_digits(p, pos, end, 2, d.day)) return false;
       return legacy_trailing_ok(p, pos, end);
     }

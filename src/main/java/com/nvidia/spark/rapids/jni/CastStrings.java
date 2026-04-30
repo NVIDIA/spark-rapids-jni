@@ -345,8 +345,10 @@ public class CastStrings {
    * Format identifiers for {@link #parseTimestampWithFormat}. The {@code id} of each entry
    * is the wire contract with the C++ {@code simple_ts_format} enum.
    *
-   * <p>{@code yyyy-mm-dd} / {@code yyyymmdd} legacy aliases share IDs with
-   * {@code yyyy-MM-dd} / {@code yyyyMMdd} because the parsing rules are identical.
+   * <p>{@code _LOWER} variants are for Spark patterns whose middle field is {@code mm}
+   * (minute) rather than {@code MM} (month) — {@code yyyy-mm-dd} and {@code yyyymmdd}.
+   * SimpleDateFormat reads the middle 2 digits as minute-of-hour and produces a
+   * {@code 00:mm:00} wall-clock time on day 1 of January.
    */
   public enum SimpleTimestampFormat {
     CORRECTED_YYYY_DASH_MM_DASH_DD(0),
@@ -372,7 +374,9 @@ public class CastStrings {
     LEGACY_YYYY_DASH_MM_DASH_DD_HH_MM_SS(19),
     LEGACY_YYYY_SLASH_MM_SLASH_DD_HH_MM_SS(20),
     LEGACY_YYYYMMDD_HH_MM_SS(21),
-    LEGACY_YYYYMMDD(22);
+    LEGACY_YYYYMMDD(22),
+    LEGACY_YYYY_DASH_MM_DASH_DD_LOWER(23),
+    LEGACY_YYYYMMDD_LOWER(24);
 
     private final int id;
     SimpleTimestampFormat(int id) { this.id = id; }
