@@ -211,7 +211,9 @@ std::unique_ptr<cudf::column> parse_strings_to_date(
  * not month. Space in the pattern matches either ' ' or 'T' in the input. In LEGACY mode,
  * non-year digit fields are 1 or 2 digits unless adjacent to another digit field (in which
  * case widths are exact to disambiguate). Parsed values are wall-clock UTC; timezone
- * rebasing remains the caller's responsibility.
+ * rebasing remains the caller's responsibility — in LEGACY mode the trailing non-digit rule
+ * silently accepts (and discards) any non-digit suffix including 'Z', so callers must not
+ * infer a UTC offset from a trailing 'Z'.
  *
  * @param input The input string column.
  * @param format Spark format pattern (e.g. `"yyyy-MM-dd HH:mm:ss"`).

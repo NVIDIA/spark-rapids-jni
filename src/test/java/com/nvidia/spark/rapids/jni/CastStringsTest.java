@@ -1389,9 +1389,9 @@ public class CastStringsTest {
 
     // yyyy-MM-dd corrected: strict 2-digit fields.
     assertParsedTimestamp(
-        new String[]{"2024-05-06", "2024-5-6", " 2024-05-06", "2024-05-06 ", null},
+        new String[]{"2024-05-06", "2024-5-6", " 2024-05-06", "2024-05-06 ", "", null},
         "yyyy-MM-dd", false,
-        new Long[]{y2024_05_06, null, null, null, null});
+        new Long[]{y2024_05_06, null, null, null, null, null});
 
     // yyyy-MM corrected: no day, defaults to 1.
     assertParsedTimestamp(

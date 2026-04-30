@@ -16,6 +16,7 @@
 
 #include "cast_string.hpp"
 #include "datetime_utils.cuh"
+#include "nvtx_ranges.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -46,36 +47,21 @@ namespace {
 // Whitespace test consistent with Spark UTF8String.trimAll for char input.
 __device__ bool is_whitespace(unsigned char c) { return c <= 32 || c == 127; }
 
-// Read exactly `n` digits starting at pos. Advances pos on success.
-__device__ bool read_n_digits(unsigned char const* p, int& pos, int end, int n, int& v)
+// Read between `min_d` and `max_d` digits greedily. Advances pos by the digits read.
+// Returns false (and the partial pos advance is irrelevant since walk_tokens aborts on failure).
+__device__ bool read_min_max_digits(
+  unsigned char const* p, int& pos, int end, int min_d, int max_d, int& v)
 {
-  if (pos + n > end) { return false; }
-  v = 0;
-  for (int i = 0; i < n; ++i) {
-    int c = static_cast<int>(p[pos + i]) - '0';
-    if (c < 0 || c > 9) { return false; }
+  v          = 0;
+  int digits = 0;
+  while (pos < end && digits < max_d) {
+    int const c = static_cast<int>(p[pos]) - '0';
+    if (c < 0 || c > 9) { break; }
     v = v * 10 + c;
+    ++digits;
+    ++pos;
   }
-  pos += n;
-  return true;
-}
-
-// Read 1 or 2 digits greedily. Advances pos on success.
-__device__ bool read_1_or_2_digits(unsigned char const* p, int& pos, int end, int& v)
-{
-  if (pos >= end) { return false; }
-  int c = static_cast<int>(p[pos]) - '0';
-  if (c < 0 || c > 9) { return false; }
-  v = c;
-  ++pos;
-  if (pos < end) {
-    int c2 = static_cast<int>(p[pos]) - '0';
-    if (c2 >= 0 && c2 <= 9) {
-      v = v * 10 + c2;
-      ++pos;
-    }
-  }
-  return true;
+  return digits >= min_d;
 }
 
 __device__ bool try_parse_char(unsigned char const* p, int& pos, int end, unsigned char c)
@@ -201,9 +187,12 @@ std::vector<format_token> compile_format(std::string const& fmt, bool legacy)
       }
       bool const packed = (i > 0 && std::isalpha(static_cast<unsigned char>(fmt[i - 1]))) ||
                           (j < n && std::isalpha(static_cast<unsigned char>(fmt[j])));
+      if (j - i > 9) {
+        throw std::invalid_argument(std::string("pattern letter run too long: ") + c);
+      }
       uint8_t const run   = static_cast<uint8_t>(j - i);
       uint8_t const min_d = (c == 'y') ? run : (legacy && !packed ? 1 : run);
-      uint8_t const max_d = (c == 'y') ? run : run;
+      uint8_t const max_d = run;
       out.push_back({TOK_DIGITS, letter_to_field(c), min_d, max_d});
       i = j;
     } else {
@@ -237,7 +226,7 @@ __device__ void store_field(parsed_dt& d, uint8_t field, int v)
 __device__ bool walk_tokens(unsigned char const* p,
                             int pos,
                             int end,
-                            format_token const* tokens,
+                            format_token const* __restrict__ tokens,
                             int num_tokens,
                             parsed_dt& d)
 {
@@ -247,7 +236,7 @@ __device__ bool walk_tokens(unsigned char const* p,
     switch (t.kind) {
       case TOK_DIGITS: {
         int v = 0;
-        ok = (t.b == t.c) ? read_n_digits(p, pos, end, t.b, v) : read_1_or_2_digits(p, pos, end, v);
+        ok    = read_min_max_digits(p, pos, end, t.b, t.c, v);
         if (ok) { store_field(d, t.a, v); }
         break;
       }
@@ -269,7 +258,7 @@ __device__ bool walk_tokens(unsigned char const* p,
 
 struct parse_with_format_fn {
   cudf::column_device_view d_strings;
-  format_token const* tokens;
+  format_token const* __restrict__ tokens;
   int num_tokens;
   bool legacy;
   bool* validity;
@@ -333,6 +322,7 @@ std::unique_ptr<cudf::column> parse_timestamp_strings_with_format(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  SRJ_FUNC_RANGE();
   auto const num_rows = input.size();
   if (num_rows == 0) {
     return cudf::make_empty_column(cudf::data_type{cudf::type_to_id<cudf::timestamp_us>()});
@@ -369,7 +359,7 @@ std::unique_ptr<cudf::column> parse_timestamp_strings_with_format(
 
   auto [output_bitmask, null_count] =
     cudf::bools_to_mask(cudf::device_span<bool const>(validity), stream, mr);
-  if (null_count) { result->set_null_mask(std::move(*output_bitmask.release()), null_count); }
+  if (null_count) { result->set_null_mask(std::move(*output_bitmask), null_count); }
 
   return result;
 }
