@@ -22,12 +22,15 @@ import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.zone.ZoneRules;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -57,18 +60,39 @@ public class GpuTimeZoneDBTest {
       String writeTzId,
       String readerTzId) {
     long[] results = new long[microseconds.length];
-    TimeZone writeTz = TimeZone.getTimeZone(writeTzId);
-    TimeZone readerTz = TimeZone.getTimeZone(readerTzId);
+    OffsetLookup writeLookup = OffsetLookup.of(writeTzId);
+    OffsetLookup readerLookup = OffsetLookup.of(readerTzId);
     for (int i = 0; i < microseconds.length; ++i) {
       long millis = microseconds[i] / microsPerMillis;
-      long writerOffset = writeTz.getOffset(millis);
-      long readerOffset = readerTz.getOffset(millis);
+      long writerOffset = writeLookup.offsetMillis(millis);
+      long readerOffset = readerLookup.offsetMillis(millis);
       long adjustedMillis = millis + writerOffset - readerOffset;
-      long adjustedReader = readerTz.getOffset(adjustedMillis);
+      long adjustedReader = readerLookup.offsetMillis(adjustedMillis);
       long finalDiffs = writerOffset - adjustedReader;
       results[i] = (millis + finalDiffs) * microsPerMillis + (microseconds[i] % microsPerMillis);
     }
     return ColumnVector.timestampMicroSecondsFromLongs(results);
+  }
+
+  /**
+   * Resolves UTC ms to its offset in ms. For fixed-offset IDs that
+   * {@link TimeZone#getTimeZone(String)} silently maps to GMT (e.g. "+05:30"),
+   * uses {@link ZoneRules} via the project's own {@link GpuTimeZoneDB#getZoneId}
+   * parser so the oracle doesn't share the same blind spot as the buggy version
+   * of the production path.
+   */
+  private interface OffsetLookup {
+    long offsetMillis(long utcMillis);
+
+    static OffsetLookup of(String tzId) {
+      ZoneRules rules = GpuTimeZoneDB.getZoneId(tzId).getRules();
+      if (rules.isFixedOffset()) {
+        long offsetMs = rules.getOffset(Instant.EPOCH).getTotalSeconds() * 1000L;
+        return ms -> offsetMs;
+      }
+      TimeZone tz = TimeZone.getTimeZone(tzId);
+      return tz::getOffset;
+    }
   }
 
   private static long microsUtc(LocalDateTime timestamp) {
@@ -394,6 +418,18 @@ public class GpuTimeZoneDBTest {
           assertColumnsAreEqual(expected, actual);
         }
       }
+    }
+
+    // Direct assertion that "+05:30" really shifts by 5h30m relative to UTC.
+    // Independent of convertOrcTimezonesOnCPU so the bug can't sneak back via a
+    // weakened oracle.
+    long[] zeroEpoch = {0L};
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(zeroEpoch);
+        ColumnVector actual = GpuTimeZoneDB.convertOrcTimezones(input, 0L, "+05:30", "UTC");
+        HostColumnVector hcv = actual.copyToHost()) {
+      // Writer wall-time 1970-01-01T00:00:00 in +05:30 corresponds to UTC -5h30m.
+      assertEquals(-5L * 3600L * 1_000_000L - 30L * 60L * 1_000_000L, hcv.getLong(0),
+          "+05:30 → UTC must shift the writer wall-time by 5h30m");
     }
   }
 

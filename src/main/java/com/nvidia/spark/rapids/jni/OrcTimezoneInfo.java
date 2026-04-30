@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
@@ -283,8 +284,13 @@ class OrcTimezoneInfo {
         // Found a transition; narrow down to exact millisecond with binary search
         long exactMs = binarySearchTransition(tz, ms - step, ms);
         if (curOffset > prevOffset) {
+          // More than one DST-on transition in the same year means this year
+          // doesn't fit a SimpleTimeZone-style two-transition rule; let the
+          // caller fall back to extractDstRuleFromZoneRules.
+          if (dstOnTransition >= 0) return null;
           dstOnTransition = exactMs;
         } else {
+          if (dstOffTransition >= 0) return null;
           dstOffTransition = exactMs;
         }
         prevOffset = curOffset;
@@ -542,12 +548,16 @@ class OrcTimezoneInfo {
       throw new IllegalArgumentException("Timezone ID not found: " + timezoneId, e);
     }
 
-    TimeZone tz = TimeZone.getTimeZone(timezoneId);
     ZoneRules rules = zoneId.getRules();
-    int initialOffset = getInitialOffset(tz);
     if (rules.isFixedOffset()) {
-      return new OrcTimezoneInfo(initialOffset, tz.getRawOffset(), null, null, null);
+      // IDs like "+05:30" are valid ZoneIds but TimeZone.getTimeZone() silently
+      // maps them to GMT (offset 0). Derive the offset from ZoneRules instead so
+      // the GPU path doesn't treat them as UTC.
+      int fixedOffsetMs = rules.getOffset(Instant.EPOCH).getTotalSeconds() * 1000;
+      return new OrcTimezoneInfo(fixedOffsetMs, fixedOffsetMs, null, null, null);
     }
+    TimeZone tz = TimeZone.getTimeZone(timezoneId);
+    int initialOffset = getInitialOffset(tz);
     DstRule dstRule = extractDstRule(timezoneId, tz, rules);
 
     List<ZoneOffsetTransition> transitionList = rules.getTransitions();

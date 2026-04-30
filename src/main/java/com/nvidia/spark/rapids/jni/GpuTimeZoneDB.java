@@ -598,11 +598,12 @@ public class GpuTimeZoneDB {
    */
   public static OrcTimezoneContext buildOrcTimezoneContext(
       String writerTimezone, String readerTimezone) {
-    OrcTimezoneInfo writerTzInfo = OrcTimezoneInfo.get(writerTimezone);
-    OrcTimezoneInfo readerTzInfo = OrcTimezoneInfo.get(readerTimezone);
-    Table writerTable = getTableForUtilTZ(writerTzInfo);
+    Table writerTable = null;
     Table readerTable = null;
     try {
+      OrcTimezoneInfo writerTzInfo = OrcTimezoneInfo.get(writerTimezone);
+      OrcTimezoneInfo readerTzInfo = OrcTimezoneInfo.get(readerTimezone);
+      writerTable = getTableForUtilTZ(writerTzInfo);
       readerTable = getTableForUtilTZ(readerTzInfo);
       return new OrcTimezoneContext(writerTable, readerTable, writerTzInfo, readerTzInfo);
     } catch (Exception e) {
