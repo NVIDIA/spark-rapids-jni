@@ -31,7 +31,7 @@ import ipp.blossom.*
 def githubHelper // blossom github helper
 def TEMP_IMAGE_BUILD = true
 def IMAGE_PREMERGE_CU12 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.9.1-blossom"
-def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.1.0-blossom"
+def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.2.1-blossom"
 def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE_CU12)
 def PREMERGE_DOCKERFILE = 'ci/Dockerfile'
 def PREMERGE_TAG_CU12
@@ -164,7 +164,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                                 "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU12 .")
                             uploadDocker(IMAGE_PREMERGE_CU12)
                             docker.build(IMAGE_PREMERGE_CU13,
-                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 --build-arg CUDA_VERSION=13.1.0 .")
+                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 --build-arg CUDA_VERSION=13.2.1 .")
                             uploadDocker(IMAGE_PREMERGE_CU13)
                         }
                     }
@@ -246,7 +246,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
 
                 stage ('cuda13') {
                     options {
-                        lock(label: "${params.GPU_POOL}", quantity: 1, variable: 'GPU_RESOURCE')
+                        lock(label: "cuda13", quantity: 1, variable: 'GPU_RESOURCE')
                     }
                     agent {
                         kubernetes {
