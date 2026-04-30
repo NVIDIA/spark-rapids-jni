@@ -196,28 +196,34 @@ std::unique_ptr<cudf::column> parse_strings_to_date(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * @brief Parse a string column into a microsecond-resolution timestamp column for a fixed
- *        Spark format pattern.
+ * @brief Parse a string column into a microsecond-resolution timestamp column for a Spark
+ *        date/timestamp format pattern.
  *
- * Replaces the cuDF regex-validate + regex-rewrite + asTimestamp chain that
- * `GpuToTimestamp.parseStringAsTimestampWithLegacyParserPolicy` and
- * `GpuToTimestamp.isTimestamp` use for the 24 supported `LEGACY_COMPATIBLE_FORMATS` /
- * `CORRECTED_COMPATIBLE_FORMATS` patterns. Each pattern is a small anchored character-class
- * state machine; the legacy `REMOVE_WHITESPACE_FROM_MONTH_DAY` rewrite is folded into that
- * state machine instead of materializing a rewritten string column.
+ * The pattern is compiled host-side into a token stream (mirroring how Spark's
+ * `DateTimeFormatter`/`SimpleDateFormat` represent a parser internally), then a generic
+ * device-side walker consumes the tokens against each row. Replaces the cuDF
+ * regex-validate + regex-rewrite + asTimestamp chain previously used by
+ * `GpuToTimestamp` for the 24 supported `LEGACY_COMPATIBLE_FORMATS` /
+ * `CORRECTED_COMPATIBLE_FORMATS` patterns; the legacy `REMOVE_WHITESPACE_FROM_MONTH_DAY`
+ * rewrite is folded into the state machine.
  *
- * Parsed values are interpreted as wall-clock UTC. Timezone rebasing is the caller's
- * responsibility, mirroring the existing Spark plugin contract.
+ * Pattern letters follow JDK conventions: `y`/`M`/`d`/`H`/`m`/`s`. Lowercase `m` is minute,
+ * not month. Space in the pattern matches either ' ' or 'T' in the input. In LEGACY mode,
+ * non-year digit fields are 1 or 2 digits unless adjacent to another digit field (in which
+ * case widths are exact to disambiguate). Parsed values are wall-clock UTC; timezone
+ * rebasing remains the caller's responsibility.
  *
  * @param input The input string column.
- * @param format_id Format identifier matching the simple_ts_format enum.
+ * @param format Spark format pattern (e.g. `"yyyy-MM-dd HH:mm:ss"`).
+ * @param legacy True for `LegacyTimeParserPolicy`, false for CORRECTED/EXCEPTION.
  * @param stream Stream on which to operate.
  * @param mr Memory resource for the returned column.
  * @return A timestamp_us column, with nulls for invalid inputs.
  */
 std::unique_ptr<cudf::column> parse_timestamp_strings_with_format(
   cudf::strings_column_view const& input,
-  int32_t format_id,
+  std::string const& format,
+  bool legacy,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 

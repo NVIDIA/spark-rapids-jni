@@ -342,61 +342,26 @@ public class CastStrings {
   }
 
   /**
-   * Format identifiers for {@link #parseTimestampWithFormat}. The {@code id} of each entry
-   * is the wire contract with the C++ {@code simple_ts_format} enum.
+   * Parse a string column into a microsecond timestamp column for a Spark date/timestamp
+   * format pattern. The pattern is compiled into a token stream on the host and walked
+   * per-row on the device, mirroring how Spark's {@code DateTimeFormatter} /
+   * {@code SimpleDateFormat} represent a parser internally.
    *
-   * <p>{@code _LOWER} variants are for Spark patterns whose middle field is {@code mm}
-   * (minute) rather than {@code MM} (month) — {@code yyyy-mm-dd} and {@code yyyymmdd}.
-   * SimpleDateFormat reads the middle 2 digits as minute-of-hour and produces a
-   * {@code 00:mm:00} wall-clock time on day 1 of January.
-   */
-  public enum SimpleTimestampFormat {
-    CORRECTED_YYYY_DASH_MM_DASH_DD(0),
-    CORRECTED_YYYY_SLASH_MM_SLASH_DD(1),
-    CORRECTED_YYYY_DASH_MM(2),
-    CORRECTED_YYYY_SLASH_MM(3),
-    CORRECTED_DD_SLASH_MM_SLASH_YYYY(4),
-    CORRECTED_YYYY_DASH_MM_DASH_DD_HH_MM_SS(5),
-    CORRECTED_MM_DASH_DD(6),
-    CORRECTED_MM_SLASH_DD(7),
-    CORRECTED_DD_DASH_MM(8),
-    CORRECTED_DD_SLASH_MM(9),
-    CORRECTED_MM_SLASH_YYYY(10),
-    CORRECTED_MM_DASH_YYYY(11),
-    CORRECTED_MM_SLASH_DD_SLASH_YYYY(12),
-    CORRECTED_MM_DASH_DD_DASH_YYYY(13),
-    CORRECTED_MMYYYY(14),
-
-    LEGACY_YYYY_DASH_MM_DASH_DD(15),
-    LEGACY_YYYY_SLASH_MM_SLASH_DD(16),
-    LEGACY_DD_DASH_MM_DASH_YYYY(17),
-    LEGACY_DD_SLASH_MM_SLASH_YYYY(18),
-    LEGACY_YYYY_DASH_MM_DASH_DD_HH_MM_SS(19),
-    LEGACY_YYYY_SLASH_MM_SLASH_DD_HH_MM_SS(20),
-    LEGACY_YYYYMMDD_HH_MM_SS(21),
-    LEGACY_YYYYMMDD(22),
-    LEGACY_YYYY_DASH_MM_DASH_DD_LOWER(23),
-    LEGACY_YYYYMMDD_LOWER(24);
-
-    private final int id;
-    SimpleTimestampFormat(int id) { this.id = id; }
-    public int getId() { return id; }
-  }
-
-  /**
-   * Parse a string column into a microsecond timestamp column for one of the supported
-   * Spark format patterns. Replaces the cuDF regex-validate + regex-rewrite + asTimestamp
-   * chain previously used in {@code GpuToTimestamp}; see the JNI-side documentation in
-   * {@code cast_string.hpp} for the parsing semantics. Parsed values are wall-clock UTC;
-   * timezone rebasing remains the caller's responsibility.
+   * <p>Pattern letters follow JDK conventions: {@code y}, {@code M}, {@code d}, {@code H},
+   * {@code m}, {@code s}. Lowercase {@code m} is minute, not month. Space matches space or
+   * 'T' (Spark's permissive date/time separator). In LEGACY mode, non-year digit fields
+   * accept 1 or 2 digits unless adjacent to another digit field (which forces exact width
+   * for boundary disambiguation), and the trailing tail accepts EOF or any non-digit.
+   * Parsed values are wall-clock UTC; timezone rebasing remains the caller's responsibility.
    *
    * @param input the input string column.
-   * @param format the pre-resolved format/policy combination.
+   * @param format Spark format pattern (e.g. {@code "yyyy-MM-dd HH:mm:ss"}).
+   * @param legacy true for {@code LegacyTimeParserPolicy}, false for CORRECTED/EXCEPTION.
    * @return a timestamp_us column where invalid rows have nulls.
    */
-  public static ColumnVector parseTimestampWithFormat(ColumnView input,
-      SimpleTimestampFormat format) {
-    return new ColumnVector(parseTimestampWithFormat(input.getNativeView(), format.getId()));
+  public static ColumnVector parseTimestampWithFormat(ColumnView input, String format,
+      boolean legacy) {
+    return new ColumnVector(parseTimestampWithFormat(input.getNativeView(), format, legacy));
   }
 
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -420,6 +385,6 @@ public class CastStrings {
 
   private static native long parseDateStringsToDate(long input);
 
-  private static native long parseTimestampWithFormat(long input, int formatId);
+  private static native long parseTimestampWithFormat(long input, String format, boolean legacy);
 
 }

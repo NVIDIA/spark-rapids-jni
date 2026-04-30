@@ -229,7 +229,7 @@ add_library(
   src/cast_string.cu
   src/cast_string_to_datetime.cu
   src/cast_string_to_float.cu
-  src/parse_simple_timestamp.cu
+  src/parse_timestamp_with_format.cu
   src/charset_decode.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu

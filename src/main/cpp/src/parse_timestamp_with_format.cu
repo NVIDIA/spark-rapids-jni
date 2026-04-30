@@ -1,0 +1,377 @@
+/*
+ * Copyright (c) 2026, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "cast_string.hpp"
+#include "datetime_utils.cuh"
+
+#include <cudf/column/column_device_view.cuh>
+#include <cudf/column/column_factories.hpp>
+#include <cudf/strings/string_view.hpp>
+#include <cudf/transform.hpp>
+#include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/span.hpp>
+#include <cudf/wrappers/timestamps.hpp>
+
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_uvector.hpp>
+#include <rmm/exec_policy.hpp>
+
+#include <thrust/for_each.h>
+#include <thrust/iterator/counting_iterator.h>
+
+#include <cctype>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace spark_rapids_jni {
+
+namespace {
+
+// ---- Low-level string-parsing primitives. ------------------------------------------------------
+
+// Whitespace test consistent with Spark UTF8String.trimAll for char input.
+__device__ bool is_whitespace(unsigned char c) { return c <= 32 || c == 127; }
+
+// Read exactly `n` digits starting at pos. Advances pos on success.
+__device__ bool read_n_digits(unsigned char const* p, int& pos, int end, int n, int& v)
+{
+  if (pos + n > end) { return false; }
+  v = 0;
+  for (int i = 0; i < n; ++i) {
+    int c = static_cast<int>(p[pos + i]) - '0';
+    if (c < 0 || c > 9) { return false; }
+    v = v * 10 + c;
+  }
+  pos += n;
+  return true;
+}
+
+// Read 1 or 2 digits greedily. Advances pos on success.
+__device__ bool read_1_or_2_digits(unsigned char const* p, int& pos, int end, int& v)
+{
+  if (pos >= end) { return false; }
+  int c = static_cast<int>(p[pos]) - '0';
+  if (c < 0 || c > 9) { return false; }
+  v = c;
+  ++pos;
+  if (pos < end) {
+    int c2 = static_cast<int>(p[pos]) - '0';
+    if (c2 >= 0 && c2 <= 9) {
+      v = v * 10 + c2;
+      ++pos;
+    }
+  }
+  return true;
+}
+
+__device__ bool try_parse_char(unsigned char const* p, int& pos, int end, unsigned char c)
+{
+  if (pos >= end || p[pos] != c) { return false; }
+  ++pos;
+  return true;
+}
+
+__device__ bool try_parse_t_or_space(unsigned char const* p, int& pos, int end)
+{
+  if (pos >= end) { return false; }
+  unsigned char c = p[pos];
+  if (c != ' ' && c != 'T') { return false; }
+  ++pos;
+  return true;
+}
+
+// Skip [ \t]* — used to fold REMOVE_WHITESPACE_FROM_MONTH_DAY into the legacy state machine.
+__device__ void skip_ht_whitespace(unsigned char const* p, int& pos, int end)
+{
+  while (pos < end && (p[pos] == ' ' || p[pos] == '\t')) {
+    ++pos;
+  }
+}
+
+// Returns true iff the first non-[ \t] char is '\n'. Mirrors rejectLeadingNewlineThenStrip.
+__device__ bool has_leading_newline(unsigned char const* p, int end)
+{
+  int probe = 0;
+  while (probe < end && (p[probe] == ' ' || p[probe] == '\t')) {
+    ++probe;
+  }
+  return probe < end && p[probe] == '\n';
+}
+
+// In-place trim: advance pos past leading whitespace, pull end back past trailing.
+__device__ void trim(unsigned char const* p, int& pos, int& end)
+{
+  while (pos < end && is_whitespace(p[pos])) {
+    ++pos;
+  }
+  while (pos < end && is_whitespace(p[end - 1])) {
+    --end;
+  }
+}
+
+// Year/month/day/hour/minute/second; defaults match cuDF strftime missing-field semantics.
+struct parsed_dt {
+  int year   = 1970;
+  int month  = 1;
+  int day    = 1;
+  int hour   = 0;
+  int minute = 0;
+  int second = 0;
+};
+
+// ---- Token model. ------------------------------------------------------------------------------
+
+// Token kinds used by the per-row walker. Mirrors how Spark's DateTimeFormatter / SimpleDateFormat
+// internally model a pattern as a sequence of printer-parser steps: each step consumes a
+// well-defined chunk of the input and either succeeds or fails the row.
+enum tok_kind : uint8_t {
+  TOK_DIGITS,           // a = field, b = min_digits, c = max_digits
+  TOK_LITERAL,          // a = literal char
+  TOK_T_OR_SPACE,       // 'T' or ' ' between date and time
+  TOK_SKIP_HT_WS,       // skip [ \t]* (legacy whitespace fold)
+  TOK_TRAIL_EOF,        // pos must equal end
+  TOK_TRAIL_NON_DIGIT,  // pos == end OR p[pos] is not a digit (legacy tail rule)
+};
+
+// `parsed_dt` slot for a digit token to write into.
+enum field : uint8_t { FLD_YEAR = 0, FLD_MONTH, FLD_DAY, FLD_HOUR, FLD_MINUTE, FLD_SECOND };
+
+struct format_token {
+  uint8_t kind;
+  uint8_t a;
+  uint8_t b;
+  uint8_t c;
+};
+
+// ---- Host-side: compile a Spark-style pattern string to a token stream. -------------------------
+//
+// Pattern letters follow JDK SimpleDateFormat / DateTimeFormatter conventions:
+//   y → year (run length determines digit width, e.g. yyyy = 4)
+//   M → month (uppercase)        m → minute (lowercase, NOT month)
+//   d → day                      H → hour-of-day
+//   s → second
+// A letter run must have length 2 for non-year fields; year is whatever its run length says.
+// Width policy:
+//   - "Packed" runs (a digit field abutting another digit field without a literal between them,
+//     e.g. yyyyMMdd) get exact width — otherwise the boundary is ambiguous.
+//   - Otherwise CORRECTED uses exact width and LEGACY uses [1, 2].
+// Literal handling:
+//   - Space ' ' compiles to TOK_T_OR_SPACE (Spark accepts both as the date/time separator).
+//   - In LEGACY, '-' and '/' literals are followed by TOK_SKIP_HT_WS, folding the legacy
+//     `REMOVE_WHITESPACE_FROM_MONTH_DAY` rewrite into the state machine.
+// The trailing token is TOK_TRAIL_EOF for CORRECTED and TOK_TRAIL_NON_DIGIT for LEGACY.
+
+uint8_t letter_to_field(char c)
+{
+  switch (c) {
+    case 'y': return FLD_YEAR;
+    case 'M': return FLD_MONTH;
+    case 'd': return FLD_DAY;
+    case 'H': return FLD_HOUR;
+    case 'm': return FLD_MINUTE;
+    case 's': return FLD_SECOND;
+    default: throw std::invalid_argument(std::string("unsupported pattern letter: ") + c);
+  }
+}
+
+std::vector<format_token> compile_format(std::string const& fmt, bool legacy)
+{
+  std::vector<format_token> out;
+  size_t const n = fmt.size();
+  for (size_t i = 0; i < n;) {
+    char const c = fmt[i];
+    if (std::isalpha(static_cast<unsigned char>(c))) {
+      size_t j = i;
+      while (j < n && fmt[j] == c) {
+        ++j;
+      }
+      bool const packed = (i > 0 && std::isalpha(static_cast<unsigned char>(fmt[i - 1]))) ||
+                          (j < n && std::isalpha(static_cast<unsigned char>(fmt[j])));
+      uint8_t const run   = static_cast<uint8_t>(j - i);
+      uint8_t const min_d = (c == 'y') ? run : (legacy && !packed ? 1 : run);
+      uint8_t const max_d = (c == 'y') ? run : run;
+      out.push_back({TOK_DIGITS, letter_to_field(c), min_d, max_d});
+      i = j;
+    } else {
+      if (c == ' ') {
+        out.push_back({TOK_T_OR_SPACE, 0, 0, 0});
+      } else {
+        out.push_back({TOK_LITERAL, static_cast<uint8_t>(c), 0, 0});
+        if (legacy && (c == '-' || c == '/')) { out.push_back({TOK_SKIP_HT_WS, 0, 0, 0}); }
+      }
+      ++i;
+    }
+  }
+  out.push_back({legacy ? TOK_TRAIL_NON_DIGIT : TOK_TRAIL_EOF, 0, 0, 0});
+  return out;
+}
+
+// ---- Device-side: per-row walker over the compiled token stream. --------------------------------
+
+__device__ void store_field(parsed_dt& d, uint8_t field, int v)
+{
+  switch (field) {
+    case FLD_YEAR: d.year = v; break;
+    case FLD_MONTH: d.month = v; break;
+    case FLD_DAY: d.day = v; break;
+    case FLD_HOUR: d.hour = v; break;
+    case FLD_MINUTE: d.minute = v; break;
+    case FLD_SECOND: d.second = v; break;
+  }
+}
+
+__device__ bool walk_tokens(unsigned char const* p,
+                            int pos,
+                            int end,
+                            format_token const* tokens,
+                            int num_tokens,
+                            parsed_dt& d)
+{
+  for (int i = 0; i < num_tokens; ++i) {
+    auto const& t = tokens[i];
+    bool ok       = true;
+    switch (t.kind) {
+      case TOK_DIGITS: {
+        int v = 0;
+        ok = (t.b == t.c) ? read_n_digits(p, pos, end, t.b, v) : read_1_or_2_digits(p, pos, end, v);
+        if (ok) { store_field(d, t.a, v); }
+        break;
+      }
+      case TOK_LITERAL: ok = try_parse_char(p, pos, end, t.a); break;
+      case TOK_T_OR_SPACE: ok = try_parse_t_or_space(p, pos, end); break;
+      case TOK_SKIP_HT_WS: skip_ht_whitespace(p, pos, end); break;
+      case TOK_TRAIL_EOF: ok = (pos == end); break;
+      case TOK_TRAIL_NON_DIGIT:
+        if (pos < end) {
+          unsigned char const c = p[pos];
+          ok                    = !(c >= '0' && c <= '9');
+        }
+        break;
+    }
+    if (!ok) { return false; }
+  }
+  return true;
+}
+
+struct parse_with_format_fn {
+  cudf::column_device_view d_strings;
+  format_token const* tokens;
+  int num_tokens;
+  bool legacy;
+  bool* validity;
+  cudf::timestamp_us* output;
+
+  // Sets the row's null bit. The output value is left uninitialized — under cuDF's null mask
+  // convention, masked-off positions are not read by downstream consumers.
+  __device__ void set_invalid(cudf::size_type idx) const { validity[idx] = false; }
+
+  __device__ void operator()(cudf::size_type idx) const
+  {
+    if (d_strings.is_null(idx)) {
+      set_invalid(idx);
+      return;
+    }
+    auto const sv  = d_strings.element<cudf::string_view>(idx);
+    auto const* p  = reinterpret_cast<unsigned char const*>(sv.data());
+    int const size = sv.size_bytes();
+
+    int pos = 0;
+    int end = size;
+
+    if (legacy) {
+      if (has_leading_newline(p, end)) {
+        set_invalid(idx);
+        return;
+      }
+      trim(p, pos, end);
+      if (pos >= end) {
+        set_invalid(idx);
+        return;
+      }
+    }
+
+    parsed_dt d{};
+    if (!walk_tokens(p, pos, end, tokens, num_tokens, d) ||
+        !date_time_utils::is_valid_date_for_timestamp(d.year, d.month, d.day) ||
+        !date_time_utils::is_valid_time(d.hour, d.minute, d.second, /*us*/ 0)) {
+      set_invalid(idx);
+      return;
+    }
+
+    int64_t const days    = date_time_utils::to_epoch_day(d.year, d.month, d.day);
+    int64_t const seconds = days * 86400L + d.hour * 3600L + d.minute * 60L + d.second;
+    int64_t result_us     = 0;
+    if (overflow_checker::get_timestamp_overflow(seconds, /*us*/ 0, result_us)) {
+      set_invalid(idx);
+      return;
+    }
+    validity[idx] = true;
+    output[idx]   = cudf::timestamp_us{cudf::duration_us{result_us}};
+  }
+};
+
+}  // namespace
+
+std::unique_ptr<cudf::column> parse_timestamp_strings_with_format(
+  cudf::strings_column_view const& input,
+  std::string const& format,
+  bool legacy,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const num_rows = input.size();
+  if (num_rows == 0) {
+    return cudf::make_empty_column(cudf::data_type{cudf::type_to_id<cudf::timestamp_us>()});
+  }
+
+  auto const host_tokens = compile_format(format, legacy);
+  rmm::device_uvector<format_token> device_tokens(
+    host_tokens.size(), stream, cudf::get_current_device_resource_ref());
+  CUDF_CUDA_TRY(cudaMemcpyAsync(device_tokens.data(),
+                                host_tokens.data(),
+                                sizeof(format_token) * host_tokens.size(),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+
+  auto const d_input = cudf::column_device_view::create(input.parent(), stream);
+  auto result = cudf::make_timestamp_column(cudf::data_type{cudf::type_to_id<cudf::timestamp_us>()},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            0,
+                                            stream,
+                                            mr);
+  auto validity =
+    rmm::device_uvector<bool>(num_rows, stream, cudf::get_current_device_resource_ref());
+
+  thrust::for_each_n(rmm::exec_policy_nosync(stream),
+                     thrust::make_counting_iterator(0),
+                     num_rows,
+                     parse_with_format_fn{*d_input,
+                                          device_tokens.data(),
+                                          static_cast<int>(device_tokens.size()),
+                                          legacy,
+                                          validity.begin(),
+                                          result->mutable_view().begin<cudf::timestamp_us>()});
+
+  auto [output_bitmask, null_count] =
+    cudf::bools_to_mask(cudf::device_span<bool const>(validity), stream, mr);
+  if (null_count) { result->set_null_mask(std::move(*output_bitmask.release()), null_count); }
+
+  return result;
+}
+
+}  // namespace spark_rapids_jni

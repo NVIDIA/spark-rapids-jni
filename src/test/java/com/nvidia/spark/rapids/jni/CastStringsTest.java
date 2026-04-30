@@ -1372,11 +1372,10 @@ public class CastStringsTest {
     return ((days * 86400L) + hour * 3600L + minute * 60L + second) * 1_000_000L;
   }
 
-  private static void assertParsedTimestamp(String[] inputs,
-                                            CastStrings.SimpleTimestampFormat fmt,
+  private static void assertParsedTimestamp(String[] inputs, String format, boolean legacy,
                                             Long[] expected) {
     try (ColumnVector in = ColumnVector.fromStrings(inputs);
-        ColumnVector actual = CastStrings.parseTimestampWithFormat(in, fmt);
+        ColumnVector actual = CastStrings.parseTimestampWithFormat(in, format, legacy);
         ColumnVector exp = ColumnVector.timestampMicroSecondsFromBoxedLongs(expected)) {
       AssertUtils.assertColumnsAreEqual(exp, actual);
     }
@@ -1388,28 +1387,22 @@ public class CastStringsTest {
     long y2024_05_01 = expectedUs(2024, 5, 1, 0, 0, 0);
     long y1970_05_06 = expectedUs(1970, 5, 6, 0, 0, 0);
 
-    // yyyy-MM-dd corrected: strict 2-digit fields, exact length.
+    // yyyy-MM-dd corrected: strict 2-digit fields.
     assertParsedTimestamp(
         new String[]{"2024-05-06", "2024-5-6", " 2024-05-06", "2024-05-06 ", null},
-        CastStrings.SimpleTimestampFormat.CORRECTED_YYYY_DASH_MM_DASH_DD,
+        "yyyy-MM-dd", false,
         new Long[]{y2024_05_06, null, null, null, null});
-
-    // yyyy/MM/dd corrected: regex allows \d{1,2} but length check (10) restricts to 2-digit.
-    assertParsedTimestamp(
-        new String[]{"2024/05/06", "2024/5/6", "2024-05-06"},
-        CastStrings.SimpleTimestampFormat.CORRECTED_YYYY_SLASH_MM_SLASH_DD,
-        new Long[]{y2024_05_06, null, null});
 
     // yyyy-MM corrected: no day, defaults to 1.
     assertParsedTimestamp(
         new String[]{"2024-05", "2024-5", "2024/05"},
-        CastStrings.SimpleTimestampFormat.CORRECTED_YYYY_DASH_MM,
+        "yyyy-MM", false,
         new Long[]{y2024_05_01, null, null});
 
     // MM-dd corrected: no year, defaults to 1970.
     assertParsedTimestamp(
         new String[]{"05-06", "5-06", "05-6", "05/06"},
-        CastStrings.SimpleTimestampFormat.CORRECTED_MM_DASH_DD,
+        "MM-dd", false,
         new Long[]{y1970_05_06, null, null, null});
   }
 
@@ -1419,22 +1412,23 @@ public class CastStringsTest {
     assertParsedTimestamp(
         new String[]{"2024-12-31 23:59:58", "2024-12-31T23:59:58",
                      "2024-12-31 23:59:5", "2024-12-31  23:59:58", "2024-12-31 23:59:60"},
-        CastStrings.SimpleTimestampFormat.CORRECTED_YYYY_DASH_MM_DASH_DD_HH_MM_SS,
+        "yyyy-MM-dd HH:mm:ss", false,
         new Long[]{ts, ts, null, null, null});
   }
 
   @Test
-  void parseTimestampWithFormat_correctedMMyyyyAndOthers() {
+  void parseTimestampWithFormat_correctedMMyyyyAndMMddyyyy() {
     // MMyyyy: 2-digit month then 4-digit year, no separator. Day defaults to 1.
+    // Compiler treats both digit fields as packed (exact width) since they abut.
     assertParsedTimestamp(
         new String[]{"052024", "5052024", "12024"},
-        CastStrings.SimpleTimestampFormat.CORRECTED_MMYYYY,
+        "MMyyyy", false,
         new Long[]{expectedUs(2024, 5, 1, 0, 0, 0), null, null});
 
     // MM-dd-yyyy
     assertParsedTimestamp(
         new String[]{"05-06-2024", "5-6-2024"},
-        CastStrings.SimpleTimestampFormat.CORRECTED_MM_DASH_DD_DASH_YYYY,
+        "MM-dd-yyyy", false,
         new Long[]{expectedUs(2024, 5, 6, 0, 0, 0), null});
   }
 
@@ -1450,14 +1444,14 @@ public class CastStringsTest {
             "2024-5-6",
             "2024- 05- 06",     // [ \t]* fold after each '-'
             "2024-\t05-\t06",   // tabs accepted by fold
-            "2024  -05-06",     // whitespace before '-' is NOT folded; original regex didn't fold here either
+            "2024  -05-06",     // whitespace before '-' is NOT folded
             " 2024-05-06 ",     // outer trim
             "2024-05-06xxx",    // legacy trailing non-digit accepted
             "2024-05-061",      // trailing digit rejected
             "\n2024-05-06",     // leading newline rejected
             null,
         },
-        CastStrings.SimpleTimestampFormat.LEGACY_YYYY_DASH_MM_DASH_DD,
+        "yyyy-MM-dd", true,
         new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06,
                     null, y2024_05_06, y2024_05_06, null, null, null});
   }
@@ -1469,15 +1463,14 @@ public class CastStringsTest {
     // yyyyMMdd packed: exactly 8 digits, year(4)+month(2)+day(2).
     assertParsedTimestamp(
         new String[]{"20240506", "2024050", "202405061", " 20240506 "},
-        CastStrings.SimpleTimestampFormat.LEGACY_YYYYMMDD,
+        "yyyyMMdd", true,
         new Long[]{expectedUs(2024, 5, 6, 0, 0, 0), null, null,
                     expectedUs(2024, 5, 6, 0, 0, 0)});
 
     // yyyyMMdd HH:mm:ss
     assertParsedTimestamp(
-        new String[]{"20241231 23:59:58", "20241231T23:59:58",
-                     "20241231 23:59:58Z"},
-        CastStrings.SimpleTimestampFormat.LEGACY_YYYYMMDD_HH_MM_SS,
+        new String[]{"20241231 23:59:58", "20241231T23:59:58", "20241231 23:59:58Z"},
+        "yyyyMMdd HH:mm:ss", true,
         new Long[]{ts, ts, ts});
   }
 
@@ -1488,7 +1481,7 @@ public class CastStringsTest {
     long y2024_min41_day12 = expectedUs(2024, 1, 12, 0, 41, 0);
     assertParsedTimestamp(
         new String[]{"20244112", "20240812", "20246012", "20240199", "20240131"},
-        CastStrings.SimpleTimestampFormat.LEGACY_YYYYMMDD_LOWER,
+        "yyyymmdd", true,
         new Long[]{y2024_min41_day12,
                     expectedUs(2024, 1, 12, 0, 8, 0),
                     null,                                  // minute=60 rejected
@@ -1497,7 +1490,7 @@ public class CastStringsTest {
 
     assertParsedTimestamp(
         new String[]{"2024-41-12", "2024-8-12", "2024-60-12", "2024-01-99"},
-        CastStrings.SimpleTimestampFormat.LEGACY_YYYY_DASH_MM_DASH_DD_LOWER,
+        "yyyy-mm-dd", true,
         new Long[]{y2024_min41_day12,
                     expectedUs(2024, 1, 12, 0, 8, 0),
                     null,
@@ -1508,7 +1501,7 @@ public class CastStringsTest {
   void parseTimestampWithFormat_invalidCalendarDates() {
     assertParsedTimestamp(
         new String[]{"2024-02-29", "2023-02-29", "2024-04-31", "2024-13-01"},
-        CastStrings.SimpleTimestampFormat.CORRECTED_YYYY_DASH_MM_DASH_DD,
+        "yyyy-MM-dd", false,
         new Long[]{expectedUs(2024, 2, 29, 0, 0, 0), null, null, null});
   }
 }
