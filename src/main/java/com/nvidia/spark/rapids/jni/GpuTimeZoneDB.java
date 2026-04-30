@@ -606,6 +606,13 @@ public class GpuTimeZoneDB {
       writerTable = getTableForUtilTZ(writerTzInfo);
       readerTable = getTableForUtilTZ(readerTzInfo);
       return new OrcTimezoneContext(writerTable, readerTable, writerTzInfo, readerTzInfo);
+    } catch (RuntimeException e) {
+      // Preserve typed signals from the build path (e.g. IllegalArgumentException
+      // for invalid zone IDs) so callers can distinguish bad input from
+      // internal failures.
+      if (writerTable != null) writerTable.close();
+      if (readerTable != null) readerTable.close();
+      throw e;
     } catch (Exception e) {
       if (writerTable != null) writerTable.close();
       if (readerTable != null) readerTable.close();

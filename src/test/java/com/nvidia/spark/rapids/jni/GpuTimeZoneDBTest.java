@@ -427,9 +427,12 @@ public class GpuTimeZoneDBTest {
     try (ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(zeroEpoch);
         ColumnVector actual = GpuTimeZoneDB.convertOrcTimezones(input, 0L, "+05:30", "UTC");
         HostColumnVector hcv = actual.copyToHost()) {
-      // Writer wall-time 1970-01-01T00:00:00 in +05:30 corresponds to UTC -5h30m.
-      assertEquals(-5L * 3600L * 1_000_000L - 30L * 60L * 1_000_000L, hcv.getLong(0),
-          "+05:30 → UTC must shift the writer wall-time by 5h30m");
+      // ORC's convertBetweenTimezones adds (writerOffset - readerOffset), so
+      // converting from "+05:30" to UTC shifts the input by +5h30m, not -5h30m.
+      // The earlier wrapping of "+05:30" to GMT would have produced 0; this
+      // confirms the runtime metadata path uses the synthesized +05:30 offset.
+      assertEquals(5L * 3600L * 1_000_000L + 30L * 60L * 1_000_000L, hcv.getLong(0),
+          "+05:30 → UTC must shift the writer wall-time by +5h30m");
     }
   }
 
