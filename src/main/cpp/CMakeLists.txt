@@ -140,6 +140,15 @@ else()
   rapids_find_package(cudf REQUIRED)
 endif()
 
+# cuCollections
+# As of rapidsai/cudf PR #22277 (commit 5a375a3417ef70c55564bd0c4c6255a2da5dca49), libcudf
+# wraps its `cuco::cuco` link with `$<BUILD_LOCAL_INTERFACE:...>`, so the cuco headers are no
+# longer transitively exposed to downstream consumers via `find_package(cudf)`. Several
+# spark-rapids-jni sources (e.g. the hash kernels) include cudf detail headers that pull in
+# `<cuco/hash_functions.cuh>`, so we need to fetch cuco ourselves.
+include(${rapids-cmake-dir}/cpm/cuco.cmake)
+rapids_cpm_cuco()
+
 # Get the compilation flags and definitions from cudf.
 get_target_property(CUDF_CXX_FLAGS cudf::cudf CUDF_CXX_FLAGS)
 get_target_property(CUDF_CUDA_FLAGS cudf::cudf CUDF_CUDA_FLAGS)
@@ -191,6 +200,7 @@ add_library(
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
+  src/CharsetDecodeJni.cpp
   src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
   src/DeviceAttrJni.cpp
@@ -228,6 +238,7 @@ add_library(
   src/cast_string.cu
   src/cast_string_to_datetime.cu
   src/cast_string_to_float.cu
+  src/charset_decode.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
@@ -319,6 +330,7 @@ target_link_libraries(
     cudf::cudf
     nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
+    cuco::cuco
     spdlog::spdlog_header_only
     ${ARROW_LIB}
     ${PARQUET_LIB}

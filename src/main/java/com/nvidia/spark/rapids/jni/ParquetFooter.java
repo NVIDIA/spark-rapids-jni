@@ -98,12 +98,17 @@ public class ParquetFooter implements AutoCloseable {
     nativeHandle = handle;
   }
 
+  private void checkClosed() {
+    Preconditions.ensure(nativeHandle != 0, "ParquetFooter has already been closed");
+  }
+
   /**
    * Write the filtered footer back out in a format that is compatible with a parquet
    * footer file. This will include the MAGIC PAR1 at the beginning and end and also the
    * length of the footer just before the PAR1 at the end.
    */
   public HostMemoryBuffer serializeThriftFile(HostMemoryAllocator hostMemoryAllocator) {
+    checkClosed();
     return serializeThriftFile(nativeHandle, hostMemoryAllocator);
   }
 
@@ -115,6 +120,7 @@ public class ParquetFooter implements AutoCloseable {
    * Get the number of rows in the footer after filtering.
    */
   public long getNumRows() {
+    checkClosed();
     return getNumRows(nativeHandle);
   }
 
@@ -122,6 +128,7 @@ public class ParquetFooter implements AutoCloseable {
    * Get the number of top level columns in the footer after filtering.
    */
   public int getNumColumns() {
+    checkClosed();
     return getNumColumns(nativeHandle);
   }
 
@@ -135,11 +142,8 @@ public class ParquetFooter implements AutoCloseable {
    *         where element i is the file-global row index of the first row in row group i.
    */
   public long[] getRowIndexOffsets() {
-    long[] offsets = getRowIndexOffsets(nativeHandle);
-    if (offsets == null) {
-      throw new RuntimeException("Failed to get row index offsets from native code");
-    }
-    return offsets;
+    checkClosed();
+    return getRowIndexOffsets(nativeHandle);
   }
 
   @Override

@@ -116,22 +116,25 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Verify the timezone database is loaded.
-   * If not loaded, throw IllegalStateException.
+   * Verify Timezone database is already cached. Only for test purpose
+   * This function is synchronized, wait until the loading is done.
+   * Refer to `cacheDatabaseImpl` which is also synchronized.
+   * If loading was failed, throws an exception
+   * @throws RuntimeException if Timezone database loading was failed
    */
-  private static synchronized void verifyDatabaseCachedSync() {
-    if (tzNameToIndexMap == null) {
-      throw new IllegalStateException("Timezone DB is not loaded, or the loading was failed.");
-    }
-  }
-
-  public static void verifyDatabaseCached() {
+  static void verifyDatabaseCached() {
     if (tzNameToIndexMap != null) {
-      // already loaded
+      // already loaded, this is the fast path
       return;
     }
-    // wait for the loading thread to finish
-    verifyDatabaseCachedSync();
+
+    // wait until loading is done
+    synchronized (GpuTimeZoneDB.class) {
+      if (tzNameToIndexMap == null) {
+        // null indicates error
+        throw new RuntimeException("Timezone DB loading was failed.");
+      }
+    }
   }
 
   /**

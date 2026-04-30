@@ -4,8 +4,8 @@
     "CCCL" : 
     {
       "always_download" : true,
-      "url" : "https://github.com/NVIDIA/cccl/archive/c5594eb1148649308b1996f75a63cc083d354cb2.tar.gz",
-      "url_hash" : "SHA256=d32f154416bb1573785f9fbf6fb4412e015327cfaef8b5472fed9ec23e13c2ac",
+      "url" : "https://github.com/NVIDIA/cccl/archive/a4fd97855d629244eedff0fa9ec6af9bcdb24348.tar.gz",
+      "url_hash" : "SHA256=783916b2c72a7f2a2509a84a4944b4866f5709075c268aa3befc37b8c23c0a98",
       "version" : "3.4.0"
     },
     "GTest" : 
@@ -68,7 +68,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "974cb68f00d00c1ba237bb7e2fe5d892d028d057",
+      "git_tag" : "f28f23d93253ab1dfe2e984e284f9f15b7b44a6f",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "source_subdir" : "cpp",
       "version" : "26.06"
@@ -80,22 +80,6 @@
       "git_tag" : "c57ddd8672b8ddf29e2db5dc444df311afcda5aa",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
       "version" : "0.7.0"
-    },
-    "nvcomp" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "proprietary_binary" : 
-      {
-        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/linux-sbsa/nvcomp-linux-sbsa-${version}_cuda${cuda-toolkit-version-mapping}-archive.tar.xz",
-        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/linux-x86_64/nvcomp-linux-x86_64-${version}_cuda${cuda-toolkit-version-mapping}-archive.tar.xz"
-      },
-      "proprietary_binary_cuda_version_mapping" : 
-      {
-        "12" : "12",
-        "13" : "13"
-      },
-      "version" : "5.2.0.10"
     },
     "nvtx3" : 
     {
@@ -118,7 +102,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "219fc7d956e6c6d4e327e4f11747667df10455fc",
+      "git_tag" : "386f76d5f0c76d523139e7b98d30c11253a70065",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
       "version" : "26.06"
