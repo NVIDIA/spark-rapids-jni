@@ -161,24 +161,21 @@ void validate_map_from_entries_input(cudf::column_view const& input, char const*
                std::string{fn_name} + ": struct key child must not be sliced");
 }
 
-// Phase 1 + reductions + bundled host pull.
-// Returns row_state, row_size, scanned out_offsets (allocated from `offsets_mr`), and the
-// host-side {max_state, min_state, total_entries} summary.  Caller decides whether to throw on
-// max_state == STATE_NULL_KEY and how to consume the rest.
-struct phase1_result {
+// Runs Phase 1 (state collection) + the cub Max/Min reductions on row_state, then pulls
+// {max_state, min_state} back to host with a single sync.  Does NOT do the inclusive_scan that
+// produces out_offsets — that work is only needed on the slow path of map_from_entries and is
+// pure overhead for is_valid_map and the fast (deep-copy) path of map_from_entries.
+struct phase1_state_summary {
   rmm::device_uvector<std::uint8_t> row_state;
   rmm::device_uvector<cudf::size_type> row_size;
-  rmm::device_uvector<cudf::size_type> out_offsets;
   std::uint8_t max_state;
   std::uint8_t min_state;
-  cudf::size_type total_entries;
 };
 
-phase1_result run_phase1(cudf::column_view const& input,
-                         bool throw_on_null_key,
-                         rmm::cuda_stream_view stream,
-                         rmm::device_async_resource_ref offsets_mr,
-                         rmm::device_async_resource_ref temp_mr)
+phase1_state_summary run_phase1_state(cudf::column_view const& input,
+                                      bool throw_on_null_key,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::device_async_resource_ref temp_mr)
 {
   auto const num_rows = input.size();
   auto const lists_cv = cudf::lists_column_view(input);
@@ -203,16 +200,6 @@ phase1_result run_phase1(cudf::column_view const& input,
     CUDF_CHECK_CUDA(stream.value());
   }
 
-  // ── Phase 1.5: device reductions + scan + bundled host pull ────────────────
-  // Output offsets: scanned row_size with leading 0.  Allocated from `offsets_mr` (caller's
-  // mr when this buffer is released into a returned column, temp_mr otherwise).
-  rmm::device_uvector<cudf::size_type> out_offsets(num_rows + 1, stream, offsets_mr);
-  CUDF_CUDA_TRY(cudaMemsetAsync(out_offsets.data(), 0, sizeof(cudf::size_type), stream.value()));
-  thrust::inclusive_scan(rmm::exec_policy_nosync(stream, temp_mr),
-                         row_size.begin(),
-                         row_size.end(),
-                         out_offsets.begin() + 1);
-
   // Max + Min reductions on row_state — the state ordering encodes both "must throw?" and
   // "all valid?" in a single byte.
   rmm::device_scalar<std::uint8_t> max_state_d(stream, temp_mr);
@@ -234,27 +221,16 @@ phase1_result run_phase1(cudf::column_view const& input,
       tmp.data(), bytes, row_state.data(), min_state_d.data(), num_rows, stream.value()));
   }
 
-  // Single bundled D→H pull — three async copies, one stream sync.
+  // Bundled D→H pull — two async copies, one stream sync.
   std::uint8_t max_state{};
   std::uint8_t min_state{};
-  cudf::size_type total_entries{};
   CUDF_CUDA_TRY(cudaMemcpyAsync(
     &max_state, max_state_d.data(), sizeof(std::uint8_t), cudaMemcpyDeviceToHost, stream.value()));
   CUDF_CUDA_TRY(cudaMemcpyAsync(
     &min_state, min_state_d.data(), sizeof(std::uint8_t), cudaMemcpyDeviceToHost, stream.value()));
-  CUDF_CUDA_TRY(cudaMemcpyAsync(&total_entries,
-                                out_offsets.data() + num_rows,
-                                sizeof(cudf::size_type),
-                                cudaMemcpyDeviceToHost,
-                                stream.value()));
   stream.synchronize();
 
-  return phase1_result{std::move(row_state),
-                       std::move(row_size),
-                       std::move(out_offsets),
-                       max_state,
-                       min_state,
-                       total_entries};
+  return phase1_state_summary{std::move(row_state), std::move(row_size), max_state, min_state};
 }
 
 }  // namespace
@@ -271,10 +247,9 @@ bool is_valid_map(cudf::column_view const& input,
   if (input.size() == 0) { return true; }
 
   auto const temp_mr = cudf::get_current_device_resource_ref();
-  // Both row_state and out_offsets are scratch — `is_valid_map` doesn't construct any output
-  // column, so use temp_mr for everything (mr is unused for this entry point but is kept on
-  // the public signature for API symmetry with map_from_entries).
-  auto p1 = run_phase1(input, throw_on_null_key, stream, temp_mr, temp_mr);
+  // mr is unused for this entry point (no output column allocated); it is kept on the public
+  // signature for API symmetry with map_from_entries.
+  auto p1 = run_phase1_state(input, throw_on_null_key, stream, temp_mr);
 
   if (p1.max_state == STATE_NULL_KEY) { throw cudf::logic_error(kNullKeyError); }
   return p1.min_state == STATE_VALID;
@@ -294,17 +269,34 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   auto const num_rows = input.size();
   auto const temp_mr  = cudf::get_current_device_resource_ref();
 
-  // out_offsets is part of the returned column on the slow path → allocate from caller's mr.
-  auto p1 = run_phase1(input, throw_on_null_key, stream, mr, temp_mr);
+  auto p1 = run_phase1_state(input, throw_on_null_key, stream, temp_mr);
 
   if (p1.max_state == STATE_NULL_KEY) { throw cudf::logic_error(kNullKeyError); }
 
   // Every row valid ⇒ a deep copy of the input is the result.  Callers that want to skip this
   // copy entirely should call is_valid_map() first and reinterpret the input via incRefCount.
+  // No scan / no second sync needed on this path.
   if (p1.min_state == STATE_VALID) { return std::make_unique<cudf::column>(input, stream, mr); }
 
+  // ── Slow path only: scan row_size into the final out_offsets column and pull total_entries
+  // back to host.  This is the work `is_valid_map` and the deep-copy fast path correctly skip.
   auto const lists_cv = cudf::lists_column_view(input);
   auto const structs  = lists_cv.child();
+
+  rmm::device_uvector<cudf::size_type> out_offsets(num_rows + 1, stream, mr);
+  CUDF_CUDA_TRY(cudaMemsetAsync(out_offsets.data(), 0, sizeof(cudf::size_type), stream.value()));
+  thrust::inclusive_scan(rmm::exec_policy_nosync(stream, temp_mr),
+                         p1.row_size.begin(),
+                         p1.row_size.end(),
+                         out_offsets.begin() + 1);
+
+  cudf::size_type total_entries{};
+  CUDF_CUDA_TRY(cudaMemcpyAsync(&total_entries,
+                                out_offsets.data() + num_rows,
+                                sizeof(cudf::size_type),
+                                cudaMemcpyDeviceToHost,
+                                stream.value()));
+  stream.synchronize();
 
   // ── Phase 2: clean output construction (no dirty intermediate result) ─────
   // 2a. Null mask from row_state via an explicit `state == STATE_VALID` predicate.  Avoids
@@ -321,13 +313,13 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
   auto const null_count = static_cast<cudf::size_type>(null_count_sz);
 
   // 2b. Gather map: each STATE_VALID row writes its source indices to its scanned slot.
-  rmm::device_uvector<cudf::size_type> gather_map(p1.total_entries, stream, temp_mr);
+  rmm::device_uvector<cudf::size_type> gather_map(total_entries, stream, temp_mr);
   {
     constexpr int block_size = 256;
     auto const grid_size     = cudf::util::div_rounding_up_safe(num_rows, block_size);
     build_gather_map_kernel<<<grid_size, block_size, 0, stream.value()>>>(p1.row_state.data(),
                                                                           lists_cv.offsets_begin(),
-                                                                          p1.out_offsets.data(),
+                                                                          out_offsets.data(),
                                                                           num_rows,
                                                                           gather_map.data());
     CUDF_CHECK_CUDA(stream.value());
@@ -335,7 +327,7 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
 
   // 2c. Single gather over the struct child — handles arbitrary nested key/value types.
   auto const gather_map_view = cudf::column_view(cudf::data_type{cudf::type_id::INT32},
-                                                 p1.total_entries,
+                                                 total_entries,
                                                  static_cast<void const*>(gather_map.data()),
                                                  nullptr,
                                                  0);
@@ -346,10 +338,10 @@ std::unique_ptr<cudf::column> map_from_entries(cudf::column_view const& input,
                                      mr);
   auto gathered_struct       = std::move(gathered_table->release()[0]);
 
-  // 2d. Output offsets column directly from p1.out_offsets.
+  // 2d. Output offsets column directly from out_offsets.
   auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                     num_rows + 1,
-                                                    p1.out_offsets.release(),
+                                                    out_offsets.release(),
                                                     rmm::device_buffer{},
                                                     0);
 
