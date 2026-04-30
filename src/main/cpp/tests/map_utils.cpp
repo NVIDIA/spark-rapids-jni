@@ -92,19 +92,23 @@ TEST_F(MapUtilsTests, StringKeyNullThrows)
                cudf::logic_error);
 }
 
-TEST_F(MapUtilsTests, StringKeyNonNullFastPath)
+TEST_F(MapUtilsTests, StringKeyNonNullIsValidMap)
 {
-  // All-valid string keys: every row is STATE_VALID, so the function returns nullptr
-  // (fast-path signal).  The caller is expected to reinterpret the input as the result.
+  // All-valid string keys: input is already a valid map.  is_valid_map returns true;
+  // map_from_entries returns a non-null deep copy of input.
   auto keys    = cudf::test::strings_column_wrapper({"a", "b", "c"});
   auto values  = int_col{10, 20, 30};
   auto structs = cudf::test::structs_column_wrapper({keys, values}).release();
   auto offsets = size_col{0, 2, 3}.release();
   auto list_col =
     cudf::make_lists_column(2, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
+  EXPECT_TRUE(spark_rapids_jni::is_valid_map(list_col->view(), true));
+
   std::unique_ptr<cudf::column> result;
   EXPECT_NO_THROW(result = spark_rapids_jni::map_from_entries(list_col->view(), true));
-  EXPECT_EQ(result, nullptr);
+  ASSERT_NE(result, nullptr);
+  EXPECT_EQ(result->size(), 2);
+  EXPECT_EQ(result->null_count(), 0);
 }
 
 // Pins the validation order: a zero-row LIST<INT32> input must throw on the
@@ -140,9 +144,35 @@ TEST_F(MapUtilsTests, NullStructEntryMasksRowSlowPath)
   auto list_col =
     cudf::make_lists_column(2, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
 
+  // is_valid_map sees the null struct entry and returns false.
+  EXPECT_FALSE(spark_rapids_jni::is_valid_map(list_col->view(), true));
+
   std::unique_ptr<cudf::column> result;
   EXPECT_NO_THROW(result = spark_rapids_jni::map_from_entries(list_col->view(), true));
-  ASSERT_NE(result, nullptr);  // slow path must not take the fast-path return
+  ASSERT_NE(result, nullptr);
   EXPECT_EQ(result->size(), 2);
   EXPECT_EQ(result->null_count(), 1);  // exactly row 0 is null
+}
+
+// is_valid_map throws on the same shape errors as map_from_entries.
+TEST_F(MapUtilsTests, IsValidMapNonListInputThrows)
+{
+  auto const input = int_col{1, 2, 3};
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::is_valid_map(input, true)), cudf::logic_error);
+}
+
+// is_valid_map throws on null key in valid struct under throw_on_null_key=true,
+// and returns true under throw_on_null_key=false.
+TEST_F(MapUtilsTests, IsValidMapNullKeyPolicyVariants)
+{
+  auto keys    = cudf::test::strings_column_wrapper({"a", "x"}, {1, 0});
+  auto values  = int_col{10, 20};
+  auto structs = cudf::test::structs_column_wrapper({keys, values}).release();
+  auto offsets = size_col{0, 2}.release();
+  auto list_col =
+    cudf::make_lists_column(1, std::move(offsets), std::move(structs), 0, rmm::device_buffer{});
+
+  EXPECT_THROW(static_cast<void>(spark_rapids_jni::is_valid_map(list_col->view(), true)),
+               cudf::logic_error);
+  EXPECT_TRUE(spark_rapids_jni::is_valid_map(list_col->view(), false));
 }

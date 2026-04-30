@@ -20,6 +20,20 @@
 
 extern "C" {
 
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_MapUtils_isValidMap(
+  JNIEnv* env, jclass, jlong input_handle, jboolean throw_on_null_key)
+{
+  JNI_NULL_CHECK(env, input_handle, "input column is null", JNI_FALSE);
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    auto const& input = *reinterpret_cast<cudf::column_view const*>(input_handle);
+    return spark_rapids_jni::is_valid_map(input, static_cast<bool>(throw_on_null_key)) ? JNI_TRUE
+                                                                                       : JNI_FALSE;
+  }
+  JNI_CATCH(env, JNI_FALSE);
+}
+
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_MapUtils_mapFromEntries(
   JNIEnv* env, jclass, jlong input_handle, jboolean throw_on_null_key)
 {
@@ -28,9 +42,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_MapUtils_mapFromEntries
   {
     cudf::jni::auto_set_device(env);
     auto const& input = *reinterpret_cast<cudf::column_view const*>(input_handle);
-    auto result = spark_rapids_jni::map_from_entries(input, static_cast<bool>(throw_on_null_key));
-    // 0 is the fast-path signal: caller reinterprets the input as the result.
-    return result ? cudf::jni::release_as_jlong(std::move(result)) : 0L;
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::map_from_entries(input, static_cast<bool>(throw_on_null_key)));
   }
   JNI_CATCH(env, 0);
 }

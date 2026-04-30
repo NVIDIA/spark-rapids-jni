@@ -30,6 +30,41 @@ public class MapUtils {
   }
 
   /**
+   * Returns {@code true} when every row of {@code input} is already a valid Spark map row that
+   * can be used as-is (i.e. {@link #mapFromEntries} would not need to mask any row).
+   *
+   * <p>The check matches the semantics of {@link #mapFromEntries}:
+   * <ul>
+   *   <li>A row containing any null struct entry is NOT a valid map row → returns {@code false}.</li>
+   *   <li>A row whose valid struct has a null key:
+   *     <ul>
+   *       <li>{@code throwOnNullKey == true}  — throws {@link RuntimeException}.</li>
+   *       <li>{@code throwOnNullKey == false} — the row is treated as valid.</li>
+   *     </ul>
+   *   </li>
+   *   <li>An empty input is trivially valid → returns {@code true}.</li>
+   * </ul>
+   *
+   * <p>Intended for callers that want to skip a deep copy when the input is already
+   * structurally a map: a Spark {@code MAP<K,V>} and a cuDF {@code LIST<STRUCT<K,V>>} share the
+   * same physical layout, so when this method returns {@code true} the caller can reinterpret
+   * {@code input} as the result (typically via {@code input.incRefCount()}) — no copy required.
+   *
+   * <p><b>Sliced input is not supported.</b>  Materialize the slice before calling.
+   *
+   * @param input          Input LIST(STRUCT(KEY, VALUE)) column.  Must not be sliced.
+   * @param throwOnNullKey When {@code true}, throw if any valid-struct entry has a null key.
+   * @return {@code true} when every row of {@code input} is a valid map row, {@code false}
+   *         otherwise.
+   * @throws RuntimeException if {@code throwOnNullKey} is true and any row (with no null struct
+   *         entry) contains a null key inside a valid struct.
+   * @throws RuntimeException if {@code input} or its struct/key child is sliced.
+   */
+  public static boolean isValidMap(ColumnView input, boolean throwOnNullKey) {
+    return isValidMap(input.getNativeView(), throwOnNullKey);
+  }
+
+  /**
    * Converts a LIST(STRUCT(KEY, VALUE)) column to a map column following Spark semantics.
    *
    * <p>Spark semantics for {@code map_from_entries}:
@@ -46,14 +81,13 @@ public class MapUtils {
    *   </li>
    * </ul>
    *
-   * <p><b>Fast-path contract:</b> returns {@code null} when every row would be returned
-   * unchanged.  A Spark {@code MAP<K,V>} and a cuDF {@code LIST<STRUCT<K,V>>} share the same
-   * physical layout, so the caller should treat {@code null} as a signal to reinterpret the
-   * input as the result (typically via {@code input.incRefCount()}) — no copy, no kernel past
-   * the state-collection phase.  An empty input also returns {@code null}.
+   * <p>This method ALWAYS returns a non-null {@link ColumnVector}.  When every row would be
+   * returned unchanged (the case where {@link #isValidMap} would return {@code true}), it
+   * returns a deep copy of {@code input}.  Callers that want to avoid that deep copy should
+   * call {@link #isValidMap} first and reinterpret {@code input} via {@code incRefCount()} when
+   * it returns {@code true}.
    *
-   * <p><b>Sliced input is not supported.</b>  Materialize the slice (e.g. via {@code copyToHost
-   * / fromColumnViews}) before calling.
+   * <p><b>Sliced input is not supported.</b>  Materialize the slice before calling.
    *
    * <p>Duplicate-key deduplication is intentionally left to the caller so that the EXCEPTION
    * and LAST_WIN policies can be applied after this function returns.
@@ -61,15 +95,16 @@ public class MapUtils {
    * @param input          Input LIST(STRUCT(KEY, VALUE)) column.  Must not be sliced.
    * @param throwOnNullKey When {@code true}, throw if any valid-struct entry has a null key.
    * @return A new column with rows containing null struct entries replaced with null outer
-   *         rows; or {@code null} when no row needs masking (fast path).
+   *         rows.  Never {@code null}.
    * @throws RuntimeException if {@code throwOnNullKey} is true and any row (with no null struct
    *         entry) contains a null key inside a valid struct.
-   * @throws RuntimeException if {@code input} or its struct child is sliced.
+   * @throws RuntimeException if {@code input} or its struct/key child is sliced.
    */
   public static ColumnVector mapFromEntries(ColumnView input, boolean throwOnNullKey) {
-    long handle = mapFromEntries(input.getNativeView(), throwOnNullKey);
-    return handle == 0L ? null : new ColumnVector(handle);
+    return new ColumnVector(mapFromEntries(input.getNativeView(), throwOnNullKey));
   }
+
+  private static native boolean isValidMap(long inputHandle, boolean throwOnNullKey);
 
   private static native long mapFromEntries(long inputHandle, boolean throwOnNullKey);
 }
