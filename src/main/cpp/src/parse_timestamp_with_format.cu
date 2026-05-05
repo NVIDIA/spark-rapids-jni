@@ -190,6 +190,13 @@ std::vector<format_token> compile_format(std::string const& fmt, bool legacy)
       if (j - i > 9) {
         throw std::invalid_argument(std::string("pattern letter run too long: ") + c);
       }
+      // Non-year fields must have a 2-letter run. JDK uses run length 3+ to mean text forms
+      // (e.g. MMM = month name) which this kernel does not implement; silently treating them
+      // as N-digit fields would mask caller bugs.
+      if (c != 'y' && (j - i) != 2) {
+        throw std::invalid_argument(std::string("non-year pattern letter run must be length 2: ") +
+                                    c);
+      }
       uint8_t const run   = static_cast<uint8_t>(j - i);
       uint8_t const min_d = (c == 'y') ? run : (legacy && !packed ? 1 : run);
       uint8_t const max_d = run;
@@ -199,6 +206,11 @@ std::vector<format_token> compile_format(std::string const& fmt, bool legacy)
       if (c == ' ') {
         out.push_back({TOK_T_OR_SPACE, 0, 0, 0});
       } else {
+        // Literal char must be ASCII; non-ASCII bytes would alias UTF-8 continuation bytes
+        // when matched against the input.
+        if (static_cast<unsigned char>(c) >= 0x80) {
+          throw std::invalid_argument("non-ASCII literal in pattern is not supported");
+        }
         out.push_back({TOK_LITERAL, static_cast<uint8_t>(c), 0, 0});
         if (legacy && (c == '-' || c == '/')) { out.push_back({TOK_SKIP_HT_WS, 0, 0, 0}); }
       }
@@ -344,6 +356,8 @@ std::unique_ptr<cudf::column> parse_timestamp_strings_with_format(
                                             0,
                                             stream,
                                             mr);
+  // Every code path in parse_with_format_fn::operator() writes validity[idx], so leaving the
+  // buffer uninitialized is safe.
   auto validity =
     rmm::device_uvector<bool>(num_rows, stream, cudf::get_current_device_resource_ref());
 

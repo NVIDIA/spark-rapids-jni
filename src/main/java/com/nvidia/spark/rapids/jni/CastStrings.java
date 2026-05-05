@@ -342,14 +342,18 @@ public class CastStrings {
   }
 
   /**
-   * Parse a string column into a microsecond timestamp column for a Spark date/timestamp
-   * format pattern. The pattern is compiled into a token stream on the host and walked
-   * per-row on the device, mirroring how Spark's {@code DateTimeFormatter} /
+   * Parse a string column into a {@code timestamp_us} column for a Spark date/timestamp
+   * format pattern. Sub-second digits are not parsed; successfully parsed rows always have
+   * microsecond field zero. The pattern is compiled into a token stream on the host and
+   * walked per-row on the device, mirroring how Spark's {@code DateTimeFormatter} /
    * {@code SimpleDateFormat} represent a parser internally.
    *
    * <p>Pattern letters follow JDK conventions: {@code y}, {@code M}, {@code d}, {@code H},
-   * {@code m}, {@code s}. Lowercase {@code m} is minute, not month. Space matches space or
-   * 'T' (Spark's permissive date/time separator). In LEGACY mode, non-year digit fields
+   * {@code m}, {@code s}. Lowercase {@code m} is minute, not month. Non-year letter runs
+   * must have length 2; longer runs (e.g. {@code MMM} for month name) are rejected because
+   * this kernel does not implement text forms. Space matches space or 'T' (Spark's
+   * permissive date/time separator); quoted literals ({@code 'T'}) are not supported, use
+   * a space instead. Pattern literals must be ASCII. In LEGACY mode, non-year digit fields
    * accept 1 or 2 digits unless adjacent to another digit field (which forces exact width
    * for boundary disambiguation), and the trailing tail accepts EOF or any non-digit.
    * Parsed values are wall-clock UTC; timezone rebasing remains the caller's responsibility.
