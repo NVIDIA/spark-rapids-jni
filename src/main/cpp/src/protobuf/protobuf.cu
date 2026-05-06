@@ -879,22 +879,20 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                        has_def,
                                                        def_int);
 
-            if (schema_idx < static_cast<int>(enum_valid_values.size()) &&
-                schema_idx < static_cast<int>(enum_names.size())) {
-              auto const& valid_enums     = enum_valid_values[schema_idx];
-              auto const& enum_name_bytes = enum_names[schema_idx];
-              if (!valid_enums.empty() && valid_enums.size() == enum_name_bytes.size()) {
-                column_map[schema_idx] = build_enum_string_column(
-                  out, valid, valid_enums, enum_name_bytes, d_row_force_null, num_rows, stream, mr);
-              } else {
-                // Missing enum metadata for enum-as-string field; mark as decode error.
-                set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
-                column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
-              }
-            } else {
-              set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
-              column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
-            }
+            // Missing or mismatched enum metadata is a schema/config bug (host-side check),
+            // not a row-level decode error — fail loudly rather than silently produce a null
+            // column that downstream can't distinguish from a real all-null result.
+            CUDF_EXPECTS(schema_idx < static_cast<int>(enum_valid_values.size()) &&
+                           schema_idx < static_cast<int>(enum_names.size()),
+                         "Protobuf decode error: missing or mismatched enum metadata for "
+                         "enum-as-string field");
+            auto const& valid_enums     = enum_valid_values[schema_idx];
+            auto const& enum_name_bytes = enum_names[schema_idx];
+            CUDF_EXPECTS(!valid_enums.empty() && valid_enums.size() == enum_name_bytes.size(),
+                         "Protobuf decode error: missing or mismatched enum metadata for "
+                         "enum-as-string field");
+            column_map[schema_idx] = build_enum_string_column(
+              out, valid, valid_enums, enum_name_bytes, d_row_force_null, num_rows, stream, mr);
           } else {
             // Regular protobuf STRING (length-delimited)
             bool has_def_str    = has_def;
@@ -955,9 +953,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           break;
         }
         default:
-          // For LIST (bytes) and other unsupported types, create placeholder columns
-          column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
-          break;
+          // Unreachable: schema validation only admits the scalar element types enumerated
+          // above (STRUCT is dispatched through the nested path, not this scalar switch).
+          CUDF_FAIL("Protobuf decode internal error: unsupported scalar element type");
       }
     }
   }
@@ -979,7 +977,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         extract_strided_count{d_repeated_info.data(), ri, num_repeated});
       auto counts_end = counts_begin + num_rows;
 
-      // Reduce in int64 to detect overflow before truncating to int32 LIST offsets.
+      // Reduce the per-row counts into a single int64 total. Using int64 lets us detect
+      // overflow before truncating into the int32 LIST offsets buffer (cudf list offsets are
+      // int32). The same total is reused as the `offsets[num_rows]` sentinel below, so this
+      // single reduce serves both the overflow guard and the offsets construction.
       int64_t total_64 =
         thrust::reduce(rmm::exec_policy_nosync(stream), counts_begin, counts_end, int64_t{0});
       CUDF_EXPECTS(total_64 <= std::numeric_limits<int32_t>::max(),
@@ -1053,6 +1054,13 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       auto element_type   = cudf::data_type{schema[schema_idx].output_type};
       int32_t total_count = w.total_count;
 
+      // Repeated MessageType is not supported in this part; full implementation lands in
+      // parts 3b/3c. Fail fast rather than silently returning a null LIST<STRUCT>, which
+      // would be indistinguishable from a real all-null result downstream.
+      CUDF_EXPECTS(
+        element_type.id() != cudf::type_id::STRUCT,
+        "Protobuf decode: repeated MessageType is not yet supported (covered by parts 3b/3c)");
+
       if (total_count <= 0) {
         // All rows empty: w.offsets is already a zero-filled buffer from Phase A.
         auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
@@ -1061,16 +1069,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                           rmm::device_buffer{},
                                                           0);
 
-        std::unique_ptr<cudf::column> child_col;
-        auto const child_type_id =
-          static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
-        if (child_type_id == cudf::type_id::STRUCT) {
-          child_col =
-            make_empty_struct_column_with_schema(schema, schema_idx, num_fields, stream, mr);
-        } else {
-          child_col = make_empty_column_safe(element_type, stream, mr);
-        }
-
+        auto child_col         = make_empty_column_safe(element_type, stream, mr);
         column_map[schema_idx] = make_list_column_with_input_nulls(
           num_rows, std::move(offsets_col), std::move(child_col), binary_input, stream, mr);
         continue;
@@ -1078,10 +1077,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       auto& d_occurrences = *w.occurrences;
 
-      // For repeated fields, output_type holds the element type (not the outer LIST type).
-      auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
-
-      switch (child_type_id) {
+      // For repeated fields, schema[].output_type holds the element type (not the outer LIST).
+      switch (element_type.id()) {
         case cudf::type_id::INT32:
           column_map[schema_idx] =
             build_repeated_scalar_column<int32_t>(binary_input,
@@ -1189,28 +1186,26 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           auto const field_meta = make_field_meta_view(context, schema_idx);
           auto enc              = field_meta.schema.encoding;
           if (enc == proto_encoding::ENUM_STRING) {
-            if (!field_meta.enum_valid_values.empty() &&
-                field_meta.enum_valid_values.size() == field_meta.enum_names.size()) {
-              column_map[schema_idx] =
-                build_repeated_enum_string_column(binary_input,
-                                                  message_data,
-                                                  list_offsets,
-                                                  base_offset,
-                                                  std::move(w.offsets),
-                                                  d_occurrences,
-                                                  total_count,
-                                                  num_rows,
-                                                  field_meta.enum_valid_values,
-                                                  field_meta.enum_names,
-                                                  d_row_force_null,
-                                                  d_error,
-                                                  stream,
-                                                  mr);
-            } else {
-              set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
-              column_map[schema_idx] = make_null_column(
-                cudf::data_type{schema[schema_idx].output_type}, num_rows, stream, mr);
-            }
+            // Same host-side schema check as the scalar enum path — fail loudly instead of
+            // silently emitting a null column.
+            CUDF_EXPECTS(!field_meta.enum_valid_values.empty() &&
+                           field_meta.enum_valid_values.size() == field_meta.enum_names.size(),
+                         "Protobuf decode error: missing or mismatched enum metadata for "
+                         "enum-as-string field");
+            column_map[schema_idx] = build_repeated_enum_string_column(binary_input,
+                                                                       message_data,
+                                                                       list_offsets,
+                                                                       base_offset,
+                                                                       std::move(w.offsets),
+                                                                       d_occurrences,
+                                                                       total_count,
+                                                                       num_rows,
+                                                                       field_meta.enum_valid_values,
+                                                                       field_meta.enum_names,
+                                                                       d_row_force_null,
+                                                                       d_error,
+                                                                       stream,
+                                                                       mr);
           } else {
             column_map[schema_idx] = build_repeated_string_column(binary_input,
                                                                   message_data,
@@ -1244,10 +1239,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                 mr);
           break;
         default:
-          // Composite element types (STRUCT etc.) are placeholders for parts 3b/3c.
-          column_map[schema_idx] = make_null_list_column_with_child(
-            make_empty_column_safe(element_type, stream, mr), num_rows, stream, mr);
-          break;
+          // Unreachable: schema validation admits the types enumerated above; STRUCT is
+          // rejected at the loop entry above (parts 3b/3c). Reaching this branch means a
+          // schema slipped past validation.
+          CUDF_FAIL("Protobuf decode internal error: unsupported repeated element type");
       }
     }  // for (ri)
   }

@@ -1868,7 +1868,12 @@ public class ProtobufTest {
         assertEquals(DType.STRUCT, result.getType());
         assertEquals(3, result.getRowCount());
 
-        // Verify double_values child column has correct total count: 2 + 2 + 1 = 5
+        // Focus of this test is the multi-field packed-double layout (cross-row count
+        // accumulation, child-column construction across mixed packed/unpacked rows); the
+        // exact decoded values are spot-checked only on the double column. Per-element-type
+        // round-trips are covered separately by testUnpackedRepeatedInt32, testRepeatedUint32,
+        // testRepeatedUint64, testRepeatedString, testRepeatedBytes, and
+        // testRepeatedEnumAsString.
         try (ColumnVector doubleListCol = result.getChildColumnView(2).copyToColumnVector()) {
           assertEquals(DType.LIST, doubleListCol.getType());
           try (ColumnVector doubleChildren = doubleListCol.getChildColumnView(0).copyToColumnVector()) {

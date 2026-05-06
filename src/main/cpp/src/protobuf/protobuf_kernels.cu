@@ -206,36 +206,46 @@ __device__ bool walk_repeated_element(uint8_t const* cur,
     }
     uint8_t const* packed_end = packed_start + packed_len;
 
-    if (expected_wt == wire_type_value(proto_wire_type::VARINT)) {
-      uint8_t const* p = packed_start;
-      while (p < packed_end) {
-        int32_t elem_offset = static_cast<int32_t>(p - msg_base);
-        uint64_t dummy;
-        int vbytes;
-        // read_varint validates the varint stays within `packed_end` (the packed payload's
-        // end), not `msg_end` — switching to a generic skip helper here would over-read past
-        // the packed buffer.
-        if (!read_varint(p, packed_end, dummy, vbytes)) {
-          set_error_once(error_flag, ERR_VARINT);
+    switch (expected_wt) {
+      case wire_type_value(proto_wire_type::VARINT): {
+        // `vbytes` is set inside the loop body before `p += vbytes` runs (the advance step
+        // happens after each body execution), but we initialize it defensively to silence a
+        // potential "used before set" warning. `read_varint` validates the varint stays
+        // within `packed_end` (the packed payload's end), not `msg_end` — switching to a
+        // generic skip helper here would over-read past the packed buffer.
+        int vbytes = cuda::std::numeric_limits<int>::max();
+        for (uint8_t const* p = packed_start; p < packed_end; p += vbytes) {
+          int32_t elem_offset = static_cast<int32_t>(p - msg_base);
+          uint64_t dummy;
+          if (!read_varint(p, packed_end, dummy, vbytes)) {
+            set_error_once(error_flag, ERR_VARINT);
+            return false;
+          }
+          if (!act(elem_offset, vbytes)) return false;
+        }
+        break;
+      }
+      case wire_type_value(proto_wire_type::I32BIT):
+      case wire_type_value(proto_wire_type::I64BIT): {
+        int const width = (expected_wt == wire_type_value(proto_wire_type::I32BIT)) ? 4 : 8;
+        if ((packed_len % width) != 0) {
+          set_error_once(error_flag, ERR_FIXED_LEN);
           return false;
         }
-        if (!act(elem_offset, vbytes)) return false;
-        p += vbytes;
+        for (uint64_t i = 0; i < packed_len; i += width) {
+          int32_t elem_offset = static_cast<int32_t>(packed_start - msg_base + i);
+          if (!act(elem_offset, width)) return false;
+        }
+        break;
       }
-    } else if (expected_wt == wire_type_value(proto_wire_type::I32BIT) ||
-               expected_wt == wire_type_value(proto_wire_type::I64BIT)) {
-      int const width = (expected_wt == wire_type_value(proto_wire_type::I32BIT)) ? 4 : 8;
-      if ((packed_len % width) != 0) {
-        set_error_once(error_flag, ERR_FIXED_LEN);
-        return false;
-      }
-      for (uint64_t i = 0; i < packed_len; i += width) {
-        int32_t elem_offset = static_cast<int32_t>(packed_start - msg_base + i);
-        if (!act(elem_offset, width)) return false;
-      }
+      default: break;  // LEN is filtered out above by the !is_packed path.
     }
-    // LEN is handled by the unpacked path above; other wire types fall through.
   } else {
+    // Unpacked single occurrence. We use `get_field_data_location` rather than `skip_field`
+    // because the scan path's `act` needs both the data offset and length to record an
+    // occurrence; `skip_field` advances past the field but doesn't surface those. The count
+    // path's `act` ignores them, but sharing one helper keeps the walker generic over both
+    // actions and avoids re-validating field bounds twice.
     int32_t data_offset, data_length;
     if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
       set_error_once(error_flag, ERR_FIELD_SIZE);
