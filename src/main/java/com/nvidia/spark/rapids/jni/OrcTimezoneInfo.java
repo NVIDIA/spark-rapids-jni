@@ -540,11 +540,13 @@ class OrcTimezoneInfo {
    * validation as {@link GpuTimeZoneDB#getZoneId(String)} and fail with
    * {@link IllegalArgumentException} (no silent fallback to GMT).
    *
-   * <p><b>Cost:</b> this is expensive — it scans every historical {@link ZoneOffsetTransition}
+   * <p><b>Cost:</b> this is non-trivial — it scans every historical {@link ZoneOffsetTransition}
    * from year 1 onward, probes {@link TimeZone#getOffset(long)} hourly to extract the recurring
-   * DST rule, and then verifies the rule across multiple reference years. Results are cached in
-   * {@link #RUNTIME_TIMEZONE_INFOS} (see {@link #get(String)}), so callers should always go
-   * through {@code get(...)} rather than invoking this directly.
+   * DST rule, and then verifies the rule across multiple reference years. Measured on an Intel
+   * i7-10700K with OpenJDK 17, a cold build takes ~4 ms typical and up to ~12 ms for the worst
+   * zones (e.g. {@code ART}). Results are cached in {@link #RUNTIME_TIMEZONE_INFOS} (see
+   * {@link #get(String)}), so callers should always go through {@code get(...)} rather than
+   * invoking this directly.
    */
   private static OrcTimezoneInfo buildRuntimeOrcTimezoneInfo(String timezoneId) {
     final ZoneId zoneId;
