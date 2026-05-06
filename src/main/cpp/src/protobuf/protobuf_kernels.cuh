@@ -418,6 +418,7 @@ inline std::pair<rmm::device_buffer, cudf::size_type> make_null_mask_from_valid(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_EXPECTS(num_rows >= 0, "num_rows must be non-negative");
   CUDF_EXPECTS(valid.size() >= static_cast<size_t>(num_rows),
                "valid buffer smaller than requested null mask");
   auto begin = thrust::make_counting_iterator<cudf::size_type>(0);

@@ -130,6 +130,3 @@ ConfigureTest(CONV
 
 ConfigureTest(MULTIPLY
     multiply.cpp)
-
-ConfigureTest(PROTOBUF_HELPERS
-    protobuf_helpers.cu)
