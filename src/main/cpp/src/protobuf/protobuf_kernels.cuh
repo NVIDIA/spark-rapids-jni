@@ -168,19 +168,9 @@ CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
   int32_t data_offset = 0;
   auto loc            = loc_provider.get(idx, data_offset);
 
-  // For BOOL8 (uint8_t), protobuf spec says any non-zero varint is true.
-  // A raw static_cast<uint8_t> would silently truncate values >= 256 to 0.
-  auto const write_value = [](OutputType* dst, uint64_t val) {
-    if constexpr (cuda::std::is_same_v<OutputType, uint8_t>) {
-      *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
-    } else {
-      *dst = static_cast<OutputType>(val);
-    }
-  };
-
   if (loc.offset < 0) {
     if (has_default) {
-      write_value(&out[idx], static_cast<uint64_t>(default_value));
+      write_varint_value(&out[idx], static_cast<uint64_t>(default_value));
       if (valid) valid[idx] = true;
     } else {
       if (valid) valid[idx] = false;
@@ -200,7 +190,7 @@ CUDF_KERNEL void extract_varint_kernel(uint8_t const* message_data,
   }
 
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  write_value(&out[idx], v);
+  write_varint_value(&out[idx], v);
   if (valid) valid[idx] = true;
 }
 
@@ -287,17 +277,9 @@ CUDF_KERNEL void extract_varint_batched_kernel(uint8_t const* message_data,
   auto loc         = locations[row * num_loc_fields + desc.loc_field_idx];
   auto* out        = static_cast<OutputType*>(desc.output);
 
-  auto const write_value = [](OutputType* dst, uint64_t val) {
-    if constexpr (cuda::std::is_same_v<OutputType, uint8_t>) {
-      *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
-    } else {
-      *dst = static_cast<OutputType>(val);
-    }
-  };
-
   if (loc.offset < 0) {
     if (desc.has_default) {
-      write_value(&out[row], static_cast<uint64_t>(desc.default_int));
+      write_varint_value(&out[row], static_cast<uint64_t>(desc.default_int));
       desc.valid[row] = true;
     } else {
       desc.valid[row] = false;
@@ -317,7 +299,7 @@ CUDF_KERNEL void extract_varint_batched_kernel(uint8_t const* message_data,
     return;
   }
   if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
-  write_value(&out[row], v);
+  write_varint_value(&out[row], v);
   desc.valid[row] = true;
 }
 
@@ -402,6 +384,37 @@ CUDF_KERNEL void extract_lengths_kernel(LocationProvider loc_provider,
     out_lengths[idx] = 0;
   }
 }
+
+// ============================================================================
+// Host wrapper declarations for kernel launches (repeated + nested)
+// ============================================================================
+
+void launch_count_repeated_fields(cudf::column_device_view const& d_in,
+                                  device_nested_field_descriptor const* schema,
+                                  int num_fields,
+                                  int depth_level,
+                                  repeated_field_info* repeated_info,
+                                  int num_repeated_fields,
+                                  int const* repeated_field_indices,
+                                  field_location* nested_locations,
+                                  int num_nested_fields,
+                                  int const* nested_field_indices,
+                                  int* error_flag,
+                                  int const* fn_to_rep_idx,
+                                  int fn_to_rep_size,
+                                  int const* fn_to_nested_idx,
+                                  int fn_to_nested_size,
+                                  int num_rows,
+                                  rmm::cuda_stream_view stream);
+
+void launch_scan_all_repeated_occurrences(cudf::column_device_view const& d_in,
+                                          repeated_field_scan_desc const* scan_descs,
+                                          int num_scan_fields,
+                                          int* error_flag,
+                                          int const* fn_to_desc_idx,
+                                          int fn_to_desc_size,
+                                          int num_rows,
+                                          rmm::cuda_stream_view stream);
 
 // ============================================================================
 // Host-side template helpers that launch CUDA kernels
@@ -831,7 +844,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> list_offs,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -840,42 +853,9 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   rmm::device_async_resource_ref mr)
 {
   auto const input_null_count = binary_input.null_count();
+  auto const field_type_id    = static_cast<cudf::type_id>(field_desc.output_type_id);
 
-  if (total_count == 0) {
-    rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-    thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
-    auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                                      num_rows + 1,
-                                                      offsets.release(),
-                                                      rmm::device_buffer{},
-                                                      0);
-    auto elem_type   = field_desc.output_type_id == static_cast<int>(cudf::type_id::LIST)
-                         ? cudf::type_id::UINT8
-                         : static_cast<cudf::type_id>(field_desc.output_type_id);
-    auto child_col   = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
-
-    if (input_null_count > 0) {
-      auto null_mask = cudf::copy_bitmask(binary_input, stream, mr);
-      return cudf::make_lists_column(num_rows,
-                                     std::move(offsets_col),
-                                     std::move(child_col),
-                                     input_null_count,
-                                     std::move(null_mask));
-    } else {
-      return cudf::make_lists_column(
-        num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
-    }
-  }
-
-  rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
-  thrust::exclusive_scan(rmm::exec_policy_nosync(stream),
-                         d_field_counts.begin(),
-                         d_field_counts.end(),
-                         list_offs.begin(),
-                         0);
-
-  int32_t total_count_i32 = static_cast<int32_t>(total_count);
-  thrust::fill_n(rmm::exec_policy_nosync(stream), list_offs.data() + num_rows, 1, total_count_i32);
+  CUDF_EXPECTS(total_count > 0, "build_repeated_scalar_column: total_count must be > 0");
 
   rmm::device_uvector<T> values(total_count, stream, mr);
 
@@ -915,11 +895,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
                                                     rmm::device_buffer{},
                                                     0);
   auto child_col   = std::make_unique<cudf::column>(
-    cudf::data_type{static_cast<cudf::type_id>(field_desc.output_type_id)},
-    total_count,
-    values.release(),
-    rmm::device_buffer{},
-    0);
+    cudf::data_type{field_type_id}, total_count, values.release(), rmm::device_buffer{}, 0);
 
   if (input_null_count > 0) {
     auto null_mask = cudf::copy_bitmask(binary_input, stream, mr);

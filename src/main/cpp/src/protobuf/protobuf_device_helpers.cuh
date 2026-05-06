@@ -24,6 +24,7 @@
 
 #include <cuda/atomic>
 #include <cuda/std/limits>
+#include <cuda/std/type_traits>
 
 namespace spark_rapids_jni::protobuf::detail {
 
@@ -60,6 +61,18 @@ __device__ inline void set_error_once(int* error_flag, int error_code)
   int expected = 0;
   cuda::atomic_ref<int, cuda::thread_scope_device> ref(*error_flag);
   ref.compare_exchange_strong(expected, error_code, cuda::memory_order_relaxed);
+}
+
+// Store a decoded varint into an output slot. BOOL8 (uint8_t) follows protobuf's
+// "any non-zero is true" rule and must coerce values >= 256 to 1, not silently truncate.
+template <typename T>
+__device__ __forceinline__ void write_varint_value(T* dst, uint64_t val)
+{
+  if constexpr (cuda::std::is_same_v<T, uint8_t>) {
+    *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
+  } else {
+    *dst = static_cast<T>(val);
+  }
 }
 
 void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stream_view stream);

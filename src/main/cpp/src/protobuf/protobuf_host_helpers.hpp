@@ -19,10 +19,13 @@
 #include "protobuf/protobuf_types.cuh"
 
 #include <cudf/column/column_factories.hpp>
+#include <cudf/column/column_view.hpp>
 #include <cudf/detail/utilities/host_vector.hpp>
 
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -198,13 +201,25 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   int32_t const* top_row_indices = nullptr,
   bool propagate_invalid_rows    = true);
 
-// Complex builder forward declarations
+// Wrap offsets + child into a LIST column, propagating the input's null mask. Note: when
+// `binary_input` has no nulls, `mr` is effectively unused — only the with-nulls path
+// allocates against it (via `cudf::copy_bitmask`).
+std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
+  int num_rows,
+  std::unique_ptr<cudf::column> offsets_col,
+  std::unique_ptr<cudf::column> child_col,
+  cudf::column_view const& binary_input,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
+
+// `list_offs` is the pre-built LIST row-offsets buffer (size num_rows + 1) from the
+// orchestrator (allocated against `mr`); each builder moves it into its output column.
 std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> list_offs,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -221,7 +236,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> list_offs,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
