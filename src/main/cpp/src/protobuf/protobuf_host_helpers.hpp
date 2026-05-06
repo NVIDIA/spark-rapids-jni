@@ -202,7 +202,9 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   bool propagate_invalid_rows    = true);
 
 // LIST<...> offsets buffer of size `num_rows + 1` from per-row counts. The last entry is
-// `total_count` (caller-provided to avoid an extra reduction). Both the prefix scan and the
+// `total_count`, which the caller passes in rather than recomputing here both to avoid an
+// extra device reduction and so the caller can detect int32 overflow on the running sum
+// before truncating into LIST offsets (which are int32). Both the prefix scan and the
 // final write are issued on `stream` against `mr`.
 rmm::device_uvector<int32_t> make_list_offsets_from_counts(
   rmm::device_uvector<int32_t> const& counts,
@@ -213,7 +215,9 @@ rmm::device_uvector<int32_t> make_list_offsets_from_counts(
 
 // Wrap an offsets / child column pair into a LIST column, propagating the input column's null
 // mask when it has nulls. Used by every repeated-* builder so the input-null shape stays
-// consistent across paths.
+// consistent across paths. Note: when `binary_input` has no nulls the LIST column is built
+// with an empty null mask and `mr` is effectively unused — only the with-nulls path allocates
+// against it (via `cudf::copy_bitmask`).
 std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
   int num_rows,
   std::unique_ptr<cudf::column> offsets_col,

@@ -2664,6 +2664,87 @@ public class ProtobufTest {
   }
 
   @Test
+  void testPackedFixedMisalignedPermissive() {
+    // PERMISSIVE counterpart of testPackedFixedMisaligned: instead of throwing on the
+    // misaligned packed payload, the malformed row should produce an empty list (the
+    // error fires inside walk_repeated_element before any occurrence is counted) and
+    // a following well-formed row in the same batch must still decode normally.
+    byte[] badPackedData = new byte[]{0x01, 0x02, 0x03, 0x04, 0x05};
+    Byte[] row0 = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(badPackedData.length)),
+        box(badPackedData));
+    Byte[] row1 = concat(
+        box(tag(1, WT_32BIT)), box(encodeFixed32(42)),
+        box(tag(1, WT_32BIT)), box(encodeFixed32(99)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector expectedIds = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT32)),
+             Arrays.asList(),
+             Arrays.asList(42, 99));
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedIds);
+         ColumnVector actualStruct = decodeRaw(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_32BIT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_FIXED},
+             new boolean[]{true},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testPackedFixedMisaligned64Permissive() {
+    // PERMISSIVE counterpart of testPackedFixedMisaligned64.
+    byte[] badPackedData = new byte[]{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
+    Byte[] row0 = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(badPackedData.length)),
+        box(badPackedData));
+    Byte[] row1 = concat(
+        box(tag(1, WT_64BIT)), box(encodeFixed64(7L)),
+        box(tag(1, WT_64BIT)), box(encodeFixed64(11L)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector expectedIds = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT64)),
+             Arrays.asList(),
+             Arrays.asList(7L, 11L));
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedIds);
+         ColumnVector actualStruct = decodeRaw(
+             input.getColumn(0),
+             new int[]{1},
+             new int[]{-1},
+             new int[]{0},
+             new int[]{WT_64BIT},
+             new int[]{DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_FIXED},
+             new boolean[]{true},
+             new boolean[]{false},
+             new boolean[]{false},
+             new long[]{0},
+             new double[]{0.0},
+             new boolean[]{false},
+             new byte[][]{null},
+             new int[][]{null},
+             false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
   void testLargeRepeatedField() throws Exception {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     for (int i = 0; i < 100000; i++) {
@@ -3222,6 +3303,64 @@ public class ProtobufTest {
           assertEquals("hello", hcv.getJavaString(0));
           assertEquals("world", hcv.getJavaString(1));
           assertEquals("foo", hcv.getJavaString(2));
+        }
+      }
+    }
+  }
+
+  @Test
+  void testRepeatedBytes() {
+    // Exercises build_repeated_string_column with is_bytes=true (BYTES dispatched as
+    // LIST<UINT8>), which testRepeatedString does not cover.
+    byte[] b1 = new byte[]{0x00, 0x01, 0x02};
+    byte[] b2 = new byte[]{0x7f, (byte) 0xff};
+    byte[] b3 = new byte[]{0x10};
+    Byte[] row0 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(b1.length)), box(b1),
+        box(tag(1, WT_LEN)), box(encodeVarint(b2.length)), box(b2));
+    Byte[] row1 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(b3.length)), box(b3));
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{Protobuf.WT_LEN},
+             new int[]{DType.LIST.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      assertEquals(2, result.getRowCount());
+      // result.child(0) is LIST<LIST<UINT8>>; the outer offsets are [0, 2, 3], the inner
+      // child holds the concatenated bytes [b1, b2, b3].
+      try (ColumnView outerList = result.getChildColumnView(0);
+           ColumnView innerList = outerList.getChildColumnView(0);
+           ColumnView bytesChild = innerList.getChildColumnView(0);
+           HostColumnVector hOuterOff = outerList.getListOffsetsView().copyToColumnVector().copyToHost();
+           HostColumnVector hInnerOff = innerList.getListOffsetsView().copyToColumnVector().copyToHost();
+           HostColumnVector hBytes    = bytesChild.copyToHost()) {
+        assertEquals(DType.LIST, outerList.getType());
+        assertEquals(DType.LIST, innerList.getType());
+        assertEquals(DType.UINT8, bytesChild.getType());
+
+        assertEquals(0, hOuterOff.getInt(0));
+        assertEquals(2, hOuterOff.getInt(1));
+        assertEquals(3, hOuterOff.getInt(2));
+
+        // Three byte-string elements total
+        assertEquals(0, hInnerOff.getInt(0));
+        assertEquals(b1.length, hInnerOff.getInt(1));
+        assertEquals(b1.length + b2.length, hInnerOff.getInt(2));
+        assertEquals(b1.length + b2.length + b3.length, hInnerOff.getInt(3));
+
+        byte[] expected = new byte[b1.length + b2.length + b3.length];
+        System.arraycopy(b1, 0, expected, 0, b1.length);
+        System.arraycopy(b2, 0, expected, b1.length, b2.length);
+        System.arraycopy(b3, 0, expected, b1.length + b2.length, b3.length);
+        for (int i = 0; i < expected.length; i++) {
+          assertEquals(expected[i], hBytes.getByte(i), "byte mismatch at " + i);
         }
       }
     }

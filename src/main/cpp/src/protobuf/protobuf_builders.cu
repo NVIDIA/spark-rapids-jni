@@ -28,6 +28,11 @@ rmm::device_uvector<int32_t> make_list_offsets_from_counts(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_EXPECTS(counts.size() == static_cast<size_t>(num_rows),
+               "make_list_offsets_from_counts: counts.size() must equal num_rows");
+  // `total_count` is taken from the caller (rather than recomputed here via reduce + scan)
+  // both to avoid an extra device reduction and so the caller can detect int32 overflow on
+  // the running sum before truncating into LIST offsets, which are int32.
   rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
   thrust::exclusive_scan(
     rmm::exec_policy_nosync(stream), counts.begin(), counts.end(), offsets.begin(), 0);
@@ -386,22 +391,11 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 {
   auto const input_null_count = binary_input.null_count();
 
-  if (total_count == 0) {
-    // All rows have count=0, but we still need to check input nulls
-    rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-    thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
-    auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                                      num_rows + 1,
-                                                      offsets.release(),
-                                                      rmm::device_buffer{},
-                                                      0);
-    auto child_col   = is_bytes ? make_empty_column_safe(
-                                  cudf::data_type{cudf::type_id::LIST}, stream, mr)  // LIST<UINT8>
-                                : cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
-
-    return make_list_column_with_input_nulls(
-      num_rows, std::move(offsets_col), std::move(child_col), binary_input, stream, mr);
-  }
+  // The orchestrator (decode_protobuf_to_struct) only dispatches to the per-type builders
+  // when total_count > 0; the all-counts-zero case is handled there with shared LIST helpers.
+  CUDF_EXPECTS(total_count > 0,
+               "build_repeated_string_column: total_count must be > 0 (orchestrator handles "
+               "the all-zero case before dispatching)");
 
   auto list_offs = make_list_offsets_from_counts(d_field_counts, total_count, num_rows, stream, mr);
 

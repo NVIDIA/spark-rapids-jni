@@ -420,10 +420,10 @@ void launch_scan_all_repeated_occurrences(cudf::column_device_view const& d_in,
 // Host-side template helpers that launch CUDA kernels
 // ============================================================================
 
-// Build a row-aligned null mask from `valid[row]` boolean flags. `num_rows` is the logical row
-// count and must be <= `valid.size()` — this matters because some callers pad `valid` to
-// `max(1, num_rows)` to avoid a 0-sized device_uvector, and feeding that padded size into
-// `valid_if` would produce a 1-bit mask for a 0-row column.
+// Build a row-aligned null mask from `valid[row]` boolean flags. The caller must ensure
+// `valid.size() >= num_rows`; some builders pad `valid` to `max(1, num_rows)` to avoid a
+// 0-sized device_uvector and pass `num_rows` separately so the resulting mask matches the
+// logical row count rather than the padded buffer length.
 template <typename T>
 inline std::pair<rmm::device_buffer, cudf::size_type> make_null_mask_from_valid(
   rmm::device_uvector<T> const& valid,
@@ -431,8 +431,6 @@ inline std::pair<rmm::device_buffer, cudf::size_type> make_null_mask_from_valid(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(valid.size() >= static_cast<size_t>(num_rows),
-               "valid buffer smaller than requested null mask");
   auto begin = thrust::make_counting_iterator<cudf::size_type>(0);
   auto end   = begin + num_rows;
   auto pred  = [ptr = valid.data()] __device__(cudf::size_type i) {
@@ -862,30 +860,11 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   auto const input_null_count = binary_input.null_count();
   auto const field_type_id    = static_cast<cudf::type_id>(field_desc.output_type_id);
 
-  if (total_count == 0) {
-    rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-    thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
-    auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                                      num_rows + 1,
-                                                      offsets.release(),
-                                                      rmm::device_buffer{},
-                                                      0);
-    auto const elem_type =
-      field_type_id == cudf::type_id::LIST ? cudf::type_id::UINT8 : field_type_id;
-    auto child_col = make_empty_column_safe(cudf::data_type{elem_type}, stream, mr);
-
-    if (input_null_count > 0) {
-      auto null_mask = cudf::copy_bitmask(binary_input, stream, mr);
-      return cudf::make_lists_column(num_rows,
-                                     std::move(offsets_col),
-                                     std::move(child_col),
-                                     input_null_count,
-                                     std::move(null_mask));
-    } else {
-      return cudf::make_lists_column(
-        num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
-    }
-  }
+  // The orchestrator (decode_protobuf_to_struct) only dispatches here when total_count > 0;
+  // the all-counts-zero case is handled there with shared LIST helpers.
+  CUDF_EXPECTS(total_count > 0,
+               "build_repeated_scalar_column: total_count must be > 0 (orchestrator handles "
+               "the all-zero case before dispatching)");
 
   rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
   thrust::exclusive_scan(rmm::exec_policy_nosync(stream),
