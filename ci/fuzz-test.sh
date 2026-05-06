@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2023-2026, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +24,8 @@ set -ex
 WORKSPACE=${WORKSPACE:-$PWD}
 M2DIR=${M2DIR:-"$HOME/.m2"}
 
-SLF4J_VER=$(mvn help:evaluate -Dexpression=slf4j.version -q -DforceStdout)
+MVN_SETTINGS=${MVN_SETTINGS:-"ci/settings.xml"}
+SLF4J_VER=$(mvn -s "$MVN_SETTINGS" help:evaluate -Dexpression=slf4j.version -q -DforceStdout)
 CLASSPATH=${CLASSPATH:-"$WORKSPACE/target/*:$M2DIR/repository/org/slf4j/slf4j-api/$SLF4J_VER/slf4j-api-$SLF4J_VER.jar"}
 
 java -cp "$CLASSPATH" \
