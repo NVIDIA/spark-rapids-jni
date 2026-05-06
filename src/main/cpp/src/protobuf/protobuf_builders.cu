@@ -21,28 +21,6 @@
 
 namespace spark_rapids_jni::protobuf::detail {
 
-rmm::device_uvector<int32_t> make_list_offsets_from_counts(
-  rmm::device_uvector<int32_t> const& counts,
-  int total_count,
-  int num_rows,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  CUDF_EXPECTS(counts.size() == static_cast<size_t>(num_rows),
-               "make_list_offsets_from_counts: counts.size() must equal num_rows");
-  // `total_count` is taken from the caller (rather than recomputed here via reduce + scan)
-  // both to avoid an extra device reduction and so the caller can detect int32 overflow on
-  // the running sum before truncating into LIST offsets, which are int32.
-  rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-  thrust::exclusive_scan(
-    rmm::exec_policy_nosync(stream), counts.begin(), counts.end(), offsets.begin(), 0);
-  thrust::fill_n(rmm::exec_policy_nosync(stream),
-                 offsets.data() + num_rows,
-                 1,
-                 static_cast<int32_t>(total_count));
-  return offsets;
-}
-
 std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
   int num_rows,
   std::unique_ptr<cudf::column> offsets_col,
@@ -299,7 +277,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> list_offs,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -365,10 +343,12 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   auto child_col =
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
 
-  // Build the final LIST<STRING> column from the per-row counts and decoded child strings.
-  auto lo = make_list_offsets_from_counts(d_field_counts, total_count, num_rows, stream, mr);
-  auto list_offs_col = std::make_unique<cudf::column>(
-    cudf::data_type{cudf::type_id::INT32}, num_rows + 1, lo.release(), rmm::device_buffer{}, 0);
+  // Wrap the orchestrator-built `list_offs` as the LIST<STRING> offsets column.
+  auto list_offs_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
+                                                      num_rows + 1,
+                                                      list_offs.release(),
+                                                      rmm::device_buffer{},
+                                                      0);
 
   return make_list_column_with_input_nulls(
     num_rows, std::move(list_offs_col), std::move(child_col), binary_input, stream, mr);
@@ -380,7 +360,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> list_offs,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -397,7 +377,8 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
                "build_repeated_string_column: total_count must be > 0 (orchestrator handles "
                "the all-zero case before dispatching)");
 
-  auto list_offs = make_list_offsets_from_counts(d_field_counts, total_count, num_rows, stream, mr);
+  // `list_offs` (size num_rows + 1) is provided by the orchestrator (built against `mr`); it
+  // becomes the LIST offsets column at the end of this function.
 
   // Extract string lengths from occurrences
   auto const scratch_mr = cudf::get_current_device_resource_ref();

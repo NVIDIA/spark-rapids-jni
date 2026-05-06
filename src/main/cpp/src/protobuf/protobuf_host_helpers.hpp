@@ -201,18 +201,6 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   int32_t const* top_row_indices = nullptr,
   bool propagate_invalid_rows    = true);
 
-// LIST<...> offsets buffer of size `num_rows + 1` from per-row counts. The last entry is
-// `total_count`, which the caller passes in rather than recomputing here both to avoid an
-// extra device reduction and so the caller can detect int32 overflow on the running sum
-// before truncating into LIST offsets (which are int32). Both the prefix scan and the
-// final write are issued on `stream` against `mr`.
-rmm::device_uvector<int32_t> make_list_offsets_from_counts(
-  rmm::device_uvector<int32_t> const& counts,
-  int total_count,
-  int num_rows,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr);
-
 // Wrap an offsets / child column pair into a LIST column, propagating the input column's null
 // mask when it has nulls. Used by every repeated-* builder so the input-null shape stays
 // consistent across paths. Note: when `binary_input` has no nulls the LIST column is built
@@ -226,13 +214,15 @@ std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr);
 
-// Complex builder forward declarations
+// Complex builder forward declarations. The `list_offs` parameter is the pre-built LIST
+// row-offsets buffer (size num_rows + 1) supplied by the orchestrator; it is allocated
+// against `mr` and is moved into the output column rather than recomputed inside.
 std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> list_offs,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -249,7 +239,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> list_offs,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,

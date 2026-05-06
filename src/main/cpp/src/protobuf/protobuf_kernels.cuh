@@ -849,7 +849,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> list_offs,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -865,16 +865,6 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   CUDF_EXPECTS(total_count > 0,
                "build_repeated_scalar_column: total_count must be > 0 (orchestrator handles "
                "the all-zero case before dispatching)");
-
-  rmm::device_uvector<int32_t> list_offs(num_rows + 1, stream, mr);
-  thrust::exclusive_scan(rmm::exec_policy_nosync(stream),
-                         d_field_counts.begin(),
-                         d_field_counts.end(),
-                         list_offs.begin(),
-                         0);
-
-  int32_t total_count_i32 = static_cast<int32_t>(total_count);
-  thrust::fill_n(rmm::exec_policy_nosync(stream), list_offs.data() + num_rows, 1, total_count_i32);
 
   rmm::device_uvector<T> values(total_count, stream, mr);
 
@@ -908,6 +898,8 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
         message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
   }
 
+  // The orchestrator already built `list_offs` (size num_rows + 1) against `mr`, so just
+  // wrap it as the LIST offsets column.
   auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                     num_rows + 1,
                                                     list_offs.release(),

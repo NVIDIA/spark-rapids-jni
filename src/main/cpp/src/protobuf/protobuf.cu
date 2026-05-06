@@ -176,23 +176,22 @@ std::unique_ptr<cudf::column> make_null_column_with_schema(
 }
 
 // Per-field bookkeeping for the three-phase top-level repeated pipeline:
-// `counts` is filled in Phase A, `offsets` is the prefix-sum input to the Phase B scan
-// kernel, and `occurrences` stores the (offset,length,row_idx) tuples produced by Phase B
-// for Phase C builders to consume.
+// `offsets` is the prefix-sum row offsets (size num_rows+1) computed in Phase A; it both
+// seeds the Phase B scan kernel's per-row write index and flows directly into the output
+// LIST column built in Phase C, so it must be allocated against the caller's `mr`.
+// `occurrences` stores the (offset,length,row_idx) tuples produced by Phase B for Phase C
+// builders to consume.
 struct repeated_field_work {
   int schema_idx;
   int32_t total_count{0};
-  rmm::device_uvector<int32_t> counts;
   rmm::device_uvector<int32_t> offsets;
   std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
 
-  // `offsets` starts empty; Phase A overwrites it via `make_list_offsets_from_counts`, which
-  // returns a freshly-sized device_uvector. Allocating `n + 1` here would only be discarded.
   repeated_field_work(int si,
                       cudf::size_type n,
                       rmm::cuda_stream_view s,
                       rmm::device_async_resource_ref m)
-    : schema_idx(si), counts(n, s, m), offsets(0, s, m)
+    : schema_idx(si), offsets(static_cast<size_t>(n) + 1, s, m)
   {
   }
 };
@@ -967,44 +966,45 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   if (num_repeated > 0) {
     // Phase A: Compute per-row offsets for each repeated field. `reserve` prevents vector
     // reallocation, which keeps `repeated_field_work` (move-only via its `device_uvector`
-    // members) safe to hold by value.
+    // members) safe to hold by value. The per-field offsets buffer is allocated against the
+    // caller-supplied `mr`, since it both seeds the Phase B scan kernel and is later moved
+    // into the output LIST column built in Phase C — computing it once here avoids the
+    // duplicate exclusive_scan the per-type builders used to perform internally.
     std::vector<repeated_field_work> rep_work;
     rep_work.reserve(num_repeated);
 
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx = repeated_field_indices[ri];
-      auto& w        = rep_work.emplace_back(schema_idx, num_rows, stream, scratch_mr);
+      auto& w        = rep_work.emplace_back(schema_idx, num_rows, stream, mr);
 
-      thrust::transform(rmm::exec_policy_nosync(stream),
-                        thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(num_rows),
-                        w.counts.data(),
-                        extract_strided_count{d_repeated_info.data(), ri, num_repeated});
+      // Iterate strided counts directly out of d_repeated_info via a transform iterator —
+      // avoids materializing a num_rows-sized scratch buffer plus its dedicated kernel launch.
+      auto counts_begin = thrust::make_transform_iterator(
+        thrust::make_counting_iterator<int>(0),
+        extract_strided_count{d_repeated_info.data(), ri, num_repeated});
+      auto counts_end = counts_begin + num_rows;
 
       // Reduce in int64 to detect overflow before truncating to int32 (cudf list offsets are
-      // int32).
-      //
-      // NOTE: `thrust::reduce` returns the value to the host, which implicitly syncs the stream
-      // once per repeated field — i.e. Phase A is O(num_repeated) syncs. We accept this for
-      // correctness: an async device-side reduce (e.g. `cub::DeviceReduce::Sum` writing to a
-      // device buffer + a single batched D2H) would let us keep one synchronize per decode call,
-      // but requires a transform-iterator promotion to int64 to keep the accumulator wide. With
-      // typical schemas carrying <16 top-level repeated fields the saved syncs are µs-scale and
-      // not worth the extra complexity at this point. Revisit alongside benchmarks in part 4.
-      int64_t total_64 = thrust::reduce(
-        rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), int64_t{0});
+      // int32). NOTE: `thrust::reduce` returns the value to the host, which implicitly syncs
+      // the stream once per repeated field — i.e. Phase A is O(num_repeated) syncs. We accept
+      // this for correctness; an async device-side reduce (e.g. `cub::DeviceReduce::Sum`
+      // writing to a device buffer + a single batched D2H) would let us keep one sync per
+      // decode call, but adds complexity. With typical schemas carrying <16 top-level
+      // repeated fields the saved syncs are µs-scale; revisit alongside benchmarks in part 4.
+      int64_t total_64 =
+        thrust::reduce(rmm::exec_policy_nosync(stream), counts_begin, counts_end, int64_t{0});
       CUDF_EXPECTS(total_64 <= std::numeric_limits<int32_t>::max(),
                    "Top-level repeated field total element count exceeds 2^31-1");
       w.total_count = static_cast<int32_t>(total_64);
 
+      // Build the LIST offsets directly into w.offsets (size num_rows + 1). When num_rows is
+      // 0 the buffer is just the one-element sentinel slot, written by the fill_n below.
       if (num_rows > 0) {
-        // Reuse the shared LIST offsets helper. Exclusive scan starting at 0 is equivalent to
-        // the previous inclusive-scan-into-offsets+1 pattern when offsets[0] is forced to 0.
-        // Empty input (num_rows == 0) is handled by skipping this branch — the offsets buffer
-        // goes unused on the no-row path.
-        w.offsets =
-          make_list_offsets_from_counts(w.counts, w.total_count, num_rows, stream, scratch_mr);
+        thrust::exclusive_scan(
+          rmm::exec_policy_nosync(stream), counts_begin, counts_end, w.offsets.begin(), int32_t{0});
       }
+      thrust::fill_n(
+        rmm::exec_policy_nosync(stream), w.offsets.data() + num_rows, 1, w.total_count);
     }
 
     // Phase B: Allocate occurrence buffers and launch ONE combined scan kernel.
@@ -1062,22 +1062,20 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
     // Phase C: Build columns per field.
     for (int ri = 0; ri < num_repeated; ri++) {
-      auto& w              = rep_work[ri];
-      int schema_idx       = w.schema_idx;
-      auto element_type    = cudf::data_type{schema[schema_idx].output_type};
-      int32_t total_count  = w.total_count;
-      auto& d_field_counts = w.counts;
+      auto& w             = rep_work[ri];
+      int schema_idx      = w.schema_idx;
+      auto element_type   = cudf::data_type{schema[schema_idx].output_type};
+      int32_t total_count = w.total_count;
 
       // Guard: if any row had elements, dispatch to the per-type builder. Else fall through
       // to the all-zeros LIST handling below.
       if (total_count <= 0) {
-        // All rows have count=0 — produce an all-zeros offsets column wrapped in a LIST whose
-        // null mask comes from the input column. Reuses the same helpers the inner builders use.
-        auto offsets =
-          make_list_offsets_from_counts(w.counts, /*total_count*/ 0, num_rows, stream, mr);
+        // All rows have count=0 — w.offsets is already an all-zeros device buffer of the
+        // correct size (allocated against `mr` by Phase A); just wrap it as the offsets
+        // column. The null mask comes from the input column via the shared helper.
         auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                           num_rows + 1,
-                                                          offsets.release(),
+                                                          w.offsets.release(),
                                                           rmm::device_buffer{},
                                                           0);
 
@@ -1111,7 +1109,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                   list_offsets,
                                                   base_offset,
                                                   h_device_schema[schema_idx],
-                                                  d_field_counts,
+                                                  std::move(w.offsets),
                                                   d_occurrences,
                                                   total_count,
                                                   num_rows,
@@ -1126,7 +1124,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                   list_offsets,
                                                   base_offset,
                                                   h_device_schema[schema_idx],
-                                                  d_field_counts,
+                                                  std::move(w.offsets),
                                                   d_occurrences,
                                                   total_count,
                                                   num_rows,
@@ -1141,7 +1139,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                    list_offsets,
                                                    base_offset,
                                                    h_device_schema[schema_idx],
-                                                   d_field_counts,
+                                                   std::move(w.offsets),
                                                    d_occurrences,
                                                    total_count,
                                                    num_rows,
@@ -1156,7 +1154,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                    list_offsets,
                                                    base_offset,
                                                    h_device_schema[schema_idx],
-                                                   d_field_counts,
+                                                   std::move(w.offsets),
                                                    d_occurrences,
                                                    total_count,
                                                    num_rows,
@@ -1170,7 +1168,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                        list_offsets,
                                                                        base_offset,
                                                                        h_device_schema[schema_idx],
-                                                                       d_field_counts,
+                                                                       std::move(w.offsets),
                                                                        d_occurrences,
                                                                        total_count,
                                                                        num_rows,
@@ -1184,7 +1182,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                         list_offsets,
                                                                         base_offset,
                                                                         h_device_schema[schema_idx],
-                                                                        d_field_counts,
+                                                                        std::move(w.offsets),
                                                                         d_occurrences,
                                                                         total_count,
                                                                         num_rows,
@@ -1199,7 +1197,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                   list_offsets,
                                                   base_offset,
                                                   h_device_schema[schema_idx],
-                                                  d_field_counts,
+                                                  std::move(w.offsets),
                                                   d_occurrences,
                                                   total_count,
                                                   num_rows,
@@ -1218,7 +1216,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                   message_data,
                                                   list_offsets,
                                                   base_offset,
-                                                  d_field_counts,
+                                                  std::move(w.offsets),
                                                   d_occurrences,
                                                   total_count,
                                                   num_rows,
@@ -1239,7 +1237,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                   list_offsets,
                                                                   base_offset,
                                                                   h_device_schema[schema_idx],
-                                                                  d_field_counts,
+                                                                  std::move(w.offsets),
                                                                   d_occurrences,
                                                                   total_count,
                                                                   num_rows,
@@ -1256,7 +1254,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                 list_offsets,
                                                                 base_offset,
                                                                 h_device_schema[schema_idx],
-                                                                d_field_counts,
+                                                                std::move(w.offsets),
                                                                 d_occurrences,
                                                                 total_count,
                                                                 num_rows,
