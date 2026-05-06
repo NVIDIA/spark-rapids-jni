@@ -420,19 +420,14 @@ void launch_scan_all_repeated_occurrences(cudf::column_device_view const& d_in,
 // Host-side template helpers that launch CUDA kernels
 // ============================================================================
 
-// Build a row-aligned null mask from `valid[row]` boolean flags. The caller must ensure
-// `valid.size() >= num_rows`; some builders pad `valid` to `max(1, num_rows)` to avoid a
-// 0-sized device_uvector and pass `num_rows` separately so the resulting mask matches the
-// logical row count rather than the padded buffer length.
 template <typename T>
 inline std::pair<rmm::device_buffer, cudf::size_type> make_null_mask_from_valid(
   rmm::device_uvector<T> const& valid,
-  cudf::size_type num_rows,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   auto begin = thrust::make_counting_iterator<cudf::size_type>(0);
-  auto end   = begin + num_rows;
+  auto end   = begin + valid.size();
   auto pred  = [ptr = valid.data()] __device__(cudf::size_type i) {
     return static_cast<bool>(ptr[i]);
   };
@@ -452,7 +447,7 @@ std::unique_ptr<cudf::column> extract_and_build_scalar_column(cudf::data_type dt
     return std::make_unique<cudf::column>(dt, 0, out.release(), rmm::device_buffer{}, 0);
   }
   launch_extract(out.data(), valid.data());
-  auto [mask, null_count] = make_null_mask_from_valid(valid, num_rows, stream, mr);
+  auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
   return std::make_unique<cudf::column>(dt, num_rows, out.release(), std::move(mask), null_count);
 }
 
@@ -662,7 +657,7 @@ inline std::unique_ptr<cudf::column> extract_and_build_string_or_bytes_column(
                     thrust::make_counting_iterator<cudf::size_type>(num_rows),
                     valid.data(),
                     validity_fn);
-  auto [mask, null_count] = make_null_mask_from_valid(valid, num_rows, stream, mr);
+  auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
   if (as_bytes) {
     auto bytes_child =
       std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::UINT8},
@@ -754,7 +749,7 @@ inline std::unique_ptr<cudf::column> extract_typed_column(
                                            stream);
         }
       }
-      auto [mask, null_count] = make_null_mask_from_valid(valid, num_items, stream, mr);
+      auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
       return std::make_unique<cudf::column>(
         dt, num_items, out.release(), std::move(mask), null_count);
     }

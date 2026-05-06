@@ -231,7 +231,7 @@ std::unique_ptr<cudf::column> build_enum_string_values_column(
                                   stream);
   }
 
-  auto [mask, null_count] = make_null_mask_from_valid(valid, num_rows, stream, mr);
+  auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
   return cudf::make_strings_column(
     num_rows, std::move(offsets_col), chars.release(), null_count, std::move(mask));
 }
