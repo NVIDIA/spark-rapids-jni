@@ -555,8 +555,8 @@ public class GpuTimeZoneDB {
    * reused across multiple timestamp columns in the same table.
    */
   public static class OrcTimezoneContext implements AutoCloseable {
-    private final Table writerTzInfoTable;
-    private final Table readerTzInfoTable;
+    private Table writerTzInfoTable;
+    private Table readerTzInfoTable;
     private final int writerInitialOffset;
     private final int writerRawOffset;
     private final int[] writerDst;
@@ -585,9 +585,11 @@ public class GpuTimeZoneDB {
       closed = true;
       if (writerTzInfoTable != null) {
         writerTzInfoTable.close();
+        writerTzInfoTable = null;
       }
       if (readerTzInfoTable != null) {
         readerTzInfoTable.close();
+        readerTzInfoTable = null;
       }
     }
   }
