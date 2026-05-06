@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -341,6 +341,33 @@ public class CastStrings {
     }
   }
 
+  /**
+   * Parse a string column into a {@code timestamp_us} column for a Spark date/timestamp
+   * format pattern. Sub-second digits are not parsed; successfully parsed rows always have
+   * microsecond field zero. The pattern is compiled into a token stream on the host and
+   * walked per-row on the device, mirroring how Spark's {@code DateTimeFormatter} /
+   * {@code SimpleDateFormat} represent a parser internally.
+   *
+   * <p>Pattern letters follow JDK conventions: {@code y}, {@code M}, {@code d}, {@code H},
+   * {@code m}, {@code s}. Lowercase {@code m} is minute, not month. Non-year letter runs
+   * must have length 2; longer runs (e.g. {@code MMM} for month name) are rejected because
+   * this kernel does not implement text forms. Space matches space or 'T' (Spark's
+   * permissive date/time separator); quoted literals ({@code 'T'}) are not supported, use
+   * a space instead. Pattern literals must be ASCII. In LEGACY mode, non-year digit fields
+   * accept 1 or 2 digits unless adjacent to another digit field (which forces exact width
+   * for boundary disambiguation), and the trailing tail accepts EOF or any non-digit.
+   * Parsed values are wall-clock UTC; timezone rebasing remains the caller's responsibility.
+   *
+   * @param input the input string column.
+   * @param format Spark format pattern (e.g. {@code "yyyy-MM-dd HH:mm:ss"}).
+   * @param legacy true for {@code LegacyTimeParserPolicy}, false for CORRECTED/EXCEPTION.
+   * @return a timestamp_us column where invalid rows have nulls.
+   */
+  public static ColumnVector parseTimestampWithFormat(ColumnView input, String format,
+      boolean legacy) {
+    return new ColumnVector(parseTimestampWithFormat(input.getNativeView(), format, legacy));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -361,5 +388,7 @@ public class CastStrings {
       int sparkMajor, int sparkMinor, int sparkPatch);
 
   private static native long parseDateStringsToDate(long input);
+
+  private static native long parseTimestampWithFormat(long input, String format, boolean legacy);
 
 }

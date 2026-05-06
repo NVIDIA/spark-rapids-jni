@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
@@ -1362,6 +1363,197 @@ public class CastStringsTest {
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  // Returns the wall-clock UTC microseconds for the given local-time components, mirroring
+  // the no-timezone semantics of GpuToTimestamp before the per-row timezone rebase.
+  private static long expectedUs(int year, int month, int day, int hour, int minute, int second) {
+    long days = LocalDate.of(year, month, day).toEpochDay();
+    return ((days * 86400L) + hour * 3600L + minute * 60L + second) * 1_000_000L;
+  }
+
+  private static void assertParsedTimestamp(String[] inputs, String format, boolean legacy,
+                                            Long[] expected) {
+    try (ColumnVector in = ColumnVector.fromStrings(inputs);
+        ColumnVector actual = CastStrings.parseTimestampWithFormat(in, format, legacy);
+        ColumnVector exp = ColumnVector.timestampMicroSecondsFromBoxedLongs(expected)) {
+      AssertUtils.assertColumnsAreEqual(exp, actual);
+    }
+  }
+
+  @Test
+  void parseTimestampWithFormat_correctedDateOnlyFormats() {
+    long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
+    long y2024_05_01 = expectedUs(2024, 5, 1, 0, 0, 0);
+    long y1970_05_06 = expectedUs(1970, 5, 6, 0, 0, 0);
+
+    // yyyy-MM-dd corrected: strict 2-digit fields.
+    assertParsedTimestamp(
+        new String[]{"2024-05-06", "2024-5-6", " 2024-05-06", "2024-05-06 ", "", null},
+        "yyyy-MM-dd", false,
+        new Long[]{y2024_05_06, null, null, null, null, null});
+
+    // yyyy-MM corrected: no day, defaults to 1.
+    assertParsedTimestamp(
+        new String[]{"2024-05", "2024-5", "2024/05"},
+        "yyyy-MM", false,
+        new Long[]{y2024_05_01, null, null});
+
+    // MM-dd corrected: no year, defaults to 1970.
+    assertParsedTimestamp(
+        new String[]{"05-06", "5-06", "05-6", "05/06"},
+        "MM-dd", false,
+        new Long[]{y1970_05_06, null, null, null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_correctedDateTime() {
+    long ts = expectedUs(2024, 12, 31, 23, 59, 58);
+    assertParsedTimestamp(
+        new String[]{"2024-12-31 23:59:58", "2024-12-31T23:59:58",
+                     "2024-12-31 23:59:5", "2024-12-31  23:59:58", "2024-12-31 23:59:60"},
+        "yyyy-MM-dd HH:mm:ss", false,
+        new Long[]{ts, ts, null, null, null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_correctedMMyyyyAndMMddyyyy() {
+    // MMyyyy: 2-digit month then 4-digit year, no separator. Day defaults to 1.
+    // Compiler treats both digit fields as packed (exact width) since they abut.
+    assertParsedTimestamp(
+        new String[]{"052024", "5052024", "12024"},
+        "MMyyyy", false,
+        new Long[]{expectedUs(2024, 5, 1, 0, 0, 0), null, null});
+
+    // MM-dd-yyyy
+    assertParsedTimestamp(
+        new String[]{"05-06-2024", "5-6-2024"},
+        "MM-dd-yyyy", false,
+        new Long[]{expectedUs(2024, 5, 6, 0, 0, 0), null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_legacyWhitespaceFold() {
+    long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
+
+    // LEGACY yyyy-MM-dd: 1-2 digit month/day, whitespace fold AFTER each '-' separator,
+    // outer trim, trailing non-digit/EOF accepted.
+    assertParsedTimestamp(
+        new String[]{
+            "2024-05-06",
+            "2024-5-6",
+            "2024- 05- 06",     // [ \t]* fold after each '-'
+            "2024-\t05-\t06",   // tabs accepted by fold
+            "2024  -05-06",     // whitespace before '-' is NOT folded
+            " 2024-05-06 ",     // outer trim
+            "2024-05-06xxx",    // legacy trailing non-digit accepted
+            "2024-05-061",      // trailing digit rejected
+            "\n2024-05-06",     // leading newline rejected
+            null,
+        },
+        "yyyy-MM-dd", true,
+        new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06,
+                    null, y2024_05_06, y2024_05_06, null, null, null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_legacyPackedAndDateTime() {
+    long ts = expectedUs(2024, 12, 31, 23, 59, 58);
+
+    // yyyyMMdd packed: exactly 8 digits, year(4)+month(2)+day(2).
+    assertParsedTimestamp(
+        new String[]{"20240506", "2024050", "202405061", " 20240506 "},
+        "yyyyMMdd", true,
+        new Long[]{expectedUs(2024, 5, 6, 0, 0, 0), null, null,
+                    expectedUs(2024, 5, 6, 0, 0, 0)});
+
+    // yyyyMMdd HH:mm:ss
+    assertParsedTimestamp(
+        new String[]{"20241231 23:59:58", "20241231T23:59:58", "20241231 23:59:58Z"},
+        "yyyyMMdd HH:mm:ss", true,
+        new Long[]{ts, ts, ts});
+  }
+
+  @Test
+  void parseTimestampWithFormat_legacyLowerMmIsMinute() {
+    // SimpleDateFormat reads lowercase mm as minute. yyyymmdd / yyyy-mm-dd parse the middle
+    // 2 digits as minute-of-hour and produce a 00:mm:00 time on day 1 of January.
+    long y2024_min41_day12 = expectedUs(2024, 1, 12, 0, 41, 0);
+    assertParsedTimestamp(
+        new String[]{"20244112", "20240812", "20246012", "20240199", "20240131"},
+        "yyyymmdd", true,
+        new Long[]{y2024_min41_day12,
+                    expectedUs(2024, 1, 12, 0, 8, 0),
+                    null,                                  // minute=60 rejected
+                    null,                                  // day=99 rejected
+                    expectedUs(2024, 1, 31, 0, 1, 0)});
+
+    assertParsedTimestamp(
+        new String[]{"2024-41-12", "2024-8-12", "2024-60-12", "2024-01-99"},
+        "yyyy-mm-dd", true,
+        new Long[]{y2024_min41_day12,
+                    expectedUs(2024, 1, 12, 0, 8, 0),
+                    null,
+                    null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_invalidCalendarDates() {
+    assertParsedTimestamp(
+        new String[]{"2024-02-29", "2023-02-29", "2024-04-31", "2024-13-01"},
+        "yyyy-MM-dd", false,
+        new Long[]{expectedUs(2024, 2, 29, 0, 0, 0), null, null, null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_correctedOutOfRangeTime() {
+    // CORRECTED mode: hour/minute/second range checks must reject overflow, including the
+    // hour=24/minute=60/second=60 boundaries that look digit-shaped to the walker but are
+    // wall-clock-invalid.
+    assertParsedTimestamp(
+        new String[]{
+            "2024-05-06 24:00:00",
+            "2024-05-06 23:60:00",
+            "2024-05-06 23:59:60",
+            "2024-05-06 99:00:00",
+        },
+        "yyyy-MM-dd HH:mm:ss", false,
+        new Long[]{null, null, null, null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_legacyMultiTabFold() {
+    // skip_ht_whitespace loops, so multiple tabs/spaces after a '-' or '/' are all consumed.
+    long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
+    assertParsedTimestamp(
+        new String[]{"2024-\t\t05-\t \t06", "2024/  05/\t\t06"},
+        "yyyy-MM-dd", true,
+        new Long[]{y2024_05_06, null});
+    assertParsedTimestamp(
+        new String[]{"2024/  05/\t\t06"},
+        "yyyy/MM/dd", true,
+        new Long[]{y2024_05_06});
+  }
+
+  @Test
+  void parseTimestampWithFormat_emptyColumn() {
+    try (ColumnVector in = ColumnVector.fromStrings(new String[]{});
+        ColumnVector actual = CastStrings.parseTimestampWithFormat(in, "yyyy-MM-dd", false);
+        ColumnVector exp = ColumnVector.timestampMicroSecondsFromBoxedLongs(new Long[]{})) {
+      AssertUtils.assertColumnsAreEqual(exp, actual);
+    }
+  }
+
+  @Test
+  void parseTimestampWithFormat_invalidPatternRejected() {
+    try (ColumnVector in = ColumnVector.fromStrings("2024-05-06")) {
+      // Run length 3 on a non-year letter is not a digit form (JDK MMM = month name).
+      Assertions.assertThrows(CudfException.class,
+          () -> CastStrings.parseTimestampWithFormat(in, "yyyy-MMM-dd", false));
+      // Unsupported letter.
+      Assertions.assertThrows(CudfException.class,
+          () -> CastStrings.parseTimestampWithFormat(in, "yyyy-MM-dd a", false));
     }
   }
 }

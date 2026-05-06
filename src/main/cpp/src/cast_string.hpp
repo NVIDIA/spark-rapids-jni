@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -192,6 +192,44 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(
  */
 std::unique_ptr<cudf::column> parse_strings_to_date(
   cudf::strings_column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+/**
+ * @brief Parse a string column into a `timestamp_us` column for a Spark date/timestamp
+ *        format pattern. Sub-second digits are not parsed; the microsecond field of every
+ *        successfully parsed row is zero.
+ *
+ * The pattern is compiled host-side into a token stream (mirroring how Spark's
+ * `DateTimeFormatter`/`SimpleDateFormat` represent a parser internally), then a generic
+ * device-side walker consumes the tokens against each row. Replaces the cuDF
+ * regex-validate + regex-rewrite + asTimestamp chain previously used by
+ * `GpuToTimestamp` for the 24 supported `LEGACY_COMPATIBLE_FORMATS` /
+ * `CORRECTED_COMPATIBLE_FORMATS` patterns; the legacy `REMOVE_WHITESPACE_FROM_MONTH_DAY`
+ * rewrite is folded into the state machine.
+ *
+ * Pattern letters follow JDK conventions: `y`/`M`/`d`/`H`/`m`/`s`. Lowercase `m` is minute,
+ * not month. Non-year letter runs must have length 2; longer runs (e.g. `MMM` for month
+ * name) are rejected because this kernel does not implement text forms. Space in the
+ * pattern matches either ' ' or 'T' in the input — quoted literals (`'T'`) are not
+ * supported, callers should use a space instead. Pattern literals must be ASCII. In LEGACY
+ * mode, non-year digit fields are 1 or 2 digits unless adjacent to another digit field (in
+ * which case widths are exact to disambiguate). Parsed values are wall-clock UTC; timezone
+ * rebasing remains the caller's responsibility — in LEGACY mode the trailing non-digit rule
+ * silently accepts (and discards) any non-digit suffix including 'Z', so callers must not
+ * infer a UTC offset from a trailing 'Z'.
+ *
+ * @param input The input string column.
+ * @param format Spark format pattern (e.g. `"yyyy-MM-dd HH:mm:ss"`).
+ * @param legacy True for `LegacyTimeParserPolicy`, false for CORRECTED/EXCEPTION.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for the returned column.
+ * @return A timestamp_us column, with nulls for invalid inputs.
+ */
+std::unique_ptr<cudf::column> parse_timestamp_strings_with_format(
+  cudf::strings_column_view const& input,
+  std::string const& format,
+  bool legacy,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
