@@ -24,13 +24,13 @@ import ai.rapids.cudf.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
-import java.time.zone.ZoneRulesException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -42,7 +42,7 @@ import java.util.TimeZone;
 
 /**
  * Gpu timezone utility.
- *
+ * <p>
  * Provides the following APIs
  * - Timezone rebasing APIs: `fromTimestampToUtcTimestamp`, etc.
  * - Utilities for casting string with timezone to timestamp APIs
@@ -66,7 +66,7 @@ public class GpuTimeZoneDB {
    * If a timezone has DST, then the list has 12 integers, which contains 2
    * rules(start rule and end rule)
    * The integers in a list are:
-   *
+   * <p>
    * index 0: month:int, // from 1 (January) to 12 (December)
    * index 1: dayOfMonth: int, // from -28 to 31 excluding 0
    * index 2: dayOfWeek: int, // from 0 (Monday) to 6 (Sunday), -1 means ignore
@@ -189,7 +189,7 @@ public class GpuTimeZoneDB {
       // check that zoneID is valid and supported by Java
       getZoneId(zoneId);
       return true;
-    } catch (ZoneRulesException e) {
+    } catch (DateTimeException e) {
       return false;
     }
   }
@@ -292,7 +292,7 @@ public class GpuTimeZoneDB {
       Collections.sort(sortedTimeZones);
 
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
-      List<List<Integer>> masterDsts = new ArrayList<>();
+      List<List<Integer>> masterDSTs = new ArrayList<>();
 
       zoneIdToTable = new HashMap<>();
       for (String nonNormalizedTz : sortedTimeZones) {
@@ -364,7 +364,7 @@ public class GpuTimeZoneDB {
             });
           }
           masterTransitions.add(data);
-          masterDsts.add(dstData);
+          masterDSTs.add(dstData);
           // add index for normalized timezone
           zoneIdToTable.put(normalizedTz, idx);
         } // end of: if (!zoneIdToTable.containsKey(normalizedTz)) {
@@ -384,7 +384,7 @@ public class GpuTimeZoneDB {
       HostColumnVector.DataType transitionType = new HostColumnVector.ListType(false, childType);
       fixedTransitions = HostColumnVector.fromLists(transitionType,
           masterTransitions.toArray(new List[0]));
-      dstRules = HostColumnVector.fromLists(getDstDataType(), masterDsts.toArray(new List[0]));
+      dstRules = HostColumnVector.fromLists(getDstDataType(), masterDSTs.toArray(new List[0]));
       tzNameToIndexMap = getTzNameToIndexMap(sortedTimeZones, zoneIdToTable);
     } catch (Exception e) {
       throw new IllegalStateException("load timezone DB cache failed!", e);
@@ -531,7 +531,6 @@ public class GpuTimeZoneDB {
 
   private static Table getTableForUtilTZ(OrcTimezoneInfo info) {
     if (info.transitions == null) {
-      // fixed offset timezone
       return null;
     }
     try (ColumnVector trans = getTransitionsForUtilTZ(info);
@@ -551,54 +550,130 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Does the given timezone have Daylight Saving Time(DST) rules.
+   * Pre-built device-side timezone context for ORC timezone conversion.
+   * Holds the writer and reader transition tables on GPU so they can be
+   * reused across multiple timestamp columns in the same table.
    */
-  private static boolean hasDaylightSavingTime(String timezoneId) {
-    ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
-    return !zoneId.getRules().getTransitionRules().isEmpty();
+  public static class OrcTimezoneContext implements AutoCloseable {
+    private Table writerTzInfoTable;
+    private Table readerTzInfoTable;
+    private final int writerInitialOffset;
+    private final int writerRawOffset;
+    private final int[] writerDst;
+    private final int readerInitialOffset;
+    private final int readerRawOffset;
+    private final int[] readerDst;
+    private boolean closed;
+
+    private OrcTimezoneContext(Table writerTzInfoTable, Table readerTzInfoTable,
+        OrcTimezoneInfo writerTzInfo, OrcTimezoneInfo readerTzInfo) {
+      this.writerTzInfoTable = writerTzInfoTable;
+      this.readerTzInfoTable = readerTzInfoTable;
+      this.writerInitialOffset = writerTzInfo.initialOffset;
+      this.writerRawOffset = writerTzInfo.rawOffset;
+      this.writerDst = dstRuleToArray(writerTzInfo.dstRule);
+      this.readerInitialOffset = readerTzInfo.initialOffset;
+      this.readerRawOffset = readerTzInfo.rawOffset;
+      this.readerDst = dstRuleToArray(readerTzInfo.dstRule);
+    }
+
+    @Override
+    public void close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      if (writerTzInfoTable != null) {
+        writerTzInfoTable.close();
+        writerTzInfoTable = null;
+      }
+      if (readerTzInfoTable != null) {
+        readerTzInfoTable.close();
+        readerTzInfoTable = null;
+      }
+    }
+  }
+
+  /**
+   * Build a reusable ORC timezone context that holds device-side transition
+   * tables. Call once per (writerTz, readerTz) pair and reuse across columns.
+   */
+  public static OrcTimezoneContext buildOrcTimezoneContext(
+      String writerTimezone, String readerTimezone) {
+    Table writerTable = null;
+    Table readerTable = null;
+    try {
+      OrcTimezoneInfo writerTzInfo = OrcTimezoneInfo.get(writerTimezone);
+      OrcTimezoneInfo readerTzInfo = OrcTimezoneInfo.get(readerTimezone);
+      writerTable = getTableForUtilTZ(writerTzInfo);
+      readerTable = getTableForUtilTZ(readerTzInfo);
+      return new OrcTimezoneContext(writerTable, readerTable, writerTzInfo, readerTzInfo);
+    } catch (RuntimeException e) {
+      // Preserve typed signals from the build path (e.g. IllegalArgumentException
+      // for invalid zone IDs) so callers can distinguish bad input from
+      // internal failures.
+      if (writerTable != null) writerTable.close();
+      if (readerTable != null) readerTable.close();
+      throw e;
+    } catch (Exception e) {
+      if (writerTable != null) writerTable.close();
+      if (readerTable != null) readerTable.close();
+      throw new IllegalStateException("build ORC timezone context failed!", e);
+    }
+  }
+
+  /**
+   * Convert timestamps using a pre-built ORC timezone context, avoiding
+   * repeated host-to-device copies of transition tables.
+   */
+  public static ColumnVector convertOrcTimezones(
+      ColumnView input, long baseOffsetUs, OrcTimezoneContext ctx) {
+    return new ColumnVector(convertOrcTimezones(
+        input.getNativeView(),
+        baseOffsetUs,
+        ctx.writerTzInfoTable != null ? ctx.writerTzInfoTable.getNativeView() : 0L,
+        ctx.writerInitialOffset,
+        ctx.writerRawOffset,
+        ctx.writerDst,
+        ctx.readerTzInfoTable != null ? ctx.readerTzInfoTable.getNativeView() : 0L,
+        ctx.readerInitialOffset,
+        ctx.readerRawOffset,
+        ctx.readerDst));
   }
 
   /**
    * Convert timestamps between writer/reader timezones for ORC reading.
-   * Similar to `org.apache.orc.impl.SerializationUtils.convertBetweenTimezones`.
-   * `SerializationUtils.convertBetweenTimezones` gets offset between timezones.
-   * This function does the same thing and then apply the offset to get the
-   * final timestamps.
-   * For more details, refer to:
-   * <a href="https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/java/org/apache/orc/impl/SerializationUtils.java#L1440">link</a>
-   *
-   * @param input          input timestamp column in microseconds.
-   * @param writerTimezone writer timezone, it's from ORC stripe metadata.
-   * @param readerTimezone reader timezone, it's from current JVM default
-   *                       timezone.
-   * @return timestamp column in microseconds after converting between timezones
+   * Convenience overload that builds timezone context internally.
+   * For multiple columns, prefer {@link #buildOrcTimezoneContext} +
+   * {@link #convertOrcTimezones(ColumnVector, long, OrcTimezoneContext)}.
    */
   public static ColumnVector convertOrcTimezones(
       ColumnVector input,
+      long baseOffsetUs,
       String writerTimezone,
       String readerTimezone) {
-    // Does not support DST timezone now, just throw exception.
-    if (hasDaylightSavingTime(writerTimezone) ||
-        hasDaylightSavingTime(readerTimezone)) {
-      throw new UnsupportedOperationException("Daylight Saving Time is not supported now.");
+    try (OrcTimezoneContext ctx = buildOrcTimezoneContext(writerTimezone, readerTimezone)) {
+      return convertOrcTimezones(input, baseOffsetUs, ctx);
     }
+  }
 
-    // get timezone info from `java.util.TimeZone`
-    OrcTimezoneInfo writerTzInfo = OrcTimezoneInfo.get(writerTimezone);
-    OrcTimezoneInfo readerTzInfo = OrcTimezoneInfo.get(readerTimezone);
-    try (Table writerTzInfoTable = getTableForUtilTZ(writerTzInfo);
-        Table readerTzInfoTable = getTableForUtilTZ(readerTzInfo)) {
-
-      // convert between timezones
-      return new ColumnVector(convertOrcTimezones(
-          input.getNativeView(),
-          writerTzInfoTable != null ? writerTzInfoTable.getNativeView() : 0L,
-          writerTzInfo.rawOffset,
-          readerTzInfoTable != null ? readerTzInfoTable.getNativeView() : 0L,
-          readerTzInfo.rawOffset));
-    } catch (Exception e) {
-      throw new IllegalStateException("convert between timezones failed!", e);
+  /**
+   * Convert a DstRule to a 13-element int array for JNI, or null if no DST.
+   * Order: dstSavings, startMonth, startDay, startDayOfWeek, startTime,
+   *        startTimeMode, startMode, endMonth, endDay, endDayOfWeek,
+   *        endTime, endTimeMode, endMode
+   */
+  private static int[] dstRuleToArray(OrcTimezoneInfo.DstRule rule) {
+    if (rule == null) {
+      return null;
     }
+    return new int[]{
+        rule.dstSavings,
+        rule.startMonth, rule.startDay, rule.startDayOfWeek,
+        rule.startTime, rule.startTimeMode, rule.startMode,
+        rule.endMonth, rule.endDay, rule.endDayOfWeek,
+        rule.endTime, rule.endTimeMode, rule.endMode
+    };
   }
 
   private static native long convertTimestampColumnToUTC(long input, long timezoneInfo, int tzIndex);
@@ -611,8 +686,13 @@ public class GpuTimeZoneDB {
 
   private static native long convertOrcTimezones(
       long input,
+      long baseOffsetUs,
       long writerTzInfoTable,
+      int writerTzInitialOffset,
       int writerTzRawOffset,
+      int[] writerDstRule,
       long readerTzInfoTable,
-      int readerTzRawOffset);
+      int readerTzInitialOffset,
+      int readerTzRawOffset,
+      int[] readerDstRule);
 }
