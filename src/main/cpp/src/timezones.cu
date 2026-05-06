@@ -284,10 +284,12 @@ __device__ static int64_t days_from_epoch_to_year(int32_t year)
 }
 
 // DST rule mode constants (same as SimpleTimeZone)
-constexpr int32_t DOM_MODE          = 0;
-constexpr int32_t DOW_IN_MONTH_MODE = 1;
-constexpr int32_t DOW_GE_DOM_MODE   = 2;
-constexpr int32_t DOW_LE_DOM_MODE   = 3;
+enum dst_rule_mode : int32_t {
+  DOM_MODE          = 0,
+  DOW_IN_MONTH_MODE = 1,
+  DOW_GE_DOM_MODE   = 2,
+  DOW_LE_DOM_MODE   = 3
+};
 
 // Time mode constants
 constexpr int32_t WALL_TIME     = 0;
