@@ -292,9 +292,7 @@ enum dst_rule_mode : int32_t {
 };
 
 // Time mode constants
-constexpr int32_t WALL_TIME     = 0;
-constexpr int32_t STANDARD_TIME = 1;
-constexpr int32_t UTC_TIME      = 2;
+enum dst_time_mode : int32_t { WALL_TIME = 0, STANDARD_TIME = 1, UTC_TIME = 2 };
 
 /**
  * @brief Compute the day-of-month when a DST rule triggers for the given year and month.
