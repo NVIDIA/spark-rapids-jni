@@ -855,11 +855,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   auto const input_null_count = binary_input.null_count();
   auto const field_type_id    = static_cast<cudf::type_id>(field_desc.output_type_id);
 
-  // The orchestrator (decode_protobuf_to_struct) only dispatches here when total_count > 0;
-  // the all-counts-zero case is handled there with shared LIST helpers.
-  CUDF_EXPECTS(total_count > 0,
-               "build_repeated_scalar_column: total_count must be > 0 (orchestrator handles "
-               "the all-zero case before dispatching)");
+  CUDF_EXPECTS(total_count > 0, "build_repeated_scalar_column: total_count must be > 0");
 
   rmm::device_uvector<T> values(total_count, stream, mr);
 
@@ -893,8 +889,6 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
         message_data, loc_provider, total_count, values.data(), nullptr, d_error.data());
   }
 
-  // The orchestrator already built `list_offs` (size num_rows + 1) against `mr`, so just
-  // wrap it as the LIST offsets column.
   auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                     num_rows + 1,
                                                     list_offs.release(),

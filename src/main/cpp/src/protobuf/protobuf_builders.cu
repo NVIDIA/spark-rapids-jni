@@ -343,7 +343,6 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   auto child_col =
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
 
-  // Wrap the orchestrator-built `list_offs` as the LIST<STRING> offsets column.
   auto list_offs_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                       num_rows + 1,
                                                       list_offs.release(),
@@ -371,16 +370,8 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 {
   auto const input_null_count = binary_input.null_count();
 
-  // The orchestrator (decode_protobuf_to_struct) only dispatches to the per-type builders
-  // when total_count > 0; the all-counts-zero case is handled there with shared LIST helpers.
-  CUDF_EXPECTS(total_count > 0,
-               "build_repeated_string_column: total_count must be > 0 (orchestrator handles "
-               "the all-zero case before dispatching)");
+  CUDF_EXPECTS(total_count > 0, "build_repeated_string_column: total_count must be > 0");
 
-  // `list_offs` (size num_rows + 1) is provided by the orchestrator (built against `mr`); it
-  // becomes the LIST offsets column at the end of this function.
-
-  // Extract string lengths from occurrences
   auto const scratch_mr = cudf::get_current_device_resource_ref();
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, scratch_mr);
   auto const threads = THREADS_PER_BLOCK;
@@ -434,8 +425,6 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   std::unique_ptr<cudf::column> child_col;
   if (is_bytes) {
-    // Transfer ownership of the chars buffer instead of copying — the strings path below uses
-    // `chars.release()` for the same reason.
     auto bytes_child = std::make_unique<cudf::column>(
       cudf::data_type{cudf::type_id::UINT8}, total_chars, chars.release(), rmm::device_buffer{}, 0);
     child_col = cudf::make_lists_column(
@@ -451,8 +440,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
                                                     rmm::device_buffer{},
                                                     0);
 
-  // Only rows where INPUT is null should produce null output;
-  // rows with valid input but count=0 produce empty array [].
+  // Per Spark semantics: only INPUT-null rows are null; rows with count=0 produce [].
   return make_list_column_with_input_nulls(
     num_rows, std::move(offsets_col), std::move(child_col), binary_input, stream, mr);
 }

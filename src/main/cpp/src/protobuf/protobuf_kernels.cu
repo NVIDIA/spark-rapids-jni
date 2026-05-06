@@ -170,15 +170,10 @@ CUDF_KERNEL void scan_all_fields_kernel(
 /**
  * Visit each occurrence of a repeated field (packed or unpacked) and invoke `act` for it.
  *
- * `act(int32_t elem_offset, int32_t elem_len) -> bool` is called once per occurrence with the
- * element's offset (relative to `msg_base`) and length. Returning false from `act` aborts the
- * walk (e.g. when a count/scan mismatch is detected) and the walker returns false.
- *
+ * `act(int32_t elem_offset, int32_t elem_len) -> bool` runs once per occurrence with the
+ * element's offset relative to `msg_base` and its length. Returning false aborts the walk.
  * The walker handles wire-type validation, packed-vs-unpacked dispatch, varint/fixed-width
- * length decoding, and packed-buffer bounds checking. Callers only have to act per occurrence.
- *
- * Note: for the count case, `msg_base` is unused by `act`. Callers may pass any pointer; the
- * walker still computes offsets but the count action ignores them.
+ * length decoding, and packed-buffer bounds checking.
  */
 template <typename Action>
 __device__ bool walk_repeated_element(uint8_t const* cur,
@@ -239,8 +234,7 @@ __device__ bool walk_repeated_element(uint8_t const* cur,
         if (!act(elem_offset, width)) return false;
       }
     }
-    // No other expected_wt is valid for a packed payload; `expected_wt == LEN` is filtered
-    // out above by the !is_packed path.
+    // LEN is handled by the unpacked path above; other wire types fall through.
   } else {
     int32_t data_offset, data_length;
     if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
@@ -311,10 +305,9 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
   uint8_t const* cur            = msg_base;
   uint8_t const* msg_end        = bytes + end;
 
-  // Look up the local index of (fn, depth_level) in field_indices. Returns -1 if no match.
-  // Uses the O(1) direct-mapped table when supplied; otherwise falls back to a linear scan
-  // over `field_indices`. Both paths verify (field_number, depth) so a buggy lookup table
-  // can never dispatch to the wrong index silently.
+  // Returns local index of (fn, depth_level) in field_indices, or -1. Uses the O(1) lookup
+  // table when supplied, else linear scan. Both paths verify (field_number, depth) so a
+  // buggy table can't silently dispatch to the wrong index.
   auto lookup_field_idx = [&](int fn,
                               int const* fn_to_idx,
                               int fn_tbl_size,
@@ -360,7 +353,6 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
     if (int i = lookup_field_idx(
           fn, fn_to_nested_idx, fn_to_nested_size, nested_field_indices, num_nested_fields);
         i >= 0) {
-      // Record nested message location for hierarchical processing.
       if (wt != wire_type_value(proto_wire_type::LEN)) {
         set_error_once(error_flag, ERR_WIRE_TYPE);
         return;
@@ -430,12 +422,10 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
   uint8_t const* cur            = msg_base;
   uint8_t const* msg_end        = bytes + end;
 
-  // Defense-in-depth: host-side `validate_decode_context` already enforces this cap, so the
-  // check is unreachable on a correct config. We use `set_error_once + return` instead of
-  // `assert` because the failure mode (overrunning the fixed-size `write_idx` stack array
-  // below) is silent UB, not a clean abort — `assert` would be a no-op under NDEBUG and
-  // leave the OOB write in release builds. Keeping the cap small also keeps `write_idx` in
-  // registers / L1 instead of spilling into local memory.
+  // Defense-in-depth: host-side validate_decode_context enforces this cap, so the check is
+  // unreachable on a correct config. Using set_error_once instead of `assert` because the
+  // failure mode (overrunning `write_idx` below) is silent UB — `assert` is a no-op under
+  // NDEBUG and would leave the OOB write live in release.
   if (num_scan_fields > MAX_REPEATED_FIELDS_PER_KERNEL) {
     set_error_once(error_flag, ERR_SCHEMA_TOO_LARGE);
     return;
@@ -445,9 +435,8 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
     write_idx[f] = scan_descs[f].row_offsets[row];
   }
 
-  // Look up the descriptor index for `fn`. Returns -1 if not registered. Lookup-table path
-  // when supplied; linear scan otherwise. Both paths verify `field_number` so a buggy table
-  // cannot dispatch to the wrong descriptor silently.
+  // Returns descriptor index for `fn`, or -1. Same lookup-table-or-linear pattern + buggy-
+  // table guard as count_repeated_fields_kernel above.
   auto lookup_desc_idx = [&](int fn) -> int {
     if (fn_to_desc_idx != nullptr && fn > 0 && fn < fn_to_desc_size) {
       int f = fn_to_desc_idx[fn];

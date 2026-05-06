@@ -964,12 +964,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Process repeated fields (three-phase: offsets → combined scan → build columns)
   if (num_repeated > 0) {
-    // Phase A: Compute per-row offsets for each repeated field. `reserve` prevents vector
-    // reallocation, which keeps `repeated_field_work` (move-only via its `device_uvector`
-    // members) safe to hold by value. The per-field offsets buffer is allocated against the
-    // caller-supplied `mr`, since it both seeds the Phase B scan kernel and is later moved
-    // into the output LIST column built in Phase C — computing it once here avoids the
-    // duplicate exclusive_scan the per-type builders used to perform internally.
+    // Phase A: build per-row LIST offsets. Allocate against `mr` since the buffer
+    // flows into the output column at Phase C.
     std::vector<repeated_field_work> rep_work;
     rep_work.reserve(num_repeated);
 
@@ -977,28 +973,20 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       int schema_idx = repeated_field_indices[ri];
       auto& w        = rep_work.emplace_back(schema_idx, num_rows, stream, mr);
 
-      // Iterate strided counts directly out of d_repeated_info via a transform iterator —
-      // avoids materializing a num_rows-sized scratch buffer plus its dedicated kernel launch.
+      // Strided counts via a transform iterator — no scratch buffer materialized.
       auto counts_begin = thrust::make_transform_iterator(
         thrust::make_counting_iterator<int>(0),
         extract_strided_count{d_repeated_info.data(), ri, num_repeated});
       auto counts_end = counts_begin + num_rows;
 
-      // Reduce in int64 to detect overflow before truncating to int32 (cudf list offsets are
-      // int32). NOTE: `thrust::reduce` returns the value to the host, which implicitly syncs
-      // the stream once per repeated field — i.e. Phase A is O(num_repeated) syncs. We accept
-      // this for correctness; an async device-side reduce (e.g. `cub::DeviceReduce::Sum`
-      // writing to a device buffer + a single batched D2H) would let us keep one sync per
-      // decode call, but adds complexity. With typical schemas carrying <16 top-level
-      // repeated fields the saved syncs are µs-scale; revisit alongside benchmarks in part 4.
+      // Reduce in int64 to detect overflow before truncating to int32 LIST offsets.
       int64_t total_64 =
         thrust::reduce(rmm::exec_policy_nosync(stream), counts_begin, counts_end, int64_t{0});
       CUDF_EXPECTS(total_64 <= std::numeric_limits<int32_t>::max(),
                    "Top-level repeated field total element count exceeds 2^31-1");
       w.total_count = static_cast<int32_t>(total_64);
 
-      // Build the LIST offsets directly into w.offsets (size num_rows + 1). When num_rows is
-      // 0 the buffer is just the one-element sentinel slot, written by the fill_n below.
+      // num_rows == 0: w.offsets has size 1; skip the scan and let fill_n write the sentinel.
       if (num_rows > 0) {
         thrust::exclusive_scan(
           rmm::exec_policy_nosync(stream), counts_begin, counts_end, w.offsets.begin(), int32_t{0});
@@ -1007,7 +995,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         rmm::exec_policy_nosync(stream), w.offsets.data() + num_rows, 1, w.total_count);
     }
 
-    // Phase B: Allocate occurrence buffers and launch ONE combined scan kernel.
+    // Phase B: allocate occurrence buffers and launch the combined scan kernel.
     std::vector<repeated_field_scan_desc> h_scan_descs;
     h_scan_descs.reserve(num_repeated);
 
@@ -1031,11 +1019,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                     cudaMemcpyHostToDevice,
                                     stream.value()));
 
-      // Build field_number -> scan_desc_index lookup for the combined kernel.
-      // `build_lookup_table` returns an empty vector when max field_number exceeds
-      // FIELD_LOOKUP_TABLE_MAX (sparse high field numbers would over-allocate the host
-      // table); the kernel detects this via fn_to_scan_size == 0 and falls back to a
-      // linear scan over scan_descs.
+      // Build field_number -> scan_desc_index lookup. `build_lookup_table` returns {} when
+      // max field_number exceeds FIELD_LOOKUP_TABLE_MAX (would over-allocate); the kernel
+      // detects this via fn_to_scan_size == 0 and falls back to a linear scan.
       auto h_fn_to_scan = build_lookup_table([&](int i) { return h_scan_descs[i].field_number; },
                                              static_cast<int>(h_scan_descs.size()));
       rmm::device_uvector<int> d_fn_to_scan(0, stream, scratch_mr);
@@ -1067,12 +1053,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       auto element_type   = cudf::data_type{schema[schema_idx].output_type};
       int32_t total_count = w.total_count;
 
-      // Guard: if any row had elements, dispatch to the per-type builder. Else fall through
-      // to the all-zeros LIST handling below.
       if (total_count <= 0) {
-        // All rows have count=0 — w.offsets is already an all-zeros device buffer of the
-        // correct size (allocated against `mr` by Phase A); just wrap it as the offsets
-        // column. The null mask comes from the input column via the shared helper.
+        // All rows empty: w.offsets is already a zero-filled buffer from Phase A.
         auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                           num_rows + 1,
                                                           w.offsets.release(),
@@ -1096,9 +1078,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       auto& d_occurrences = *w.occurrences;
 
-      // Dispatch to the per-type builder using the element type id from the device-side
-      // schema (output_type for top-level repeated fields holds the element type, not the
-      // outer LIST type).
+      // For repeated fields, output_type holds the element type (not the outer LIST type).
       auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
 
       switch (child_type_id) {
@@ -1264,9 +1244,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                 mr);
           break;
         default:
-          // Repeated STRUCT and other composite element types are placeholders here; they
-          // are produced by parts 3b / 3c. Surface a typed null LIST so the assembly step
-          // still gets a column of the right shape.
+          // Composite element types (STRUCT etc.) are placeholders for parts 3b/3c.
           column_map[schema_idx] = make_null_list_column_with_child(
             make_empty_column_safe(element_type, stream, mr), num_rows, stream, mr);
           break;

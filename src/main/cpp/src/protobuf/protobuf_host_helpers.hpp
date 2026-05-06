@@ -201,11 +201,9 @@ std::unique_ptr<cudf::column> build_enum_string_column(
   int32_t const* top_row_indices = nullptr,
   bool propagate_invalid_rows    = true);
 
-// Wrap an offsets / child column pair into a LIST column, propagating the input column's null
-// mask when it has nulls. Used by every repeated-* builder so the input-null shape stays
-// consistent across paths. Note: when `binary_input` has no nulls the LIST column is built
-// with an empty null mask and `mr` is effectively unused — only the with-nulls path allocates
-// against it (via `cudf::copy_bitmask`).
+// Wrap offsets + child into a LIST column, propagating the input's null mask. Note: when
+// `binary_input` has no nulls, `mr` is effectively unused — only the with-nulls path
+// allocates against it (via `cudf::copy_bitmask`).
 std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
   int num_rows,
   std::unique_ptr<cudf::column> offsets_col,
@@ -214,9 +212,8 @@ std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr);
 
-// Complex builder forward declarations. The `list_offs` parameter is the pre-built LIST
-// row-offsets buffer (size num_rows + 1) supplied by the orchestrator; it is allocated
-// against `mr` and is moved into the output column rather than recomputed inside.
+// `list_offs` is the pre-built LIST row-offsets buffer (size num_rows + 1) from the
+// orchestrator (allocated against `mr`); each builder moves it into its output column.
 std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
