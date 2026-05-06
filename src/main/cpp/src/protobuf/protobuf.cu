@@ -615,7 +615,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           int si                  = scalar_field_indices[idxs[j]];
           auto dt                 = cudf::data_type{schema[si].output_type};
           auto& bp                = *bufs[j];
-          auto [mask, null_count] = make_null_mask_from_valid(bp.valid, stream, mr);
+          auto [mask, null_count] = make_null_mask_from_valid(bp.valid, num_rows, stream, mr);
           column_map[si]          = std::make_unique<cudf::column>(
             dt, num_rows, bp.out_bytes.release(), std::move(mask), null_count);
         }
