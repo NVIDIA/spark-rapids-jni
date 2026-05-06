@@ -32,6 +32,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/array>
 #include <cuda/std/functional>
 #include <thrust/binary_search.h>
 
@@ -252,7 +253,9 @@ constexpr int32_t MS_PER_HOUR   = 60 * MS_PER_MINUTE;
 constexpr int64_t MS_PER_DAY    = 24LL * MS_PER_HOUR;
 
 // Cumulative days before each month (non-leap). Index 0 = Jan.
-__device__ constexpr int32_t DAYS_BEFORE_MONTH[] = {
+// __device__ storage is required because days_in_month / days_before_month index
+// this with non-compile-time values, which addresses elements at runtime.
+__device__ constexpr cuda::std::array<int32_t, 12> DAYS_BEFORE_MONTH = {
   0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
 
 __device__ static bool is_leap_year(int32_t year)
