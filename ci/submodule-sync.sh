@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2025, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -71,7 +71,8 @@ else
 fi
 
 echo "Configure libcudf only to update pinned versions..."
-MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
+MVN_SETTINGS=${MVN_SETTINGS:-"ci/settings.xml"}
+MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B -s $MVN_SETTINGS"
 set +e
 # phase 1:
 # Just try to update CUDF and pinned versions with no patches on top of it.
