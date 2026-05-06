@@ -39,11 +39,8 @@ rmm::device_uvector<bool> make_valid(std::vector<bool> const& host,
     tmp[i] = host[i] ? 1 : 0;
   }
   rmm::device_uvector<bool> dvec(host.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(dvec.data(),
-                                tmp.data(),
-                                host.size() * sizeof(bool),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  CUDF_CUDA_TRY(cudaMemcpyAsync(
+    dvec.data(), tmp.data(), host.size() * sizeof(bool), cudaMemcpyHostToDevice, stream.value()));
   stream.synchronize();
   return dvec;
 }
@@ -104,7 +101,6 @@ TEST_F(ProtobufHelperTests, NullMaskFromValidThrowsWhenBufferSmaller)
   auto mr     = rmm::mr::get_current_device_resource_ref();
 
   auto valid = make_valid({true, true}, stream, mr);
-  EXPECT_THROW(
-    spark_rapids_jni::protobuf::detail::make_null_mask_from_valid(valid, 5, stream, mr),
-    cudf::logic_error);
+  EXPECT_THROW(spark_rapids_jni::protobuf::detail::make_null_mask_from_valid(valid, 5, stream, mr),
+               cudf::logic_error);
 }
