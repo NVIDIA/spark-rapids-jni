@@ -539,6 +539,12 @@ class OrcTimezoneInfo {
    * Build ORC timezone metadata from public java.time/java.util APIs. Invalid IDs use the same
    * validation as {@link GpuTimeZoneDB#getZoneId(String)} and fail with
    * {@link IllegalArgumentException} (no silent fallback to GMT).
+   *
+   * <p><b>Cost:</b> this is expensive — it scans every historical {@link ZoneOffsetTransition}
+   * from year 1 onward, probes {@link TimeZone#getOffset(long)} hourly to extract the recurring
+   * DST rule, and then verifies the rule across multiple reference years. Results are cached in
+   * {@link #RUNTIME_TIMEZONE_INFOS} (see {@link #get(String)}), so callers should always go
+   * through {@code get(...)} rather than invoking this directly.
    */
   private static OrcTimezoneInfo buildRuntimeOrcTimezoneInfo(String timezoneId) {
     final ZoneId zoneId;
