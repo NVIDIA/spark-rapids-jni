@@ -212,14 +212,14 @@ std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr);
 
-// `list_offs` is the pre-built LIST row-offsets buffer (size num_rows + 1) from the
+// `d_field_offsets` is the pre-built LIST row-offsets buffer (size num_rows + 1) from the
 // orchestrator (allocated against `mr`); each builder moves it into its output column.
 std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   cudf::column_view const& binary_input,
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  rmm::device_uvector<int32_t> list_offs,
+  rmm::device_uvector<int32_t> d_field_offsets,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -235,8 +235,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> list_offs,
+  rmm::device_uvector<int32_t> d_field_offsets,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,

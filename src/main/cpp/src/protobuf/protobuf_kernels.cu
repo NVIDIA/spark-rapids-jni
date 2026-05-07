@@ -28,6 +28,8 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform.h>
 
+#include <type_traits>
+
 namespace spark_rapids_jni::protobuf::detail {
 
 namespace {
@@ -168,21 +170,22 @@ CUDF_KERNEL void scan_all_fields_kernel(
 // ============================================================================
 
 /**
- * Visit each occurrence of a repeated field (packed or unpacked) and invoke `act` for it.
+ * Visit each occurrence of a repeated field (packed or unpacked) and invoke `f` for it.
  *
- * `act(int32_t elem_offset, int32_t elem_len) -> bool` runs once per occurrence with the
+ * `f(int32_t elem_offset, int32_t elem_len) -> bool` runs once per occurrence with the
  * element's offset relative to `msg_base` and its length. Returning false aborts the walk.
  * The walker handles wire-type validation, packed-vs-unpacked dispatch, varint/fixed-width
  * length decoding, and packed-buffer bounds checking.
  */
-template <typename Action>
+template <typename F>
+  requires std::is_invocable_r_v<bool, F, int32_t /*elem_offset*/, int32_t /*elem_len*/>
 __device__ bool walk_repeated_element(uint8_t const* cur,
                                       uint8_t const* msg_end,
                                       uint8_t const* msg_base,
                                       int wt,
                                       int expected_wt,
                                       int* error_flag,
-                                      Action&& act)
+                                      F&& f)
 {
   bool is_packed = (wt == wire_type_value(proto_wire_type::LEN) &&
                     expected_wt != wire_type_value(proto_wire_type::LEN));
@@ -221,7 +224,7 @@ __device__ bool walk_repeated_element(uint8_t const* cur,
             set_error_once(error_flag, ERR_VARINT);
             return false;
           }
-          if (!act(elem_offset, vbytes)) return false;
+          if (!f(elem_offset, vbytes)) return false;
         }
         break;
       }
@@ -232,19 +235,24 @@ __device__ bool walk_repeated_element(uint8_t const* cur,
           set_error_once(error_flag, ERR_FIXED_LEN);
           return false;
         }
-        for (uint64_t i = 0; i < packed_len; i += width) {
-          int32_t elem_offset = static_cast<int32_t>(packed_start - msg_base + i);
-          if (!act(elem_offset, width)) return false;
+        for (uint8_t const* p = packed_start; p < packed_end; p += width) {
+          int32_t elem_offset = static_cast<int32_t>(p - msg_base);
+          if (!f(elem_offset, width)) return false;
         }
         break;
       }
-      default: break;  // LEN is filtered out above by the !is_packed path.
+      default:
+        // Unreachable on a well-formed config: only VARINT / I32BIT / I64BIT are valid for
+        // packed wire types here (LEN is already filtered out above by the !is_packed path).
+        // Fail loudly rather than silently swallowing an unexpected expected_wt.
+        set_error_once(error_flag, ERR_WIRE_TYPE);
+        return false;
     }
   } else {
     // Unpacked single occurrence. We use `get_field_data_location` rather than `skip_field`
-    // because the scan path's `act` needs both the data offset and length to record an
+    // because the scan path's `f` needs both the data offset and length to record an
     // occurrence; `skip_field` advances past the field but doesn't surface those. The count
-    // path's `act` ignores them, but sharing one helper keeps the walker generic over both
+    // path's `f` ignores them, but sharing one helper keeps the walker generic over both
     // actions and avoids re-validating field bounds twice.
     int32_t data_offset, data_length;
     if (!get_field_data_location(cur, msg_end, wt, data_offset, data_length)) {
@@ -252,7 +260,7 @@ __device__ bool walk_repeated_element(uint8_t const* cur,
       return false;
     }
     int32_t abs_offset = static_cast<int32_t>(cur - msg_base) + data_offset;
-    if (!act(abs_offset, data_length)) return false;
+    if (!f(abs_offset, data_length)) return false;
   }
   return true;
 }
@@ -315,26 +323,19 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
   uint8_t const* cur            = msg_base;
   uint8_t const* msg_end        = bytes + end;
 
-  // Returns local index of (fn, depth_level) in field_indices, or -1. Uses the O(1) lookup
-  // table when supplied, else linear scan. Both paths verify (field_number, depth) so a
-  // buggy table can't silently dispatch to the wrong index.
+  // Schema-aware (field_number, depth) lookup. Forwards to `lookup_field_generic` with a
+  // predicate that follows the `field_indices` indirection into `schema` and also filters
+  // by `depth_level`, since this kernel processes nested schemas where the same field
+  // number can appear at multiple depths.
   auto lookup_field_idx = [&](int fn,
                               int const* fn_to_idx,
                               int fn_tbl_size,
                               int const* field_indices,
                               int num_fields_at_depth) -> int {
-    auto matches = [&](int local_i) {
-      int schema_idx = field_indices[local_i];
-      return schema[schema_idx].field_number == fn && schema[schema_idx].depth == depth_level;
-    };
-    if (fn_to_idx != nullptr && fn > 0 && fn < fn_tbl_size) {
-      int local_i = fn_to_idx[fn];
-      return (local_i >= 0 && matches(local_i)) ? local_i : -1;
-    }
-    for (int local_i = 0; local_i < num_fields_at_depth; local_i++) {
-      if (matches(local_i)) return local_i;
-    }
-    return -1;
+    return lookup_field_generic(fn, fn_to_idx, fn_tbl_size, num_fields_at_depth, [&](int local_i) {
+      auto const& field_schema = schema[field_indices[local_i]];
+      return field_schema.field_number == fn && field_schema.depth == depth_level;
+    });
   };
 
   while (cur < msg_end) {
@@ -350,7 +351,7 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
       auto& info        = repeated_info[flat_index(static_cast<size_t>(row),
                                             static_cast<size_t>(num_repeated_fields),
                                             static_cast<size_t>(i))];
-      auto count_action = [&info](int32_t /*off*/, int32_t /*len*/) {
+      auto count_action = [&info]([[maybe_unused]] int32_t off, [[maybe_unused]] int32_t len) {
         info.count++;
         return true;
       };
@@ -360,6 +361,7 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
       }
     }
 
+    // Check nested message fields at this depth
     if (int i = lookup_field_idx(
           fn, fn_to_nested_idx, fn_to_nested_size, nested_field_indices, num_nested_fields);
         i >= 0) {
@@ -445,17 +447,12 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
     write_idx[f] = scan_descs[f].row_offsets[row];
   }
 
-  // Returns descriptor index for `fn`, or -1. Same lookup-table-or-linear pattern + buggy-
-  // table guard as count_repeated_fields_kernel above.
+  // Descriptor-index lookup. No depth filter here (scan kernel runs against a flat list
+  // of top-level repeated descriptors), so the predicate is just the field-number match.
   auto lookup_desc_idx = [&](int fn) -> int {
-    if (fn_to_desc_idx != nullptr && fn > 0 && fn < fn_to_desc_size) {
-      int f = fn_to_desc_idx[fn];
-      return (f >= 0 && f < num_scan_fields && scan_descs[f].field_number == fn) ? f : -1;
-    }
-    for (int f = 0; f < num_scan_fields; f++) {
-      if (scan_descs[f].field_number == fn) return f;
-    }
-    return -1;
+    return lookup_field_generic(fn, fn_to_desc_idx, fn_to_desc_size, num_scan_fields, [&](int f) {
+      return scan_descs[f].field_number == fn;
+    });
   };
 
   while (cur < msg_end) {

@@ -277,7 +277,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  rmm::device_uvector<int32_t> list_offs,
+  rmm::device_uvector<int32_t> d_field_offsets,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -345,7 +345,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
 
   auto list_offs_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                       num_rows + 1,
-                                                      list_offs.release(),
+                                                      d_field_offsets.release(),
                                                       rmm::device_buffer{},
                                                       0);
 
@@ -358,8 +358,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> list_offs,
+  rmm::device_uvector<int32_t> d_field_offsets,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -372,6 +371,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   CUDF_EXPECTS(total_count > 0, "build_repeated_string_column: total_count must be > 0");
 
+  // Extract string lengths from occurrences
   auto const scratch_mr = cudf::get_current_device_resource_ref();
   rmm::device_uvector<int32_t> str_lengths(total_count, stream, scratch_mr);
   auto const threads = THREADS_PER_BLOCK;
@@ -425,6 +425,8 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   std::unique_ptr<cudf::column> child_col;
   if (is_bytes) {
+    // Transfer ownership of the chars buffer instead of copying — the strings path below uses
+    // `chars.release()` for the same reason.
     auto bytes_child = std::make_unique<cudf::column>(
       cudf::data_type{cudf::type_id::UINT8}, total_chars, chars.release(), rmm::device_buffer{}, 0);
     child_col = cudf::make_lists_column(
@@ -436,7 +438,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                     num_rows + 1,
-                                                    list_offs.release(),
+                                                    d_field_offsets.release(),
                                                     rmm::device_buffer{},
                                                     0);
 

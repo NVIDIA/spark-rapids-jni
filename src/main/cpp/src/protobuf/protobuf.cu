@@ -879,13 +879,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                        has_def,
                                                        def_int);
 
-            // Missing or mismatched enum metadata is a schema/config bug (host-side check),
-            // not a row-level decode error — fail loudly rather than silently produce a null
-            // column that downstream can't distinguish from a real all-null result.
-            CUDF_EXPECTS(schema_idx < static_cast<int>(enum_valid_values.size()) &&
-                           schema_idx < static_cast<int>(enum_names.size()),
-                         "Protobuf decode error: missing or mismatched enum metadata for "
-                         "enum-as-string field");
+            // Outer sizing is guaranteed by `validate_decode_context`; only the per-field
+            // metadata-populated check remains.
             auto const& valid_enums     = enum_valid_values[schema_idx];
             auto const& enum_name_bytes = enum_names[schema_idx];
             CUDF_EXPECTS(!valid_enums.empty() && valid_enums.size() == enum_name_bytes.size(),
@@ -955,7 +950,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         default:
           // Unreachable: schema validation only admits the scalar element types enumerated
           // above (STRUCT is dispatched through the nested path, not this scalar switch).
-          CUDF_FAIL("Protobuf decode internal error: unsupported scalar element type");
+          CUDF_FAIL("Protobuf decode internal error: unsupported scalar element type id=" +
+                    std::to_string(static_cast<int>(dt.id())));
       }
     }
   }
@@ -1211,7 +1207,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                   message_data,
                                                                   list_offsets,
                                                                   base_offset,
-                                                                  h_device_schema[schema_idx],
                                                                   std::move(w.offsets),
                                                                   d_occurrences,
                                                                   total_count,
@@ -1228,7 +1223,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                 message_data,
                                                                 list_offsets,
                                                                 base_offset,
-                                                                h_device_schema[schema_idx],
                                                                 std::move(w.offsets),
                                                                 d_occurrences,
                                                                 total_count,
@@ -1242,7 +1236,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           // Unreachable: schema validation admits the types enumerated above; STRUCT is
           // rejected at the loop entry above (parts 3b/3c). Reaching this branch means a
           // schema slipped past validation.
-          CUDF_FAIL("Protobuf decode internal error: unsupported repeated element type");
+          CUDF_FAIL("Protobuf decode internal error: unsupported repeated element type id=" +
+                    std::to_string(static_cast<int>(element_type.id())));
       }
     }  // for (ri)
   }

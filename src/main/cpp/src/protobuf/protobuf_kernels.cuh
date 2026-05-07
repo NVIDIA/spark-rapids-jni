@@ -844,7 +844,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
   device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> list_offs,
+  rmm::device_uvector<int32_t> d_field_offsets,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -891,7 +891,7 @@ inline std::unique_ptr<cudf::column> build_repeated_scalar_column(
 
   auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                     num_rows + 1,
-                                                    list_offs.release(),
+                                                    d_field_offsets.release(),
                                                     rmm::device_buffer{},
                                                     0);
   auto child_col   = std::make_unique<cudf::column>(
