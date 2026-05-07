@@ -114,6 +114,8 @@ __device__ __forceinline__ int codepoint_to_utf8(uint32_t codepoint, char* outpu
 struct gbk_decode_fn {
   uint8_t const* input_data;
   cudf::size_type const* input_offsets;
+  cudf::bitmask_type const* input_null_mask;
+  cudf::size_type input_offset;
   uint16_t const* gbk_table;
 
   // REPORT mode flag. When non-null, any malformed/unmappable sequence sets *malformed_flag = 1.
@@ -126,6 +128,11 @@ struct gbk_decode_fn {
 
   __device__ void operator()(cudf::size_type idx)
   {
+    if (input_null_mask != nullptr && !cudf::bit_is_set(input_null_mask, idx + input_offset)) {
+      if (!d_chars) { d_sizes[idx] = 0; }
+      return;
+    }
+
     auto const start = input_offsets[idx];
     auto const end   = input_offsets[idx + 1];
     auto const len   = end - start;
@@ -232,11 +239,16 @@ decode_result decode_gbk(cudf::column_view const& input,
   }
 
   // offsets_begin() accounts for the parent list offset on sliced columns
-  auto [new_offsets, new_chars] = cudf::strings::detail::make_strings_children(
-    gbk_decode_fn{child.data<uint8_t>(), list_col.offsets_begin(), gbk_table, flag_ptr},
-    num_rows,
-    stream,
-    mr);
+  auto [new_offsets, new_chars] =
+    cudf::strings::detail::make_strings_children(gbk_decode_fn{child.data<uint8_t>(),
+                                                               list_col.offsets_begin(),
+                                                               input.null_mask(),
+                                                               input.offset(),
+                                                               gbk_table,
+                                                               flag_ptr},
+                                                 num_rows,
+                                                 stream,
+                                                 mr);
 
   // In REPORT mode, skip building the output column when malformed bytes were detected: the
   // caller will discard it. This avoids the column / bitmask allocations on the error path.
