@@ -658,6 +658,18 @@ public class GpuTimeZoneDB {
   }
 
   /**
+   * Backwards-compatible overload preserving the pre-DST signature. Equivalent
+   * to calling {@link #convertOrcTimezones(ColumnVector, long, String, String)}
+   * with {@code baseOffsetUs = 0L}.
+   */
+  public static ColumnVector convertOrcTimezones(
+      ColumnVector input,
+      String writerTimezone,
+      String readerTimezone) {
+    return convertOrcTimezones(input, 0L, writerTimezone, readerTimezone);
+  }
+
+  /**
    * Convert a DstRule to a 13-element int array for JNI, or null if no DST.
    * Order: dstSavings, startMonth, startDay, startDayOfWeek, startTime,
    *        startTimeMode, startMode, endMonth, endDay, endDayOfWeek,
