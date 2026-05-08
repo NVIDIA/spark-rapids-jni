@@ -408,9 +408,9 @@ CUDF_KERNEL void extract_lengths_kernel(LocationProvider loc_provider,
 // ============================================================================
 
 // Build a row-aligned null mask from `valid[row]` boolean flags. The caller must ensure
-// `valid.size() >= num_rows`; some builders pad `valid` to `max(1, num_rows)` to avoid a
-// 0-sized device_uvector and pass `num_rows` separately so the resulting mask matches the
-// logical row count rather than the padded buffer length.
+// `valid.size() >= num_rows`. If a caller pads `valid` to keep a device_uvector non-empty,
+// it must pass the logical `num_rows` separately so the mask matches the row count rather
+// than the backing buffer length.
 template <typename T>
 inline std::pair<rmm::device_buffer, cudf::size_type> make_null_mask_from_valid(
   rmm::device_uvector<T> const& valid,
