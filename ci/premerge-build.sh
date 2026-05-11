@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2025, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,7 +32,8 @@ if [ "${CUDA_VER}" == "cuda13" ]; then
   BUILD_PROFILER="OFF"
 fi
 
-MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
+MVN_SETTINGS=${MVN_SETTINGS:-"ci/settings.xml"}
+MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B -s $MVN_SETTINGS"
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 ${MVN} verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
