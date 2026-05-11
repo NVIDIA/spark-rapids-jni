@@ -81,6 +81,7 @@ struct protobuf_decode_context {
   std::vector<cudf::detail::host_vector<int32_t>> enum_valid_values;
   std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> enum_names;
   bool fail_on_errors;
+  std::vector<bool> output_fields;
 };
 
 struct protobuf_field_meta_view {

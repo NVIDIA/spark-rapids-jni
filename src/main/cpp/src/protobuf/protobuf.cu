@@ -234,6 +234,9 @@ void validate_decode_context(protobuf_decode_context const& context)
   CUDF_EXPECTS(context.enum_names.size() == num_fields,
                "protobuf decode context: enum_names size mismatch",
                std::invalid_argument);
+  CUDF_EXPECTS(context.output_fields.empty() || context.output_fields.size() == num_fields,
+               "protobuf decode context: output_fields size mismatch",
+               std::invalid_argument);
 
   std::set<std::pair<int, int>> seen_field_numbers;
   for (size_t i = 0; i < num_fields; ++i) {
@@ -266,6 +269,12 @@ void validate_decode_context(protobuf_decode_context const& context)
       CUDF_EXPECTS(context.schema[field.parent_idx].output_type == cudf::type_id::STRUCT,
                    "protobuf decode context: parent must be STRUCT at field " + std::to_string(i),
                    std::invalid_argument);
+      if (!context.output_fields.empty()) {
+        CUDF_EXPECTS(
+          context.output_fields[i] == context.output_fields[field.parent_idx],
+          "protobuf decode context: child output flag mismatch at field " + std::to_string(i),
+          std::invalid_argument);
+      }
     }
 
     CUDF_EXPECTS(
@@ -315,6 +324,11 @@ void validate_decode_context(protobuf_decode_context const& context)
       }
     }
   }
+}
+
+bool is_output_field(protobuf_decode_context const& context, int schema_idx)
+{
+  return context.output_fields.empty() || context.output_fields[schema_idx];
 }
 
 protobuf_field_meta_view make_field_meta_view(protobuf_decode_context const& context,
@@ -381,7 +395,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   if (num_rows == 0) {
     std::vector<std::unique_ptr<cudf::column>> empty_children;
     for (int i = 0; i < num_fields; i++) {
-      if (schema[i].parent_idx == -1) {
+      if (schema[i].parent_idx == -1 && is_output_field(context, i)) {
         auto field_type = cudf::data_type{schema[i].output_type};
         if (schema[i].is_repeated && field_type.id() == cudf::type_id::STRUCT) {
           auto empty_struct =
@@ -1367,7 +1381,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // Assemble top_level_children in schema order (not processing order)
   std::vector<std::unique_ptr<cudf::column>> top_level_children;
   for (int i = 0; i < num_fields; i++) {
-    if (schema[i].parent_idx == -1) {
+    if (schema[i].parent_idx == -1 && is_output_field(context, i)) {
       if (column_map[i]) {
         top_level_children.push_back(std::move(column_map[i]));
       } else {

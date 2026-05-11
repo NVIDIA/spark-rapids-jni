@@ -630,10 +630,20 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
                                                    field_descriptor const* field_descs,
                                                    int num_fields,
                                                    field_location* output_locations,
-                                                   int* error_flag)
+                                                   int* error_flag,
+                                                   bool* row_has_invalid_data,
+                                                   int32_t const* top_row_indices)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_parent_rows) return;
+
+  auto mark_row_error = [&]() {
+    if (row_has_invalid_data != nullptr) {
+      auto const top_row =
+        top_row_indices != nullptr ? top_row_indices[row] : static_cast<int32_t>(row);
+      row_has_invalid_data[top_row] = true;
+    }
+  };
 
   for (int f = 0; f < num_fields; f++) {
     output_locations[flat_index(
@@ -648,6 +658,7 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
   int64_t nested_end_off   = nested_start_off + parent_loc.length;
   if (nested_start_off < 0 || nested_end_off > message_data_size) {
     set_error_once(error_flag, ERR_BOUNDS);
+    mark_row_error();
     return;
   }
   uint8_t const* nested_start = message_data + nested_start_off;
@@ -657,7 +668,10 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
 
   while (cur < nested_end) {
     proto_tag tag;
-    if (!decode_tag(cur, nested_end, tag, error_flag)) return;
+    if (!decode_tag(cur, nested_end, tag, error_flag)) {
+      mark_row_error();
+      return;
+    }
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
@@ -670,6 +684,7 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
         }
         if (wt != field_descs[f].expected_wire_type) {
           set_error_once(error_flag, ERR_WIRE_TYPE);
+          mark_row_error();
           return;
         }
 
@@ -680,16 +695,19 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
           int len_bytes;
           if (!read_varint(cur, nested_end, len, len_bytes)) {
             set_error_once(error_flag, ERR_VARINT);
+            mark_row_error();
             return;
           }
           if (len > static_cast<uint64_t>(nested_end - cur - len_bytes) ||
               len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max())) {
             set_error_once(error_flag, ERR_OVERFLOW);
+            mark_row_error();
             return;
           }
           int32_t data_location;
           if (!checked_add_int32(data_offset, len_bytes, data_location)) {
             set_error_once(error_flag, ERR_OVERFLOW);
+            mark_row_error();
             return;
           }
           output_locations[flat_index(
@@ -699,6 +717,7 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
           int field_size = get_wire_type_size(wt, cur, nested_end);
           if (field_size < 0) {
             set_error_once(error_flag, ERR_FIELD_SIZE);
+            mark_row_error();
             return;
           }
           output_locations[flat_index(
@@ -712,6 +731,7 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
     uint8_t const* next;
     if (!skip_field(cur, nested_end, wt, next)) {
       set_error_once(error_flag, ERR_SKIP);
+      mark_row_error();
       return;
     }
     cur = next;
@@ -1422,6 +1442,8 @@ void launch_scan_nested_message_fields(uint8_t const* message_data,
                                        int num_fields,
                                        field_location* output_locations,
                                        int* error_flag,
+                                       bool* row_has_invalid_data,
+                                       int32_t const* top_row_indices,
                                        rmm::cuda_stream_view stream)
 {
   if (num_parent_rows == 0) return;
@@ -1437,7 +1459,9 @@ void launch_scan_nested_message_fields(uint8_t const* message_data,
     field_descs,
     num_fields,
     output_locations,
-    error_flag);
+    error_flag,
+    row_has_invalid_data,
+    top_row_indices);
 }
 
 void launch_scan_repeated_message_children(uint8_t const* message_data,

@@ -451,6 +451,8 @@ void launch_scan_nested_message_fields(uint8_t const* message_data,
                                        int num_fields,
                                        field_location* output_locations,
                                        int* error_flag,
+                                       bool* row_has_invalid_data,
+                                       int32_t const* top_row_indices,
                                        rmm::cuda_stream_view stream);
 
 void launch_scan_repeated_message_children(uint8_t const* message_data,

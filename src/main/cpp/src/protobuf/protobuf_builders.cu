@@ -1204,6 +1204,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                     num_child_fields,
                                     d_child_locations.data(),
                                     d_error.data(),
+                                    d_row_force_null.size() > 0 ? d_row_force_null.data() : nullptr,
+                                    top_row_indices,
                                     stream);
 
   // Enforce proto2 required semantics for direct children of this nested message.

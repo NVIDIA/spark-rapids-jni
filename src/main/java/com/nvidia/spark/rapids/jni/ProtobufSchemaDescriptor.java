@@ -16,6 +16,7 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -56,6 +57,7 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   final boolean[] isRepeated;
   final boolean[] isRequired;
   final boolean[] hasDefaultValue;
+  final boolean[] isOutput;
   final long[] defaultInts;
   final double[] defaultFloats;
   final boolean[] defaultBools;
@@ -83,9 +85,36 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
       byte[][] defaultStrings,
       int[][] enumValidValues,
       byte[][][] enumNames) {
+    this(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
+        encodings, isRepeated, isRequired, hasDefaultValue,
+        fieldNumbers == null ? null : allOutput(fieldNumbers.length),
+        defaultInts, defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
+  }
+
+  /**
+   * @throws IllegalArgumentException if any array is null, arrays have mismatched lengths,
+   *         field numbers are out of range, or encoding values are invalid.
+   */
+  public ProtobufSchemaDescriptor(
+      int[] fieldNumbers,
+      int[] parentIndices,
+      int[] depthLevels,
+      int[] wireTypes,
+      int[] outputTypeIds,
+      int[] encodings,
+      boolean[] isRepeated,
+      boolean[] isRequired,
+      boolean[] hasDefaultValue,
+      boolean[] isOutput,
+      long[] defaultInts,
+      double[] defaultFloats,
+      boolean[] defaultBools,
+      byte[][] defaultStrings,
+      int[][] enumValidValues,
+      byte[][][] enumNames) {
 
     validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
-        encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
+        encodings, isRepeated, isRequired, hasDefaultValue, isOutput, defaultInts,
         defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
 
     this.fieldNumbers = fieldNumbers.clone();
@@ -97,6 +126,7 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     this.isRepeated = isRepeated.clone();
     this.isRequired = isRequired.clone();
     this.hasDefaultValue = hasDefaultValue.clone();
+    this.isOutput = isOutput.clone();
     this.defaultInts = defaultInts.clone();
     this.defaultFloats = defaultFloats.clone();
     this.defaultBools = defaultBools.clone();
@@ -115,7 +145,7 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     in.defaultReadObject();
     try {
       validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
-          encodings, isRepeated, isRequired, hasDefaultValue, defaultInts,
+          encodings, isRepeated, isRequired, hasDefaultValue, isOutput, defaultInts,
           defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
     } catch (IllegalArgumentException e) {
       java.io.InvalidObjectException ioe = new java.io.InvalidObjectException(e.getMessage());
@@ -152,17 +182,24 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     return dst;
   }
 
+  private static boolean[] allOutput(int length) {
+    boolean[] ret = new boolean[length];
+    Arrays.fill(ret, true);
+    return ret;
+  }
+
   private static void validate(
       int[] fieldNumbers, int[] parentIndices, int[] depthLevels,
       int[] wireTypes, int[] outputTypeIds, int[] encodings,
       boolean[] isRepeated, boolean[] isRequired, boolean[] hasDefaultValue,
+      boolean[] isOutput,
       long[] defaultInts, double[] defaultFloats, boolean[] defaultBools,
       byte[][] defaultStrings, int[][] enumValidValues, byte[][][] enumNames) {
 
     if (fieldNumbers == null || parentIndices == null || depthLevels == null ||
         wireTypes == null || outputTypeIds == null || encodings == null ||
         isRepeated == null || isRequired == null || hasDefaultValue == null ||
-        defaultInts == null || defaultFloats == null || defaultBools == null ||
+        isOutput == null || defaultInts == null || defaultFloats == null || defaultBools == null ||
         defaultStrings == null || enumValidValues == null || enumNames == null) {
       throw new IllegalArgumentException("All schema arrays must be non-null");
     }
@@ -172,6 +209,7 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
         wireTypes.length != n || outputTypeIds.length != n ||
         encodings.length != n || isRepeated.length != n ||
         isRequired.length != n || hasDefaultValue.length != n ||
+        isOutput.length != n ||
         defaultInts.length != n || defaultFloats.length != n ||
         defaultBools.length != n || defaultStrings.length != n ||
         enumValidValues.length != n || enumNames.length != n) {
@@ -182,6 +220,7 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     for (int i = 0; i < n; i++) {
       validateFieldRange(i, fieldNumbers[i], depthLevels[i]);
       validateParentChild(i, parentIndices[i], depthLevels, outputTypeIds);
+      validateOutputFlag(i, parentIndices[i], isOutput);
       validateUniqueFieldKey(i, parentIndices[i], fieldNumbers[i], seenFieldNumbers);
       validateWireTypeAndEncoding(i, wireTypes[i], outputTypeIds[i], encodings[i]);
       validateFieldFlags(i, isRepeated[i], isRequired[i], hasDefaultValue[i], outputTypeIds[i]);
@@ -236,6 +275,14 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
       throw new IllegalArgumentException(
           "Duplicate field number " + fieldNumber +
           " under parent index " + parentIndex + " at schema index " + index);
+    }
+  }
+
+  private static void validateOutputFlag(int index, int parentIndex, boolean[] isOutput) {
+    if (parentIndex >= 0 && isOutput[index] != isOutput[parentIndex]) {
+      throw new IllegalArgumentException(
+          "Nested field at index " + index + " must use the same output flag as parent " +
+          parentIndex);
     }
   }
 
