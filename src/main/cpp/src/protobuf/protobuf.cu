@@ -1271,22 +1271,22 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         case cudf::type_id::STRUCT: {
           auto child_field_indices = find_child_field_indices(schema, num_fields, schema_idx);
           column_map[schema_idx]   = build_repeated_struct_column(binary_input,
-                                                                  message_data,
-                                                                  message_data_size,
-                                                                  list_offsets,
-                                                                  base_offset,
-                                                                  std::move(w.offsets),
-                                                                  d_occurrences,
-                                                                  total_count,
-                                                                  num_rows,
-                                                                  h_device_schema,
-                                                                  child_field_indices,
-                                                                  schema,
-                                                                  schema_ctx,
-                                                                  d_row_force_null,
-                                                                  d_error,
-                                                                  stream,
-                                                                  mr);
+                                                                message_data,
+                                                                message_data_size,
+                                                                list_offsets,
+                                                                base_offset,
+                                                                std::move(w.offsets),
+                                                                d_occurrences,
+                                                                total_count,
+                                                                num_rows,
+                                                                h_device_schema,
+                                                                child_field_indices,
+                                                                schema,
+                                                                schema_ctx,
+                                                                d_row_force_null,
+                                                                d_error,
+                                                                stream,
+                                                                mr);
           break;
         }
         default:

@@ -236,9 +236,7 @@ __device__ bool walk_repeated_element(uint8_t const* cur,
         }
         break;
       }
-      default:
-        set_error_once(error_flag, ERR_WIRE_TYPE);
-        return false;
+      default: set_error_once(error_flag, ERR_WIRE_TYPE); return false;
     }
   } else {
     int32_t data_offset, data_length;
@@ -794,14 +792,19 @@ CUDF_KERNEL void count_repeated_in_nested_kernel(uint8_t const* message_data,
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx = repeated_indices[ri];
       if (schema[schema_idx].field_number == fn && schema[schema_idx].is_repeated) {
-        auto& info = repeated_info[flat_index(
+        auto& info        = repeated_info[flat_index(
           static_cast<size_t>(row), static_cast<size_t>(num_repeated), static_cast<size_t>(ri))];
         auto count_action = [&info]([[maybe_unused]] int32_t off, [[maybe_unused]] int32_t len) {
           info.count++;
           return true;
         };
-        if (!walk_repeated_element(
-              cur, msg_end, msg_start, wt, schema[schema_idx].wire_type, error_flag, count_action)) {
+        if (!walk_repeated_element(cur,
+                                   msg_end,
+                                   msg_start,
+                                   wt,
+                                   schema[schema_idx].wire_type,
+                                   error_flag,
+                                   count_action)) {
           return;
         }
         break;  // Each tag dispatches to at most one repeated index

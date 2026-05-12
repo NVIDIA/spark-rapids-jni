@@ -602,12 +602,11 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   auto child_col =
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
 
-  auto list_offs_col = std::make_unique<cudf::column>(
-    cudf::data_type{cudf::type_id::INT32},
-    num_rows + 1,
-    d_field_offsets.release(),
-    rmm::device_buffer{},
-    0);
+  auto list_offs_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
+                                                      num_rows + 1,
+                                                      d_field_offsets.release(),
+                                                      rmm::device_buffer{},
+                                                      0);
 
   return make_list_column_with_input_nulls(
     num_rows, std::move(list_offs_col), std::move(child_col), binary_input, stream, mr);
