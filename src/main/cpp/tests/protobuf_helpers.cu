@@ -72,11 +72,8 @@ TEST_F(ProtobufHelpersTest, NullMaskFromPaddedValidIgnoresTail)
   EXPECT_EQ(1, null_count);
 
   std::vector<cudf::bitmask_type> h_mask(mask.size() / sizeof(cudf::bitmask_type));
-  CUDF_CUDA_TRY(cudaMemcpyAsync(h_mask.data(),
-                                mask.data(),
-                                mask.size(),
-                                cudaMemcpyDeviceToHost,
-                                stream.value()));
+  CUDF_CUDA_TRY(cudaMemcpyAsync(
+    h_mask.data(), mask.data(), mask.size(), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
 
   EXPECT_TRUE(cudf::bit_is_set(h_mask.data(), 0));
