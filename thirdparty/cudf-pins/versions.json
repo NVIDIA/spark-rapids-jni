@@ -11,25 +11,22 @@
     "GTest" : 
     {
       "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "6910c9d9165801d8827d628cb72eb7ea9dd538c5",
-      "git_url" : "https://github.com/google/googletest.git",
+      "url" : "https://github.com/google/googletest/archive/6910c9d9165801d8827d628cb72eb7ea9dd538c5.tar.gz",
+      "url_hash" : "SHA256=bde221be7f3841fcbc3971665d77d717116394a42155d988ee6407dfc39f1f09",
       "version" : "1.16.0"
     },
     "bs_thread_pool" : 
     {
       "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "097aa718f25d44315cadb80b407144ad455ee4f9",
-      "git_url" : "https://github.com/bshoshany/thread-pool.git",
+      "url" : "https://github.com/bshoshany/thread-pool/archive/097aa718f25d44315cadb80b407144ad455ee4f9.tar.gz",
+      "url_hash" : "SHA256=8e54280b4d9af3e4d2fd3dfa3f8d1198fc1c3a572d6f22c5eaf1abe38f2db0a8",
       "version" : "4.1.0"
     },
     "cuco" : 
     {
       "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "f517bbb1277753b1852dfd388993383e401eaa38",
-      "git_url" : "https://github.com/NVIDIA/cuCollections.git",
+      "url" : "https://github.com/NVIDIA/cuCollections/archive/f517bbb1277753b1852dfd388993383e401eaa38.tar.gz",
+      "url_hash" : "SHA256=d17e2f6d58cfb2cd473efcbd741c633e7607717102cedc08173a4a69bb2a8ba9",
       "version" : "0.0.1"
     },
     "dlpack" : 
@@ -68,7 +65,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "03f3f374848e7be0af42308f52463b2ae83dbbd5",
+      "git_tag" : "ac5f5b1cb1a437d3baefcd52215ba68791f69e52",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "source_subdir" : "cpp",
       "version" : "26.06"
@@ -84,25 +81,23 @@
     "nvtx3" : 
     {
       "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "69c9949150ac1c310758a304082228a36d5e4758",
-      "git_url" : "https://github.com/NVIDIA/NVTX.git",
       "source_subdir" : "c",
+      "url" : "https://github.com/NVIDIA/NVTX/archive/69c9949150ac1c310758a304082228a36d5e4758.tar.gz",
+      "url_hash" : "SHA256=8fdf07da6d083c5409b55c9d8f491eddf39ed7bb37c2b29ff71af3f386ae670c",
       "version" : "3.2.0"
     },
     "rapids_logger" : 
     {
       "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "4c72b598f99c8aa06af49468b3fc82f3931c6bf6",
-      "git_url" : "https://github.com/rapidsai/rapids-logger.git",
+      "url" : "https://github.com/rapidsai/rapids-logger/archive/4c72b598f99c8aa06af49468b3fc82f3931c6bf6.tar.gz",
+      "url_hash" : "SHA256=4e7cbbde62ba8517dabd1a327b45955d50db2dfa1240d0124662071ce8f1afc9",
       "version" : "0.2.3"
     },
     "rmm" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "26e4d42d2a0a0dea7e5f0d7b91078f5cd0c6a511",
+      "git_tag" : "e26e931206ade1a0b0006943348e223f13435792",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
       "version" : "26.06"
