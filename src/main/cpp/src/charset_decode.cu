@@ -138,8 +138,8 @@ struct gbk_decode_fn {
     auto const len   = end - start;
 
     // `make_strings_children` invokes the functor twice (size pass with d_chars == nullptr,
-    // then the write pass). Detection in the size pass is sufficient, so we skip the write
-    // pass entirely. Within the size pass, accumulate locally and issue at most one atomic
+    // then the write pass). Detection in the size pass is sufficient, so only that pass updates
+    // malformed_flag. Within the size pass, accumulate locally and issue at most one atomic
     // per row at the end to avoid redundant atomic operations on the shared flag.
     bool const report    = (malformed_flag != nullptr) && (d_chars == nullptr);
     bool local_malformed = false;
@@ -271,6 +271,9 @@ decode_result decode_charset(cudf::column_view const& input,
                              rmm::device_async_resource_ref mr)
 {
   SRJ_FUNC_RANGE();
+  CUDF_EXPECTS(action == error_action::REPLACE || action == error_action::REPORT,
+               "Unsupported error action for decode",
+               std::invalid_argument);
   switch (charset) {
     case charset_type::GBK: return decode_gbk(input, action, stream, mr);
     default: CUDF_FAIL("Unsupported charset type for decode");

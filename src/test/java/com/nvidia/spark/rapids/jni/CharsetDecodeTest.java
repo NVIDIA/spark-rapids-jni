@@ -85,6 +85,20 @@ public class CharsetDecodeTest {
     }
   }
 
+  /** Returns whether Java's GBK decoder reports the input as malformed/unmappable. */
+  private static boolean reportsGbkJava(byte[] bytes) {
+    Charset gbk = Charset.forName("GBK");
+    CharsetDecoder decoder = gbk.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT);
+    try {
+      decoder.decode(ByteBuffer.wrap(bytes));
+      return false;
+    } catch (java.nio.charset.CharacterCodingException e) {
+      return true;
+    }
+  }
+
   @Test
   void testBasicChinese() {
     // "你好" in GBK: C4E3 BAC3
@@ -317,6 +331,23 @@ public class CharsetDecodeTest {
   }
 
   @Test
+  void testReportModeByte0x80() {
+    // Keep REPORT behavior aligned with Java, since 0x80 handling can vary by JDK.
+    byte[] input = {(byte) 0x80};
+    try (ColumnVector cv = binaryColumn(input)) {
+      if (reportsGbkJava(input)) {
+        assertThrows(CharsetDecode.MalformedInputException.class,
+            () -> CharsetDecode.decode(cv, CharsetDecode.GBK, CharsetDecode.REPORT));
+      } else {
+        try (ColumnVector result = CharsetDecode.decode(cv, CharsetDecode.GBK, CharsetDecode.REPORT);
+             ColumnVector expected = ColumnVector.fromStrings(decodeGbkJava(input))) {
+          AssertUtils.assertColumnsAreEqual(expected, result);
+        }
+      }
+    }
+  }
+
+  @Test
   void testReportModeTruncatedLead() {
     // Lead byte 0x81 with no second byte -> malformed under REPORT.
     byte[] truncated = {(byte) 0x81};
@@ -393,10 +424,12 @@ public class CharsetDecodeTest {
       AssertUtils.assertColumnsAreEqual(expected, result);
     }
 
-    // All pairs Java rejects: GPU REPORT must raise.
-    try (ColumnVector input = binaryColumn(bad.toArray(new byte[0][]))) {
-      assertThrows(CharsetDecode.MalformedInputException.class,
-          () -> CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT));
+    // Every pair Java rejects: GPU REPORT must raise for that same pair.
+    for (byte[] pair : bad) {
+      try (ColumnVector input = binaryColumn(pair)) {
+        assertThrows(CharsetDecode.MalformedInputException.class,
+            () -> CharsetDecode.decode(input, CharsetDecode.GBK, CharsetDecode.REPORT));
+      }
     }
   }
 
@@ -434,6 +467,27 @@ public class CharsetDecodeTest {
       }
       // Slice rows [2, 4) includes the bad row -> must throw.
       try (ColumnVector badSlice = full.subVector(2, 4)) {
+        assertThrows(CharsetDecode.MalformedInputException.class,
+            () -> CharsetDecode.decode(badSlice, CharsetDecode.GBK, CharsetDecode.REPORT));
+      }
+    }
+  }
+
+  @Test
+  void testSlicedNullableInputReportMode() {
+    // REPORT mode must apply the parent slice offset when checking the parent null mask.
+    byte[] nihao = {(byte) 0xC4, (byte) 0xE3, (byte) 0xBA, (byte) 0xC3};  // 你好
+    byte[] bad   = {(byte) 0x81};                                          // truncated lead byte
+
+    try (ColumnVector full = binaryColumn(null, nihao, bad)) {
+      try (ColumnVector cleanSlice = full.subVector(1, 2);
+           ColumnVector result =
+               CharsetDecode.decode(cleanSlice, CharsetDecode.GBK, CharsetDecode.REPORT);
+           ColumnVector expected = ColumnVector.fromStrings("你好")) {
+        AssertUtils.assertColumnsAreEqual(expected, result);
+      }
+
+      try (ColumnVector badSlice = full.subVector(1, 3)) {
         assertThrows(CharsetDecode.MalformedInputException.class,
             () -> CharsetDecode.decode(badSlice, CharsetDecode.GBK, CharsetDecode.REPORT));
       }
