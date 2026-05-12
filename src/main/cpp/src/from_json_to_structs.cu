@@ -864,7 +864,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
     // propagates nulls through descendants and Spark consumers see every field NULL.
     if (parsed_meta.schema_info[i].had_schema_mismatch.value_or(false)) {
       auto const num_rows = parsed_columns[i]->size();
-      auto all_null_mask  = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
+      auto all_null_mask = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
       parsed_columns[i]->set_null_mask(std::move(all_null_mask), num_rows);
     }
 
