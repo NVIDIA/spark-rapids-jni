@@ -106,12 +106,6 @@ struct shuffle_split_result {
   rmm::device_uvector<size_t> offsets{0, cudf::get_default_stream()};
 };
 
-// Avoid std::pair here: nvcc can ICE on libstdc++ 14's constrained std::pair constructors.
-struct shuffle_split_output {
-  shuffle_split_result first;
-  shuffle_split_metadata second;
-};
-
 /**
  * @brief Performs a split operation on a cudf table, returning a buffer of data containing
  * all of the sub-tables as a contiguous buffer of anonymous bytes.
@@ -139,10 +133,11 @@ struct shuffle_split_output {
  * partition, and a shuffle_split_metadata struct which contains the metadata needed to reconstruct
  * a table using shuffle_assemble.
  */
-shuffle_split_output shuffle_split(cudf::table_view const& input,
-                                   std::vector<cudf::size_type> const& splits,
-                                   rmm::cuda_stream_view stream,
-                                   rmm::device_async_resource_ref mr);
+std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
+  cudf::table_view const& input,
+  std::vector<cudf::size_type> const& splits,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
 
 /**
  * @brief Buffer slice representing a portion of the shared allocated buffer
