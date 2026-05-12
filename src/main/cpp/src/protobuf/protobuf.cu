@@ -21,6 +21,7 @@
 
 #include <thrust/binary_search.h>
 
+#include <algorithm>
 #include <limits>
 #include <set>
 #include <string>
@@ -175,6 +176,27 @@ std::unique_ptr<cudf::column> make_null_column_with_schema(
   return make_null_column(dtype, num_rows, stream, mr);
 }
 
+// Per-field bookkeeping for the three-phase top-level repeated pipeline:
+// `offsets` is the prefix-sum row offsets (size num_rows+1) computed in Phase A; it both
+// seeds the Phase B scan kernel's per-row write index and flows directly into the output
+// LIST column built in Phase C, so it must be allocated against the caller's `mr`.
+// `occurrences` stores the (offset,length,row_idx) tuples produced by Phase B for Phase C
+// builders to consume.
+struct repeated_field_work {
+  int schema_idx;
+  int32_t total_count{0};
+  rmm::device_uvector<int32_t> offsets;
+  std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
+
+  repeated_field_work(int si,
+                      cudf::size_type n,
+                      rmm::cuda_stream_view s,
+                      rmm::device_async_resource_ref m)
+    : schema_idx(si), offsets(static_cast<size_t>(n) + 1, s, m)
+  {
+  }
+};
+
 }  // namespace
 
 bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_type const& type)
@@ -324,6 +346,19 @@ void validate_decode_context(protobuf_decode_context const& context)
       }
     }
   }
+
+  // Reject schemas that exceed the combined-scan kernel's stack-array capacity. Counting
+  // here (rather than relying on the device-side guard hit during a particular batch) keeps
+  // the error surface schema-deterministic.
+  int top_level_repeated = 0;
+  for (auto const& field : context.schema) {
+    if (field.parent_idx == -1 && field.is_repeated) { ++top_level_repeated; }
+  }
+  CUDF_EXPECTS(top_level_repeated <= MAX_REPEATED_FIELDS_PER_KERNEL,
+               "protobuf decode context: schema exceeds maximum supported top-level repeated "
+               "fields per kernel (" +
+                 std::to_string(MAX_REPEATED_FIELDS_PER_KERNEL) + ")",
+               std::invalid_argument);
 }
 
 bool is_output_field(protobuf_decode_context const& context, int schema_idx)
@@ -468,14 +503,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     }
   }
 
-  int num_repeated = static_cast<int>(repeated_field_indices.size());
-  int num_nested   = static_cast<int>(nested_field_indices.size());
-  int num_scalar   = static_cast<int>(scalar_field_indices.size());
+  int const num_repeated = static_cast<int>(repeated_field_indices.size());
+  int const num_nested   = static_cast<int>(nested_field_indices.size());
+  int const num_scalar   = static_cast<int>(scalar_field_indices.size());
 
   // Error flag
   rmm::device_uvector<int> d_error(1, stream, cudf::get_current_device_resource_ref());
   CUDF_CUDA_TRY(cudaMemsetAsync(d_error.data(), 0, sizeof(int), stream.value()));
-  auto error_message = [](int code) -> char const* {
+  auto error_message = [](int code) -> std::string {
     switch (code) {
       case ERR_BOUNDS: return "Protobuf decode error: message data out of bounds";
       case ERR_VARINT: return "Protobuf decode error: invalid or truncated varint";
@@ -488,8 +523,9 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         return "Protobuf decode error: invalid fixed-width or packed field length";
       case ERR_REQUIRED: return "Protobuf decode error: missing required field";
       case ERR_SCHEMA_TOO_LARGE:
-        return "Protobuf decode error: schema exceeds maximum supported repeated fields per kernel "
-               "(32)";
+        return "Protobuf decode error: schema exceeds maximum supported repeated fields per "
+               "kernel (" +
+               std::to_string(MAX_REPEATED_FIELDS_PER_KERNEL) + ")";
       case ERR_MISSING_ENUM_META:
         return "Protobuf decode error: missing or mismatched enum metadata for enum-as-string "
                "field";
@@ -500,9 +536,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   };
   // PERMISSIVE-mode row nulling support. Unknown enum values and malformed rows should both
   // surface as null structs instead of partially decoded data.
-  bool has_enum_fields = std::any_of(
-    enum_valid_values.begin(), enum_valid_values.end(), [](auto const& v) { return !v.empty(); });
-  bool track_permissive_null_rows = !fail_on_errors;
+  bool const track_permissive_null_rows = !fail_on_errors;
   rmm::device_uvector<bool> d_row_force_null(
     track_permissive_null_rows ? num_rows : 0, stream, cudf::get_current_device_resource_ref());
   if (track_permissive_null_rows) {
@@ -513,15 +547,16 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   auto const threads = THREADS_PER_BLOCK;
   auto const blocks  = static_cast<int>((num_rows + threads - 1u) / threads);
 
-  // Allocate for counting repeated fields
+  // Allocate for counting repeated fields. `std::max(..., 1)` keeps the device_uvector
+  // non-empty when the corresponding field count is 0, so `.data()` remains a valid pointer.
   rmm::device_uvector<repeated_field_info> d_repeated_info(
-    num_repeated > 0 ? static_cast<size_t>(num_rows) * num_repeated : 1, stream, scratch_mr);
+    std::max<size_t>(static_cast<size_t>(num_rows) * num_repeated, 1), stream, scratch_mr);
   rmm::device_uvector<field_location> d_nested_locations(
-    num_nested > 0 ? static_cast<size_t>(num_rows) * num_nested : 1, stream, scratch_mr);
+    std::max<size_t>(static_cast<size_t>(num_rows) * num_nested, 1), stream, scratch_mr);
 
   rmm::device_uvector<int> d_repeated_indices(
-    num_repeated > 0 ? num_repeated : 1, stream, scratch_mr);
-  rmm::device_uvector<int> d_nested_indices(num_nested > 0 ? num_nested : 1, stream, scratch_mr);
+    std::max<size_t>(num_repeated, 1), stream, scratch_mr);
+  rmm::device_uvector<int> d_nested_indices(std::max<size_t>(num_nested, 1), stream, scratch_mr);
 
   if (num_repeated > 0) {
     CUDF_CUDA_TRY(cudaMemcpyAsync(d_repeated_indices.data(),
@@ -873,22 +908,13 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                        has_def,
                                                        def_int);
 
-            if (schema_idx < static_cast<int>(enum_valid_values.size()) &&
-                schema_idx < static_cast<int>(enum_names.size())) {
-              auto const& valid_enums     = enum_valid_values[schema_idx];
-              auto const& enum_name_bytes = enum_names[schema_idx];
-              if (!valid_enums.empty() && valid_enums.size() == enum_name_bytes.size()) {
-                column_map[schema_idx] = build_enum_string_column(
-                  out, valid, valid_enums, enum_name_bytes, d_row_force_null, num_rows, stream, mr);
-              } else {
-                // Missing enum metadata for enum-as-string field; mark as decode error.
-                set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
-                column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
-              }
-            } else {
-              set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
-              column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
-            }
+            auto const& valid_enums     = enum_valid_values[schema_idx];
+            auto const& enum_name_bytes = enum_names[schema_idx];
+            CUDF_EXPECTS(!valid_enums.empty() && valid_enums.size() == enum_name_bytes.size(),
+                         "Protobuf decode error: missing or mismatched enum metadata for "
+                         "enum-as-string field");
+            column_map[schema_idx] = build_enum_string_column(
+              out, valid, valid_enums, enum_name_bytes, d_row_force_null, num_rows, stream, mr);
           } else {
             // Regular protobuf STRING (length-delimited)
             bool has_def_str    = has_def;
@@ -949,9 +975,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           break;
         }
         default:
-          // For LIST (bytes) and other unsupported types, create placeholder columns
-          column_map[schema_idx] = make_null_column(dt, num_rows, stream, mr);
-          break;
+          // Unreachable: schema validation only admits the scalar element types enumerated
+          // above (STRUCT is dispatched through the nested path, not this scalar switch).
+          CUDF_FAIL("Protobuf decode internal error: unsupported scalar element type id=" +
+                    std::to_string(static_cast<int>(dt.id())));
       }
     }
   }
@@ -972,75 +999,52 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
   // Process repeated fields (three-phase: offsets → combined scan → build columns)
   if (num_repeated > 0) {
-    // Phase A: Compute per-row offsets for each repeated field.
-    struct repeated_field_work {
-      int schema_idx;
-      int32_t total_count{0};
-      rmm::device_uvector<int32_t> counts;
-      rmm::device_uvector<int32_t> offsets;
-      std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
-
-      repeated_field_work(int si,
-                          cudf::size_type n,
-                          rmm::cuda_stream_view s,
-                          rmm::device_async_resource_ref m)
-        : schema_idx(si), counts(n, s, m), offsets(n + 1, s, m)
-      {
-      }
-    };
-
-    std::vector<std::unique_ptr<repeated_field_work>> rep_work;
+    // Phase A: build per-row LIST offsets. Allocate against `mr` since the buffer
+    // flows into the output column at Phase C.
+    std::vector<repeated_field_work> rep_work;
     rep_work.reserve(num_repeated);
 
     for (int ri = 0; ri < num_repeated; ri++) {
       int schema_idx = repeated_field_indices[ri];
-      auto& w        = *rep_work.emplace_back(
-        std::make_unique<repeated_field_work>(schema_idx, num_rows, stream, scratch_mr));
+      auto& w        = rep_work.emplace_back(schema_idx, num_rows, stream, mr);
 
-      thrust::transform(rmm::exec_policy_nosync(stream),
-                        thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(num_rows),
-                        w.counts.data(),
-                        extract_strided_count{d_repeated_info.data(), ri, num_repeated});
+      // Strided counts via a transform iterator — no scratch buffer materialized.
+      auto counts_begin = thrust::make_transform_iterator(
+        thrust::make_counting_iterator<int>(0),
+        extract_strided_count{d_repeated_info.data(), ri, num_repeated});
+      auto counts_end = counts_begin + num_rows;
 
-      // Reduce in int64 to detect overflow before truncating to int32 (cudf list offsets are
-      // int32). Mirrors the guard already used in `build_repeated_child_list_column`.
-      //
-      // NOTE: `thrust::reduce` returns the value to the host, which implicitly syncs the stream
-      // once per repeated field — i.e. Phase A is O(num_repeated) syncs. We accept this for
-      // correctness: an async device-side reduce (e.g. `cub::DeviceReduce::Sum` writing to a
-      // device buffer + a single batched D2H) would let us keep one synchronize per decode call,
-      // but requires a transform-iterator promotion to int64 to keep the accumulator wide. With
-      // typical schemas carrying <16 top-level repeated fields the saved syncs are µs-scale and
-      // not worth the extra complexity at this point. Revisit alongside benchmarks in part 4.
-      int64_t total_64 = thrust::reduce(
-        rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), int64_t{0});
+      // Reduce the per-row counts into a single int64 total. Using int64 lets us detect
+      // overflow before truncating into the int32 LIST offsets buffer (cudf list offsets are
+      // int32). The same total is reused as the `offsets[num_rows]` sentinel below, so this
+      // single reduce serves both the overflow guard and the offsets construction.
+      int64_t total_64 =
+        thrust::reduce(rmm::exec_policy_nosync(stream), counts_begin, counts_end, int64_t{0});
       CUDF_EXPECTS(total_64 <= std::numeric_limits<int32_t>::max(),
                    "Top-level repeated field total element count exceeds 2^31-1");
       w.total_count = static_cast<int32_t>(total_64);
 
+      // num_rows == 0: w.offsets has size 1; skip the scan and let fill_n write the sentinel.
       if (num_rows > 0) {
-        // offsets[0] must start at 0; inclusive scan into offsets+1 fills offsets[1..num_rows].
-        // Empty input (num_rows == 0) has w.counts.begin() == w.counts.end() and offsets size 1,
-        // so we skip both writes — the offsets buffer goes unused on the no-row path.
-        CUDF_CUDA_TRY(cudaMemsetAsync(w.offsets.data(), 0, sizeof(int32_t), stream.value()));
-        thrust::inclusive_scan(
-          rmm::exec_policy_nosync(stream), w.counts.begin(), w.counts.end(), w.offsets.data() + 1);
+        thrust::exclusive_scan(
+          rmm::exec_policy_nosync(stream), counts_begin, counts_end, w.offsets.begin(), int32_t{0});
       }
+      thrust::fill_n(
+        rmm::exec_policy_nosync(stream), w.offsets.data() + num_rows, 1, w.total_count);
     }
 
-    // Phase B: Allocate occurrence buffers and launch ONE combined scan kernel.
+    // Phase B: allocate occurrence buffers and launch the combined scan kernel.
     std::vector<repeated_field_scan_desc> h_scan_descs;
     h_scan_descs.reserve(num_repeated);
 
-    for (auto& wp : rep_work) {
-      if (wp->total_count > 0) {
-        wp->occurrences = std::make_unique<rmm::device_uvector<repeated_occurrence>>(
-          wp->total_count, stream, scratch_mr);
-        h_scan_descs.push_back({schema[wp->schema_idx].field_number,
-                                static_cast<int>(schema[wp->schema_idx].wire_type),
-                                wp->offsets.data(),
-                                wp->occurrences->data()});
+    for (auto& w : rep_work) {
+      if (w.total_count > 0) {
+        w.occurrences = std::make_unique<rmm::device_uvector<repeated_occurrence>>(
+          w.total_count, stream, scratch_mr);
+        h_scan_descs.push_back({schema[w.schema_idx].field_number,
+                                static_cast<int>(schema[w.schema_idx].wire_type),
+                                w.offsets.data(),
+                                w.occurrences->data()});
       }
     }
 
@@ -1053,18 +1057,14 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                     cudaMemcpyHostToDevice,
                                     stream.value()));
 
-      // Build field_number -> scan_desc_index lookup for the combined kernel
-      int max_scan_fn = 0;
-      for (auto const& sd : h_scan_descs) {
-        max_scan_fn = std::max(max_scan_fn, sd.field_number);
-      }
+      // Build field_number -> scan_desc_index lookup. `build_lookup_table` returns {} when
+      // max field_number exceeds FIELD_LOOKUP_TABLE_MAX; the kernel detects this via
+      // fn_to_scan_size == 0 and falls back to a linear scan.
+      auto h_fn_to_scan = build_lookup_table([&](int i) { return h_scan_descs[i].field_number; },
+                                             static_cast<int>(h_scan_descs.size()));
       rmm::device_uvector<int> d_fn_to_scan(0, stream, scratch_mr);
       int fn_to_scan_size = 0;
-      if (max_scan_fn <= FIELD_LOOKUP_TABLE_MAX) {
-        std::vector<int> h_fn_to_scan(max_scan_fn + 1, -1);
-        for (int i = 0; i < static_cast<int>(h_scan_descs.size()); i++) {
-          h_fn_to_scan[h_scan_descs[i].field_number] = i;
-        }
+      if (!h_fn_to_scan.empty()) {
         d_fn_to_scan = rmm::device_uvector<int>(h_fn_to_scan.size(), stream, scratch_mr);
         CUDF_CUDA_TRY(cudaMemcpyAsync(d_fn_to_scan.data(),
                                       h_fn_to_scan.data(),
@@ -1086,254 +1086,212 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
     // Phase C: Build columns per field.
     for (int ri = 0; ri < num_repeated; ri++) {
-      auto& w              = *rep_work[ri];
-      int schema_idx       = w.schema_idx;
-      auto element_type    = cudf::data_type{schema[schema_idx].output_type};
-      int32_t total_count  = w.total_count;
-      auto& d_field_counts = w.counts;
+      auto& w             = rep_work[ri];
+      int schema_idx      = w.schema_idx;
+      auto element_type   = cudf::data_type{schema[schema_idx].output_type};
+      int32_t total_count = w.total_count;
 
-      if (total_count > 0) {
-        auto& d_occurrences = *w.occurrences;
+      if (total_count <= 0) {
+        // All rows empty: w.offsets is already a zero-filled buffer from Phase A.
+        auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
+                                                          num_rows + 1,
+                                                          w.offsets.release(),
+                                                          rmm::device_buffer{},
+                                                          0);
+        std::unique_ptr<cudf::column> child_col;
+        if (element_type.id() == cudf::type_id::STRUCT) {
+          child_col =
+            make_empty_struct_column_with_schema(schema, schema_idx, num_fields, stream, mr);
+        } else {
+          child_col = make_empty_column_safe(element_type, stream, mr);
+        }
+        column_map[schema_idx] = make_list_column_with_input_nulls(
+          num_rows, std::move(offsets_col), std::move(child_col), binary_input, stream, mr);
+        continue;
+      }
 
-        // Build the appropriate column type based on element type
-        auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
+      auto& d_occurrences = *w.occurrences;
 
-        // The output_type in schema is the LIST type, but we need element type
-        // For repeated int32, output_type should indicate the element is INT32
-        switch (child_type_id) {
-          case cudf::type_id::INT32:
-            column_map[schema_idx] =
-              build_repeated_scalar_column<int32_t>(binary_input,
-                                                    message_data,
-                                                    list_offsets,
-                                                    base_offset,
-                                                    h_device_schema[schema_idx],
-                                                    d_field_counts,
-                                                    d_occurrences,
-                                                    total_count,
-                                                    num_rows,
-                                                    d_error,
-                                                    stream,
-                                                    mr);
-            break;
-          case cudf::type_id::INT64:
-            column_map[schema_idx] =
-              build_repeated_scalar_column<int64_t>(binary_input,
-                                                    message_data,
-                                                    list_offsets,
-                                                    base_offset,
-                                                    h_device_schema[schema_idx],
-                                                    d_field_counts,
-                                                    d_occurrences,
-                                                    total_count,
-                                                    num_rows,
-                                                    d_error,
-                                                    stream,
-                                                    mr);
-            break;
-          case cudf::type_id::UINT32:
-            column_map[schema_idx] =
-              build_repeated_scalar_column<uint32_t>(binary_input,
-                                                     message_data,
-                                                     list_offsets,
-                                                     base_offset,
-                                                     h_device_schema[schema_idx],
-                                                     d_field_counts,
-                                                     d_occurrences,
-                                                     total_count,
-                                                     num_rows,
-                                                     d_error,
-                                                     stream,
-                                                     mr);
-            break;
-          case cudf::type_id::UINT64:
-            column_map[schema_idx] =
-              build_repeated_scalar_column<uint64_t>(binary_input,
-                                                     message_data,
-                                                     list_offsets,
-                                                     base_offset,
-                                                     h_device_schema[schema_idx],
-                                                     d_field_counts,
-                                                     d_occurrences,
-                                                     total_count,
-                                                     num_rows,
-                                                     d_error,
-                                                     stream,
-                                                     mr);
-            break;
-          case cudf::type_id::FLOAT32:
-            column_map[schema_idx] =
-              build_repeated_scalar_column<float>(binary_input,
+      switch (element_type.id()) {
+        case cudf::type_id::INT32:
+          column_map[schema_idx] =
+            build_repeated_scalar_column<int32_t>(binary_input,
                                                   message_data,
                                                   list_offsets,
                                                   base_offset,
                                                   h_device_schema[schema_idx],
-                                                  d_field_counts,
+                                                  std::move(w.offsets),
                                                   d_occurrences,
                                                   total_count,
                                                   num_rows,
                                                   d_error,
                                                   stream,
                                                   mr);
-            break;
-          case cudf::type_id::FLOAT64:
-            column_map[schema_idx] =
-              build_repeated_scalar_column<double>(binary_input,
+          break;
+        case cudf::type_id::INT64:
+          column_map[schema_idx] =
+            build_repeated_scalar_column<int64_t>(binary_input,
+                                                  message_data,
+                                                  list_offsets,
+                                                  base_offset,
+                                                  h_device_schema[schema_idx],
+                                                  std::move(w.offsets),
+                                                  d_occurrences,
+                                                  total_count,
+                                                  num_rows,
+                                                  d_error,
+                                                  stream,
+                                                  mr);
+          break;
+        case cudf::type_id::UINT32:
+          column_map[schema_idx] =
+            build_repeated_scalar_column<uint32_t>(binary_input,
                                                    message_data,
                                                    list_offsets,
                                                    base_offset,
                                                    h_device_schema[schema_idx],
-                                                   d_field_counts,
+                                                   std::move(w.offsets),
                                                    d_occurrences,
                                                    total_count,
                                                    num_rows,
                                                    d_error,
                                                    stream,
                                                    mr);
-            break;
-          case cudf::type_id::BOOL8:
-            column_map[schema_idx] =
-              build_repeated_scalar_column<uint8_t>(binary_input,
-                                                    message_data,
-                                                    list_offsets,
-                                                    base_offset,
-                                                    h_device_schema[schema_idx],
-                                                    d_field_counts,
-                                                    d_occurrences,
-                                                    total_count,
-                                                    num_rows,
-                                                    d_error,
-                                                    stream,
-                                                    mr);
-            break;
-          case cudf::type_id::STRING: {
-            auto const field_meta = make_field_meta_view(context, schema_idx);
-            auto enc              = field_meta.schema.encoding;
-            if (enc == proto_encoding::ENUM_STRING) {
-              if (!field_meta.enum_valid_values.empty() &&
-                  field_meta.enum_valid_values.size() == field_meta.enum_names.size()) {
-                column_map[schema_idx] =
-                  build_repeated_enum_string_column(binary_input,
-                                                    message_data,
-                                                    list_offsets,
-                                                    base_offset,
-                                                    d_field_counts,
-                                                    d_occurrences,
-                                                    total_count,
-                                                    num_rows,
-                                                    field_meta.enum_valid_values,
-                                                    field_meta.enum_names,
-                                                    d_row_force_null,
-                                                    d_error,
-                                                    stream,
-                                                    mr);
-              } else {
-                set_error_once_async(d_error.data(), ERR_MISSING_ENUM_META, stream);
-                column_map[schema_idx] = make_null_column(
-                  cudf::data_type{schema[schema_idx].output_type}, num_rows, stream, mr);
-              }
-            } else {
-              column_map[schema_idx] = build_repeated_string_column(binary_input,
-                                                                    message_data,
-                                                                    list_offsets,
-                                                                    base_offset,
-                                                                    h_device_schema[schema_idx],
-                                                                    d_field_counts,
-                                                                    d_occurrences,
-                                                                    total_count,
-                                                                    num_rows,
-                                                                    false,
-                                                                    d_error,
-                                                                    stream,
-                                                                    mr);
-            }
-            break;
-          }
-          case cudf::type_id::LIST:  // bytes as LIST<INT8>
+          break;
+        case cudf::type_id::UINT64:
+          column_map[schema_idx] =
+            build_repeated_scalar_column<uint64_t>(binary_input,
+                                                   message_data,
+                                                   list_offsets,
+                                                   base_offset,
+                                                   h_device_schema[schema_idx],
+                                                   std::move(w.offsets),
+                                                   d_occurrences,
+                                                   total_count,
+                                                   num_rows,
+                                                   d_error,
+                                                   stream,
+                                                   mr);
+          break;
+        case cudf::type_id::FLOAT32:
+          column_map[schema_idx] = build_repeated_scalar_column<float>(binary_input,
+                                                                       message_data,
+                                                                       list_offsets,
+                                                                       base_offset,
+                                                                       h_device_schema[schema_idx],
+                                                                       std::move(w.offsets),
+                                                                       d_occurrences,
+                                                                       total_count,
+                                                                       num_rows,
+                                                                       d_error,
+                                                                       stream,
+                                                                       mr);
+          break;
+        case cudf::type_id::FLOAT64:
+          column_map[schema_idx] = build_repeated_scalar_column<double>(binary_input,
+                                                                        message_data,
+                                                                        list_offsets,
+                                                                        base_offset,
+                                                                        h_device_schema[schema_idx],
+                                                                        std::move(w.offsets),
+                                                                        d_occurrences,
+                                                                        total_count,
+                                                                        num_rows,
+                                                                        d_error,
+                                                                        stream,
+                                                                        mr);
+          break;
+        case cudf::type_id::BOOL8:
+          column_map[schema_idx] =
+            build_repeated_scalar_column<uint8_t>(binary_input,
+                                                  message_data,
+                                                  list_offsets,
+                                                  base_offset,
+                                                  h_device_schema[schema_idx],
+                                                  std::move(w.offsets),
+                                                  d_occurrences,
+                                                  total_count,
+                                                  num_rows,
+                                                  d_error,
+                                                  stream,
+                                                  mr);
+          break;
+        case cudf::type_id::STRING: {
+          auto const field_meta = make_field_meta_view(context, schema_idx);
+          auto enc              = field_meta.schema.encoding;
+          if (enc == proto_encoding::ENUM_STRING) {
+            CUDF_EXPECTS(!field_meta.enum_valid_values.empty() &&
+                           field_meta.enum_valid_values.size() == field_meta.enum_names.size(),
+                         "Protobuf decode error: missing or mismatched enum metadata for "
+                         "enum-as-string field");
+            column_map[schema_idx] = build_repeated_enum_string_column(binary_input,
+                                                                       message_data,
+                                                                       list_offsets,
+                                                                       base_offset,
+                                                                       std::move(w.offsets),
+                                                                       d_occurrences,
+                                                                       total_count,
+                                                                       num_rows,
+                                                                       field_meta.enum_valid_values,
+                                                                       field_meta.enum_names,
+                                                                       d_row_force_null,
+                                                                       d_error,
+                                                                       stream,
+                                                                       mr);
+          } else {
             column_map[schema_idx] = build_repeated_string_column(binary_input,
                                                                   message_data,
                                                                   list_offsets,
                                                                   base_offset,
-                                                                  h_device_schema[schema_idx],
-                                                                  d_field_counts,
+                                                                  std::move(w.offsets),
                                                                   d_occurrences,
                                                                   total_count,
                                                                   num_rows,
-                                                                  true,
+                                                                  false,
                                                                   d_error,
                                                                   stream,
                                                                   mr);
-            break;
-          case cudf::type_id::STRUCT: {
-            // Repeated message field - ArrayType(StructType)
-            auto child_field_indices = find_child_field_indices(schema, num_fields, schema_idx);
-            if (child_field_indices.empty()) {
-              auto empty_struct_child =
-                make_empty_struct_column_with_schema(schema, schema_idx, num_fields, stream, mr);
-              column_map[schema_idx] = make_null_list_column_with_child(
-                std::move(empty_struct_child), num_rows, stream, mr);
-            } else {
-              column_map[schema_idx] = build_repeated_struct_column(binary_input,
-                                                                    message_data,
-                                                                    message_data_size,
-                                                                    list_offsets,
-                                                                    base_offset,
-                                                                    h_device_schema[schema_idx],
-                                                                    d_field_counts,
-                                                                    d_occurrences,
-                                                                    total_count,
-                                                                    num_rows,
-                                                                    h_device_schema,
-                                                                    child_field_indices,
-                                                                    schema,
-                                                                    schema_ctx,
-                                                                    d_row_force_null,
-                                                                    d_error,
-                                                                    stream,
-                                                                    mr);
-            }
-            break;
           }
-          default:
-            // Unsupported element type - create null column
-            column_map[schema_idx] = make_null_list_column_with_child(
-              make_empty_column_safe(element_type, stream, mr), num_rows, stream, mr);
-            break;
+          break;
         }
-      } else {
-        // All rows have count=0 - create list of empty elements
-        rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-        thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
-        auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                                          num_rows + 1,
-                                                          offsets.release(),
-                                                          rmm::device_buffer{},
-                                                          0);
-
-        // Build appropriate empty child column
-        std::unique_ptr<cudf::column> child_col;
-        auto child_type_id = static_cast<cudf::type_id>(h_device_schema[schema_idx].output_type_id);
-        if (child_type_id == cudf::type_id::STRUCT) {
-          // Use helper to build empty struct with proper nested structure
-          child_col =
-            make_empty_struct_column_with_schema(schema, schema_idx, num_fields, stream, mr);
-        } else {
-          child_col =
-            make_empty_column_safe(cudf::data_type{schema[schema_idx].output_type}, stream, mr);
+        case cudf::type_id::LIST:
+          column_map[schema_idx] = build_repeated_string_column(binary_input,
+                                                                message_data,
+                                                                list_offsets,
+                                                                base_offset,
+                                                                std::move(w.offsets),
+                                                                d_occurrences,
+                                                                total_count,
+                                                                num_rows,
+                                                                true,
+                                                                d_error,
+                                                                stream,
+                                                                mr);
+          break;
+        case cudf::type_id::STRUCT: {
+          auto child_field_indices = find_child_field_indices(schema, num_fields, schema_idx);
+          column_map[schema_idx]   = build_repeated_struct_column(binary_input,
+                                                                  message_data,
+                                                                  message_data_size,
+                                                                  list_offsets,
+                                                                  base_offset,
+                                                                  std::move(w.offsets),
+                                                                  d_occurrences,
+                                                                  total_count,
+                                                                  num_rows,
+                                                                  h_device_schema,
+                                                                  child_field_indices,
+                                                                  schema,
+                                                                  schema_ctx,
+                                                                  d_row_force_null,
+                                                                  d_error,
+                                                                  stream,
+                                                                  mr);
+          break;
         }
-
-        auto const input_null_count = binary_input.null_count();
-        if (input_null_count > 0) {
-          auto null_mask         = cudf::copy_bitmask(binary_input, stream, mr);
-          column_map[schema_idx] = cudf::make_lists_column(num_rows,
-                                                           std::move(offsets_col),
-                                                           std::move(child_col),
-                                                           input_null_count,
-                                                           std::move(null_mask));
-        } else {
-          column_map[schema_idx] = cudf::make_lists_column(
-            num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
-        }
+        default:
+          CUDF_FAIL("Protobuf decode internal error: unsupported repeated element type id=" +
+                    std::to_string(static_cast<int>(element_type.id())));
       }
     }
   }

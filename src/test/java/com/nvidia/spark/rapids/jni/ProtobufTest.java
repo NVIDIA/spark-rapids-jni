@@ -3932,6 +3932,221 @@ public class ProtobufTest {
     }
   }
 
+  @Test
+  void testRepeatedString() {
+    byte[] s1 = "hello".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] s2 = "world".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] s3 = "foo".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    Byte[] row0 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(s1.length)), box(s1),
+        box(tag(1, WT_LEN)), box(encodeVarint(s2.length)), box(s2));
+    Byte[] row1 = concat(box(tag(1, WT_LEN)), box(encodeVarint(s3.length)), box(s3));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{WT_LEN},
+             new int[]{DType.STRING.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false);
+         ColumnView listCol = result.getChildColumnView(0);
+         ColumnView strChild = listCol.getChildColumnView(0);
+         HostColumnVector hostStrs = strChild.copyToHost()) {
+      assertEquals(3, hostStrs.getRowCount());
+      assertEquals("hello", hostStrs.getJavaString(0));
+      assertEquals("world", hostStrs.getJavaString(1));
+      assertEquals("foo", hostStrs.getJavaString(2));
+    }
+  }
+
+  @Test
+  void testRepeatedBytes() {
+    byte[] b1 = new byte[]{0x00, 0x01, 0x02};
+    byte[] b2 = new byte[]{0x7f, (byte) 0xff};
+    byte[] b3 = new byte[]{0x10};
+    Byte[] row0 = concat(
+        box(tag(1, WT_LEN)), box(encodeVarint(b1.length)), box(b1),
+        box(tag(1, WT_LEN)), box(encodeVarint(b2.length)), box(b2));
+    Byte[] row1 = concat(box(tag(1, WT_LEN)), box(encodeVarint(b3.length)), box(b3));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{WT_LEN},
+             new int[]{DType.LIST.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false);
+         ColumnView outerList = result.getChildColumnView(0);
+         ColumnView innerList = outerList.getChildColumnView(0);
+         ColumnView bytesChild = innerList.getChildColumnView(0);
+         ColumnVector outerOffsets = outerList.getListOffsetsView().copyToColumnVector();
+         ColumnVector innerOffsets = innerList.getListOffsetsView().copyToColumnVector();
+         HostColumnVector hostOuterOffsets = outerOffsets.copyToHost();
+         HostColumnVector hostInnerOffsets = innerOffsets.copyToHost();
+         HostColumnVector hostBytes = bytesChild.copyToHost()) {
+      assertEquals(0, hostOuterOffsets.getInt(0));
+      assertEquals(2, hostOuterOffsets.getInt(1));
+      assertEquals(3, hostOuterOffsets.getInt(2));
+      assertEquals(0, hostInnerOffsets.getInt(0));
+      assertEquals(b1.length, hostInnerOffsets.getInt(1));
+      assertEquals(b1.length + b2.length, hostInnerOffsets.getInt(2));
+      assertEquals(b1.length + b2.length + b3.length, hostInnerOffsets.getInt(3));
+
+      byte[] expected = new byte[b1.length + b2.length + b3.length];
+      System.arraycopy(b1, 0, expected, 0, b1.length);
+      System.arraycopy(b2, 0, expected, b1.length, b2.length);
+      System.arraycopy(b3, 0, expected, b1.length + b2.length, b3.length);
+      for (int i = 0; i < expected.length; i++) {
+        assertEquals(expected[i], hostBytes.getByte(i), "byte mismatch at " + i);
+      }
+    }
+  }
+
+  @Test
+  void testRepeatedSint32() {
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1L)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(3L)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(6L)));
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_ZIGZAG},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false);
+         ColumnView listCol = result.getChildColumnView(0);
+         ColumnView vals = listCol.getChildColumnView(0);
+         HostColumnVector hostVals = vals.copyToHost()) {
+      assertEquals(3, hostVals.getRowCount());
+      assertEquals(-1, hostVals.getInt(0));
+      assertEquals(-2, hostVals.getInt(1));
+      assertEquals(3, hostVals.getInt(2));
+    }
+  }
+
+  @Test
+  void testNullInputRowProducesNullListForRepeatedField() {
+    Byte[] row0 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(8)));
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, null}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{WT_VARINT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false);
+         ColumnView listCol = result.getChildColumnView(0);
+         HostColumnVector hostList = listCol.copyToHost()) {
+      assertFalse(hostList.isNull(0), "row 0 should have a valid list");
+      assertTrue(hostList.isNull(1), "null input row 1 should produce a null list");
+    }
+  }
+
+  @Test
+  void testSchemaWithTooManyRepeatedFields() {
+    int n = 33;
+    int[] fieldNumbers = new int[n];
+    int[] parentIndices = new int[n];
+    int[] depthLevels = new int[n];
+    int[] wireTypes = new int[n];
+    int[] outputTypeIds = new int[n];
+    int[] encodings = new int[n];
+    boolean[] isRepeated = new boolean[n];
+    boolean[] isRequired = new boolean[n];
+    boolean[] hasDefault = new boolean[n];
+    long[] defaultInts = new long[n];
+    double[] defaultFloats = new double[n];
+    boolean[] defaultBools = new boolean[n];
+    byte[][] defaultStrings = new byte[n][];
+    int[][] enumValidValues = new int[n][];
+    Arrays.fill(parentIndices, -1);
+    for (int i = 0; i < n; i++) {
+      fieldNumbers[i] = i + 1;
+      wireTypes[i] = WT_VARINT;
+      outputTypeIds[i] = DType.INT32.getTypeId().getNativeId();
+      encodings[i] = Protobuf.ENC_DEFAULT;
+      isRepeated[i] = true;
+    }
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{new Byte[]{}}).build()) {
+      assertThrows(RuntimeException.class, () -> {
+        try (ColumnVector ignored = decodeRaw(input.getColumn(0),
+            fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds, encodings,
+            isRepeated, isRequired, hasDefault, defaultInts, defaultFloats, defaultBools,
+            defaultStrings, enumValidValues, true)) {
+        }
+      });
+    }
+  }
+
+  @Test
+  void testPackedFixedMisalignedPermissive() {
+    byte[] badPackedData = new byte[]{0x01, 0x02, 0x03, 0x04, 0x05};
+    Byte[] row0 = concat(box(tag(1, WT_LEN)), box(encodeVarint(badPackedData.length)),
+        box(badPackedData));
+    Byte[] row1 = concat(
+        box(tag(1, WT_32BIT)), box(encodeFixed32(42)),
+        box(tag(1, WT_32BIT)), box(encodeFixed32(99)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector expectedIds = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT32)),
+             Arrays.asList(), Arrays.asList(42, 99));
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedIds);
+         ColumnVector actualStruct = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{WT_32BIT},
+             new int[]{DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_FIXED},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
+  @Test
+  void testPackedFixedMisaligned64Permissive() {
+    byte[] badPackedData = new byte[]{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
+    Byte[] row0 = concat(box(tag(1, WT_LEN)), box(encodeVarint(badPackedData.length)),
+        box(badPackedData));
+    Byte[] row1 = concat(
+        box(tag(1, WT_64BIT)), box(encodeFixed64(7L)),
+        box(tag(1, WT_64BIT)), box(encodeFixed64(11L)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector expectedIds = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT64)),
+             Arrays.asList(), Arrays.asList(7L, 11L));
+         ColumnVector expectedStruct = ColumnVector.makeStruct(expectedIds);
+         ColumnVector actualStruct = decodeRaw(
+             input.getColumn(0),
+             new int[]{1}, new int[]{-1}, new int[]{0},
+             new int[]{WT_64BIT},
+             new int[]{DType.INT64.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_FIXED},
+             new boolean[]{true}, new boolean[]{false}, new boolean[]{false},
+             new long[]{0}, new double[]{0.0}, new boolean[]{false},
+             new byte[][]{null}, new int[][]{null}, false)) {
+      AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
+    }
+  }
+
   // ============================================================================
   // Input validation tests
   // ============================================================================

@@ -24,6 +24,9 @@
 
 #include <cuda/atomic>
 #include <cuda/std/limits>
+#include <cuda/std/type_traits>
+
+#include <type_traits>
 
 namespace spark_rapids_jni::protobuf::detail {
 
@@ -60,6 +63,18 @@ __device__ inline void set_error_once(int* error_flag, int error_code)
   int expected = 0;
   cuda::atomic_ref<int, cuda::thread_scope_device> ref(*error_flag);
   ref.compare_exchange_strong(expected, error_code, cuda::memory_order_relaxed);
+}
+
+// Store a decoded varint into an output slot. BOOL8 (uint8_t) follows protobuf's
+// "any non-zero is true" rule and must coerce values >= 256 to 1, not silently truncate.
+template <typename T>
+__device__ __forceinline__ void write_varint_value(T* dst, uint64_t val)
+{
+  if constexpr (cuda::std::is_same_v<T, uint8_t>) {
+    *dst = static_cast<uint8_t>(val != 0 ? 1 : 0);
+  } else {
+    *dst = static_cast<T>(val);
+  }
 }
 
 void set_error_once_async(int* error_flag, int error_code, rmm::cuda_stream_view stream);
@@ -275,19 +290,30 @@ __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
 /**
  * O(1) lookup of field_number -> field_index using a direct-mapped table.
  * Falls back to linear search when the table is empty (field numbers too large).
+ *
+ * `match(int candidate, int field_number) -> bool` decides whether the candidate index
+ * actually corresponds to `field_number` (and any other criteria the caller wants to
+ * enforce, such as schema depth). The lookup-table fast path applies the same `match`
+ * predicate, so a buggy lookup table can't silently dispatch to the wrong index.
+ *
+ * Returns the matching candidate index in `[0, num_candidates)`, or `-1` if not found.
  */
-// Keep this definition in the header so all CUDA translation units can inline it.
+template <typename Match>
+  requires std::is_invocable_r_v<bool, Match, int, int>
 __device__ __forceinline__ int lookup_field(int field_number,
                                             int const* lookup_table,
                                             int lookup_table_size,
-                                            field_descriptor const* field_descs,
-                                            int num_fields)
+                                            int num_candidates,
+                                            Match&& match)
 {
   if (lookup_table != nullptr && field_number > 0 && field_number < lookup_table_size) {
-    return lookup_table[field_number];
+    int const f = lookup_table[field_number];
+    // Bound `f` against `num_candidates` before invoking `match`, so a buggy table can't
+    // cause an out-of-range read inside the predicate.
+    return (f >= 0 && f < num_candidates && match(f, field_number)) ? f : -1;
   }
-  for (int f = 0; f < num_fields; f++) {
-    if (field_descs[f].field_number == field_number) return f;
+  for (int f = 0; f < num_candidates; f++) {
+    if (match(f, field_number)) return f;
   }
   return -1;
 }

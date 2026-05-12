@@ -45,29 +45,6 @@ inline rmm::device_uvector<int32_t> make_list_offsets_from_counts(
   return offsets;
 }
 
-// Build a LIST<...> column whose null mask comes from the input column when it has nulls.
-// Used by all repeated-* builders to wrap `(offsets_col, child_col)` into a LIST column with
-// input-null propagation in a single shape.
-inline std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
-  int num_rows,
-  std::unique_ptr<cudf::column> offsets_col,
-  std::unique_ptr<cudf::column> child_col,
-  cudf::column_view const& binary_input,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  auto const input_null_count = binary_input.null_count();
-  if (input_null_count > 0) {
-    return cudf::make_lists_column(num_rows,
-                                   std::move(offsets_col),
-                                   std::move(child_col),
-                                   input_null_count,
-                                   cudf::copy_bitmask(binary_input, stream, mr));
-  }
-  return cudf::make_lists_column(
-    num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
-}
-
 // Construct the singleton ([1]-element) device schema and indices that
 // `launch_count_repeated_in_nested` / `launch_scan_repeated_in_nested` consume when
 // `build_repeated_child_list_column` is processing a single repeated child field.
@@ -104,6 +81,26 @@ make_single_repeated_schema(int child_schema_idx,
 }
 
 }  // namespace
+
+std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
+  int num_rows,
+  std::unique_ptr<cudf::column> offsets_col,
+  std::unique_ptr<cudf::column> child_col,
+  cudf::column_view const& binary_input,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const input_null_count = binary_input.null_count();
+  if (input_null_count > 0) {
+    return cudf::make_lists_column(num_rows,
+                                   std::move(offsets_col),
+                                   std::move(child_col),
+                                   input_null_count,
+                                   cudf::copy_bitmask(binary_input, stream, mr));
+  }
+  return cudf::make_lists_column(
+    num_rows, std::move(offsets_col), std::move(child_col), 0, rmm::device_buffer{});
+}
 
 std::unique_ptr<cudf::column> build_repeated_msg_child_varlen_column(
   uint8_t const* message_data,
@@ -543,7 +540,7 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> d_field_offsets,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -595,16 +592,22 @@ std::unique_ptr<cudf::column> build_repeated_enum_string_column(
                     d_occurrences.end(),
                     d_top_row_indices.begin(),
                     [] __device__(repeated_occurrence const& occ) { return occ.row_idx; });
-  propagate_invalid_enum_flags_to_rows(
-    d_elem_has_invalid_enum, d_row_force_null, total_count, d_top_row_indices.data(), true, stream);
+  propagate_invalid_enum_flags_to_rows(d_elem_has_invalid_enum,
+                                       d_row_force_null,
+                                       total_count,
+                                       d_top_row_indices.data(),
+                                       d_row_force_null.size() > 0,
+                                       stream);
 
   auto child_col =
     build_enum_string_values_column(enum_ints, elem_valid, lookup, total_count, stream, mr);
 
-  // Build the final LIST<STRING> column from the per-row counts and decoded child strings.
-  auto lo = make_list_offsets_from_counts(d_field_counts, total_count, num_rows, stream, mr);
   auto list_offs_col = std::make_unique<cudf::column>(
-    cudf::data_type{cudf::type_id::INT32}, num_rows + 1, lo.release(), rmm::device_buffer{}, 0);
+    cudf::data_type{cudf::type_id::INT32},
+    num_rows + 1,
+    d_field_offsets.release(),
+    rmm::device_buffer{},
+    0);
 
   return make_list_column_with_input_nulls(
     num_rows, std::move(list_offs_col), std::move(child_col), binary_input, stream, mr);
@@ -615,8 +618,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   uint8_t const* message_data,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> d_field_offsets,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -625,26 +627,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  auto const input_null_count = binary_input.null_count();
-
-  if (total_count == 0) {
-    // All rows have count=0, but we still need to check input nulls
-    rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-    thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
-    auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                                      num_rows + 1,
-                                                      offsets.release(),
-                                                      rmm::device_buffer{},
-                                                      0);
-    auto child_col   = is_bytes ? make_empty_column_safe(
-                                  cudf::data_type{cudf::type_id::LIST}, stream, mr)  // LIST<UINT8>
-                                : cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
-
-    return make_list_column_with_input_nulls(
-      num_rows, std::move(offsets_col), std::move(child_col), binary_input, stream, mr);
-  }
-
-  auto list_offs = make_list_offsets_from_counts(d_field_counts, total_count, num_rows, stream, mr);
+  CUDF_EXPECTS(total_count > 0, "build_repeated_string_column: total_count must be > 0");
 
   // Extract string lengths from occurrences
   auto const scratch_mr = cudf::get_current_device_resource_ref();
@@ -715,7 +698,7 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 
   auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                     num_rows + 1,
-                                                    list_offs.release(),
+                                                    d_field_offsets.release(),
                                                     rmm::device_buffer{},
                                                     0);
 
@@ -774,8 +757,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   cudf::size_type message_data_size,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  device_nested_field_descriptor const& field_desc,
-  rmm::device_uvector<int32_t> const& d_field_counts,
+  rmm::device_uvector<int32_t> d_field_offsets,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,
   int num_rows,
@@ -794,44 +776,24 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   auto const& default_strings   = ctx.default_strings;
   auto const& enum_valid_values = ctx.enum_valid_values;
   auto const& enum_names        = ctx.enum_names;
-  auto const input_null_count   = binary_input.null_count();
   int num_child_fields          = static_cast<int>(child_field_indices.size());
 
-  if (total_count == 0 || num_child_fields == 0) {
-    // All rows have count=0 or no child fields - return list of empty structs
-    rmm::device_uvector<int32_t> offsets(num_rows + 1, stream, mr);
-    thrust::fill(rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0);
+  CUDF_EXPECTS(total_count > 0, "build_repeated_struct_column: total_count must be > 0");
+
+  if (num_child_fields == 0) {
     auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                       num_rows + 1,
-                                                      offsets.release(),
+                                                      d_field_offsets.release(),
                                                       rmm::device_buffer{},
                                                       0);
 
-    // Build empty struct child column with proper nested structure
-    int num_schema_fields = static_cast<int>(h_device_schema.size());
     std::vector<std::unique_ptr<cudf::column>> empty_struct_children;
-    for (int child_schema_idx : child_field_indices) {
-      auto child_type = cudf::data_type{schema[child_schema_idx].output_type};
-      std::unique_ptr<cudf::column> child_col;
-      if (child_type.id() == cudf::type_id::STRUCT) {
-        child_col = make_empty_struct_column_with_schema(
-          h_device_schema, child_schema_idx, num_schema_fields, stream, mr);
-      } else {
-        child_col = make_empty_column_safe(child_type, stream, mr);
-      }
-      if (h_device_schema[child_schema_idx].is_repeated) {
-        child_col = make_empty_list_column(std::move(child_col), stream, mr);
-      }
-      empty_struct_children.push_back(std::move(child_col));
-    }
     auto empty_struct = cudf::make_structs_column(
-      0, std::move(empty_struct_children), 0, rmm::device_buffer{}, stream, mr);
+      total_count, std::move(empty_struct_children), 0, rmm::device_buffer{}, stream, mr);
 
     return make_list_column_with_input_nulls(
       num_rows, std::move(offsets_col), std::move(empty_struct), binary_input, stream, mr);
   }
-
-  auto list_offs = make_list_offsets_from_counts(d_field_counts, total_count, num_rows, stream, mr);
 
   // Build child field descriptors for scanning within each message occurrence.
   // Stage through pinned memory so the H2D is truly stream-async.
@@ -1113,7 +1075,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   // Build the list offsets column
   auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
                                                     num_rows + 1,
-                                                    list_offs.release(),
+                                                    d_field_offsets.release(),
                                                     rmm::device_buffer{},
                                                     0);
 
