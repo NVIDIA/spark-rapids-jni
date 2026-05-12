@@ -867,9 +867,7 @@ TEST_F(ShuffleSplitTests, MixedValidity)
       cudf::table_view expected_t{{static_cast<cudf::column_view>(*expected)}};
 
       // make the concatenated shuffle_split partitions
-      std::vector<
-        std::pair<spark_rapids_jni::shuffle_split_result, spark_rapids_jni::shuffle_split_metadata>>
-        shuf;
+      std::vector<spark_rapids_jni::shuffle_split_output> shuf;
       size_t total_size = 0;
       for (size_t idx = 0; idx < partition_views.size(); idx++) {
         shuf.push_back(spark_rapids_jni::shuffle_split(

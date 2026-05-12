@@ -298,7 +298,6 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   cudf::size_type message_data_size,
   cudf::size_type const* list_offsets,
   cudf::size_type base_offset,
-  device_nested_field_descriptor const& field_desc,
   rmm::device_uvector<int32_t> const& d_field_counts,
   rmm::device_uvector<repeated_occurrence>& d_occurrences,
   int total_count,

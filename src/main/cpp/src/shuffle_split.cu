@@ -317,7 +317,7 @@ struct buf_info_functor {
   }
 
   template <typename T, typename... Args>
-  std::enable_if_t<std::is_same_v<T, cudf::dictionary32>, void> operator()(Args&&...)
+  cuda::std::enable_if_t<cuda::std::is_same_v<T, cudf::dictionary32>, void> operator()(Args&&...)
   {
     CUDF_FAIL("Unsupported type");
   }
@@ -578,12 +578,17 @@ struct dst_offset_output_iterator {
  * @param end Last column in the range
  * @param depth Current depth in the column hierarchy
  *
- * @return A pair containing the total number of columns and the maximum depth of the hierarchy.
+ * @return Total number of columns and maximum depth of the hierarchy.
  */
+struct flattened_column_count {
+  size_t column_count;
+  int max_depth;
+};
+
 template <typename InputIter>
-std::pair<size_t, size_t> count_flattened_columns(InputIter begin, InputIter end, int depth = 0)
+flattened_column_count count_flattened_columns(InputIter begin, InputIter end, int depth = 0)
 {
-  auto child_count = [&](column_view const& col, int depth) -> std::pair<size_t, size_t> {
+  auto child_count = [&](column_view const& col, int depth) -> flattened_column_count {
     if (col.type().id() == cudf::type_id::STRUCT) {
       return count_flattened_columns(col.child_begin(), col.child_end(), depth + 1);
     } else if (col.type().id() == cudf::type_id::LIST) {
@@ -595,11 +600,11 @@ std::pair<size_t, size_t> count_flattened_columns(InputIter begin, InputIter end
   };
 
   size_t col_count = 0;
-  size_t max_depth = 0;
+  int max_depth    = 0;
   std::for_each(begin, end, [&](column_view const& col) {
     auto const cc = child_count(col, depth);
-    col_count += (1 + cc.first);
-    max_depth = std::max(max_depth, cc.second);
+    col_count += (1 + cc.column_count);
+    max_depth = std::max(max_depth, cc.max_depth);
   });
 
   return {col_count, max_depth};
@@ -794,11 +799,10 @@ shuffle_split_metadata compute_metadata(cudf::table_view const& input,
 /**
  * @copydoc spark_rapids_jni::shuffle_split
  */
-std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
-  cudf::table_view const& input,
-  std::vector<size_type> const& splits,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+shuffle_split_output shuffle_split(cudf::table_view const& input,
+                                   std::vector<size_type> const& splits,
+                                   rmm::cuda_stream_view stream,
+                                   rmm::device_async_resource_ref mr)
 {
   SRJ_FUNC_RANGE();
 
@@ -873,9 +877,10 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
   std::copy(splits.begin(), splits.end(), std::next(h_indices));
 
   // setup source buf info
-  auto const total_flattened_columns = count_flattened_columns(input.begin(), input.end()).first;
-  int offset_stack_pos               = 0;
-  int col_index                      = 0;
+  auto const total_flattened_columns =
+    count_flattened_columns(input.begin(), input.end()).column_count;
+  int offset_stack_pos = 0;
+  int col_index        = 0;
   setup_source_buf_info(input.begin(),
                         input.end(),
                         h_src_buf_head,

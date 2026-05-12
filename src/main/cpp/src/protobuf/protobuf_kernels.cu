@@ -104,7 +104,9 @@ CUDF_KERNEL void scan_all_fields_kernel(
     int fn = tag.field_number;
     int wt = tag.wire_type;
 
-    int f = lookup_field(fn, field_lookup, field_lookup_size, field_descs, num_fields);
+    int f = lookup_field(fn, field_lookup, field_lookup_size, num_fields, [&](int i, int fn) {
+      return field_descs[i].field_number == fn;
+    });
     if (f >= 0) {
       if (wt != field_descs[f].expected_wire_type) {
         set_error_once(error_flag, ERR_WIRE_TYPE);
@@ -323,7 +325,7 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
   uint8_t const* cur            = msg_base;
   uint8_t const* msg_end        = bytes + end;
 
-  // Schema-aware (field_number, depth) lookup. Forwards to `lookup_field_generic` with a
+  // Schema-aware (field_number, depth) lookup. Forwards to `lookup_field` with a
   // predicate that follows the `field_indices` indirection into `schema` and also filters
   // by `depth_level`, since this kernel processes nested schemas where the same field
   // number can appear at multiple depths.
@@ -332,7 +334,7 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
                               int fn_tbl_size,
                               int const* field_indices,
                               int num_fields_at_depth) -> int {
-    return lookup_field_generic(fn, fn_to_idx, fn_tbl_size, num_fields_at_depth, [&](int local_i) {
+    return lookup_field(fn, fn_to_idx, fn_tbl_size, num_fields_at_depth, [&](int local_i, int fn) {
       auto const& field_schema = schema[field_indices[local_i]];
       return field_schema.field_number == fn && field_schema.depth == depth_level;
     });
@@ -450,7 +452,7 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
   // Descriptor-index lookup. No depth filter here (scan kernel runs against a flat list
   // of top-level repeated descriptors), so the predicate is just the field-number match.
   auto lookup_desc_idx = [&](int fn) -> int {
-    return lookup_field_generic(fn, fn_to_desc_idx, fn_to_desc_size, num_scan_fields, [&](int f) {
+    return lookup_field(fn, fn_to_desc_idx, fn_to_desc_size, num_scan_fields, [&](int f, int fn) {
       return scan_descs[f].field_number == fn;
     });
   };

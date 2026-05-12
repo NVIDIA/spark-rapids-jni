@@ -26,6 +26,8 @@
 #include <cuda/std/limits>
 #include <cuda/std/type_traits>
 
+#include <type_traits>
+
 namespace spark_rapids_jni::protobuf::detail {
 
 // ============================================================================
@@ -286,49 +288,34 @@ __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
 }
 
 /**
- * Generic field-number -> field-index lookup.
+ * O(1) lookup of field_number -> field_index using a direct-mapped table.
+ * Falls back to linear search when the table is empty (field numbers too large).
  *
- * `match(int candidate) -> bool` decides whether the candidate index actually corresponds
- * to `field_number` (and any other criteria the caller wants to enforce, such as schema
- * depth). The lookup-table fast path applies the same `match` predicate, so a buggy
- * lookup table can't silently dispatch to the wrong index. Falls back to linear scan when
- * the table is empty (e.g., field numbers too sparse to build a direct-mapped table).
+ * `match(int candidate, int field_number) -> bool` decides whether the candidate index
+ * actually corresponds to `field_number` (and any other criteria the caller wants to
+ * enforce, such as schema depth). The lookup-table fast path applies the same `match`
+ * predicate, so a buggy lookup table can't silently dispatch to the wrong index.
  *
  * Returns the matching candidate index in `[0, num_candidates)`, or `-1` if not found.
  */
 template <typename Match>
-__device__ __forceinline__ int lookup_field_generic(int field_number,
-                                                    int const* lookup_table,
-                                                    int lookup_table_size,
-                                                    int num_candidates,
-                                                    Match&& match)
+  requires std::is_invocable_r_v<bool, Match, int, int>
+__device__ __forceinline__ int lookup_field(int field_number,
+                                            int const* lookup_table,
+                                            int lookup_table_size,
+                                            int num_candidates,
+                                            Match&& match)
 {
   if (lookup_table != nullptr && field_number > 0 && field_number < lookup_table_size) {
     int const f = lookup_table[field_number];
     // Bound `f` against `num_candidates` before invoking `match`, so a buggy table can't
     // cause an out-of-range read inside the predicate.
-    return (f >= 0 && f < num_candidates && match(f)) ? f : -1;
+    return (f >= 0 && f < num_candidates && match(f, field_number)) ? f : -1;
   }
   for (int f = 0; f < num_candidates; f++) {
-    if (match(f)) return f;
+    if (match(f, field_number)) return f;
   }
   return -1;
-}
-
-/**
- * O(1) lookup of field_number -> field_index in a flat `field_descs[]` array.
- * Thin wrapper over `lookup_field_generic` — the predicate is just the field-number match.
- */
-__device__ __forceinline__ int lookup_field(int field_number,
-                                            int const* lookup_table,
-                                            int lookup_table_size,
-                                            field_descriptor const* field_descs,
-                                            int num_fields)
-{
-  return lookup_field_generic(
-    field_number, lookup_table, lookup_table_size, num_fields, [&](int f) {
-      return field_descs[f].field_number == field_number;
-    });
 }
 
 }  // namespace spark_rapids_jni::protobuf::detail
