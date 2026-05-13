@@ -98,6 +98,20 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr);
 
+/**
+ * Extract output type from either nested_field_descriptor (.output_type is cudf::type_id)
+ * or device_nested_field_descriptor (.output_type_id is int).
+ */
+template <typename FieldT>
+inline cudf::type_id get_output_type_id(FieldT const& field)
+{
+  if constexpr (std::is_same_v<FieldT, device_nested_field_descriptor>) {
+    return static_cast<cudf::type_id>(field.output_type_id);
+  } else {
+    return field.output_type;
+  }
+}
+
 template <typename SchemaT>
 std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   SchemaT const& schema,
@@ -110,7 +124,7 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
 
   std::vector<std::unique_ptr<cudf::column>> children;
   for (int child_idx : child_indices) {
-    auto child_type = cudf::data_type{schema[child_idx].output_type};
+    auto child_type = cudf::data_type{get_output_type_id(schema[child_idx])};
 
     std::unique_ptr<cudf::column> child_col;
     if (child_type.id() == cudf::type_id::STRUCT) {
