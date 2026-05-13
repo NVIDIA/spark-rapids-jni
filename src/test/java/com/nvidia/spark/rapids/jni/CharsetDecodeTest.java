@@ -36,6 +36,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class CharsetDecodeTest {
 
@@ -332,18 +333,14 @@ public class CharsetDecodeTest {
 
   @Test
   void testReportModeByte0x80() {
-    // Keep REPORT behavior aligned with Java, since 0x80 handling can vary by JDK.
+    // Guard the GPU behavior against the Java GBK decoder. If a supported JDK accepts 0x80,
+    // the GPU decoder needs an explicit compatibility shim instead of silently diverging.
     byte[] input = {(byte) 0x80};
+    assertTrue(reportsGbkJava(input),
+        "Java GBK REPORT accepted 0x80; update GPU decoder semantics for this JDK");
     try (ColumnVector cv = binaryColumn(input)) {
-      if (reportsGbkJava(input)) {
-        assertThrows(CharsetDecode.MalformedInputException.class,
-            () -> CharsetDecode.decode(cv, CharsetDecode.GBK, CharsetDecode.REPORT));
-      } else {
-        try (ColumnVector result = CharsetDecode.decode(cv, CharsetDecode.GBK, CharsetDecode.REPORT);
-             ColumnVector expected = ColumnVector.fromStrings(decodeGbkJava(input))) {
-          AssertUtils.assertColumnsAreEqual(expected, result);
-        }
-      }
+      assertThrows(CharsetDecode.MalformedInputException.class,
+          () -> CharsetDecode.decode(cv, CharsetDecode.GBK, CharsetDecode.REPORT));
     }
   }
 

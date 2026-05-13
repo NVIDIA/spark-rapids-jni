@@ -202,7 +202,7 @@ struct gbk_decode_fn {
     if (!d_chars) { d_sizes[idx] = output_size; }
     if (report && local_malformed) {
       cuda::atomic_ref<int32_t, cuda::thread_scope_device> ref(*malformed_flag);
-      ref.fetch_or(1, cuda::memory_order_relaxed);
+      if (ref.load(cuda::memory_order_relaxed) == 0) { ref.store(1, cuda::memory_order_relaxed); }
     }
   }
 };
