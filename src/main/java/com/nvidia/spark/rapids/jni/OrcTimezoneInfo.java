@@ -1,32 +1,94 @@
+/*
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.nvidia.spark.rapids.jni;
 
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.net.URL;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneOffsetTransitionRule;
+import java.time.zone.ZoneRules;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
- * Used to hold timezone info read from `java.util.TimeZone`
- * This class is used for ORC timezone conversion.
- * For the other timezone conversions, it uses `java.time.ZoneId` APIs.
- * The information is generated from OpenJDK 8. So some timezones in newer JDKs are missing.
- * The reason why we do not read timezone info directly from `java.util.TimeZone`:
- * `sun.util.calendar.ZoneInfo` is not public API, on some JDK distributions (like Oracle JDK),
- * it's not accessible, E.g.: report error: package sun.util.calendar is not visible
+ * Holds ORC timezone metadata generated at runtime from public java.time/java.util APIs.
+ * Historical transitions come from ZoneRules, while offsets before the first transition and
+ * future recurring DST behavior are validated against java.util.TimeZone so ORC rebasing matches
+ * SerializationUtils.convertBetweenTimezones semantics without relying on non-public ZoneInfo APIs.
+ *
+ * <p><b>Runtime dependency:</b> because the metadata is generated on the fly from
+ * {@link java.util.TimeZone}/{@link java.time.zone.ZoneRules}, the exact transition table and
+ * recurring DST rule are determined by the JVM's bundled IANA {@code tzdata}. Different JDK
+ * distributions or {@code tzdata} versions may produce slightly different historical
+ * transitions or future-year DST offsets for the same zone id. This is strictly more correct
+ * than the previous frozen OpenJDK-8 snapshot, but users debugging cross-environment
+ * differences should first check the JVM's {@code tzdata} version.
  */
 class OrcTimezoneInfo {
-  public OrcTimezoneInfo(int rawOffset, long[] transitions, int[] offsets) {
+  OrcTimezoneInfo(
+      int initialOffset,
+      int rawOffset,
+      long[] transitions,
+      int[] offsets,
+      DstRule dstRule) {
+    this.initialOffset = initialOffset;
     this.rawOffset = rawOffset;
     this.transitions = transitions;
     this.offsets = offsets;
+    this.dstRule = dstRule;
+  }
+
+  /**
+   * SimpleTimeZone-compatible DST rule mode. The {@link #value} encoding must
+   * stay in sync with {@code dst_rule_mode} in {@code timezones.cu}.
+   */
+  enum DstRuleMode {
+    DOM_MODE(0),
+    DOW_IN_MONTH_MODE(1),
+    DOW_GE_DOM_MODE(2),
+    DOW_LE_DOM_MODE(3);
+
+    final int value;
+    DstRuleMode(int value) { this.value = value; }
+  }
+
+  /**
+   * SimpleTimeZone-compatible DST rule time mode. The {@link #value} encoding
+   * must stay in sync with {@code dst_time_mode} in {@code timezones.cu}.
+   */
+  enum DstTimeMode {
+    WALL_TIME(0),
+    STANDARD_TIME(1),
+    UTC_TIME(2);
+
+    final int value;
+    DstTimeMode(int value) { this.value = value; }
   }
 
   // in milliseconds
+  int initialOffset;
+
+  // in milliseconds. This is the standard/raw offset used for DST rule math.
   int rawOffset;
 
   // in milliseconds
@@ -35,189 +97,318 @@ class OrcTimezoneInfo {
   // in milliseconds
   int[] offsets;
 
-  @Override
-  public String toString() {
-    return "OrcTimezoneInfo{" +
-        "rawOffset=" + rawOffset +
-        ", transitions=" + Arrays.toString(transitions) +
-        ", offsets=" + Arrays.toString(offsets) +
-        '}';
+  /**
+   * DST rule extracted from java.util.SimpleTimeZone for computing offsets
+   * beyond the historical transition table. Null if the timezone has no DST.
+   *
+   * The CUDA kernel uses this to implement SimpleTimeZone.getOffset() on GPU,
+   * eliminating the need for pre-generated transition files for future dates.
+   */
+  DstRule dstRule;
+
+  /**
+   * Holds the DST rule parameters needed by the GPU kernel.
+   * These correspond to the fields of java.util.SimpleTimeZone.
+   *
+   * {@code startMode}/{@code endMode} are encoded as {@link DstRuleMode#value};
+   * {@code startTimeMode}/{@code endTimeMode} as {@link DstTimeMode#value}.
+   * Fields stay {@code int} because the rule is serialized to a JNI
+   * {@code int[]} and the GPU kernel consumes the matching integer enum.
+   */
+  static class DstRule {
+    int dstSavings;      // DST offset in milliseconds (typically 3600000)
+    int startMonth;      // 0-based (Calendar.JANUARY=0 .. Calendar.DECEMBER=11)
+    int startDay;        // day-of-month or occurrence count depending on startMode
+    int startDayOfWeek;  // Calendar day-of-week (1=Sun, ..., 7=Sat), 0 if DOM_MODE
+    int startTime;       // milliseconds within day
+    int startTimeMode;   // see DstTimeMode
+    int startMode;       // see DstRuleMode
+    int endMonth;
+    int endDay;
+    int endDayOfWeek;
+    int endTime;
+    int endTimeMode;
+    int endMode;
   }
 
-  // The following is Static fields and methods.
-  // The `orc_timezone_info.data` file is generated from `sun.util.calendar.ZoneInfo` on OpenJDK 8
-  // It first reads `transitions` and `offsets` fields from `ZoneInfo` via reflection.
-  // Then calculate the actual transition and offset values via:
-  // - actual transition = transition >> 12
-  // - actual offset = offsets[transition & 0x0FL]
-  // For more details, please refer to `sun.util.calendar.ZoneInfo` source code.
+  // Reference years used to cross-check CPU vs. GPU DST offset computation.
+  // We include a near-future anchor (2060) to catch divergence within the
+  // typical application lifetime, plus two far-future anchors to exercise the
+  // recurring-rule fallback path well past any historical transition entry.
+  private static final int[] DST_RULE_VALIDATION_YEARS = {2060, 2400, 9997};
+  // Lower bound of the range ORC supports (year 0001-01-01 UTC). Computed via
+  // java.time.LocalDate, which uses the proleptic Gregorian calendar, whereas
+  // java.util.TimeZone.getOffset(long) internally uses a hybrid Julian/Gregorian
+  // calendar with the 1582 cutover for date-field interpretations. In practice
+  // this difference does not affect offset lookup (which is purely instant-based
+  // for ZoneInfo), and zones with DST in year 0001 do not exist, so the two
+  // calendars agree on the offset at this instant. Kept as a single anchor so
+  // the GPU side matches whatever TimeZone.getOffset returns here.
+  private static final long MIN_SUPPORTED_ORC_UTC_MILLIS = utcMillisForDate(1, 0, 1);
+  private static final long HISTORICAL_TRANSITION_SCAN_STEP_MILLIS = 24L * 3600_000L;
 
-  // Refer to `serializeTimezoneInfo` method for how to generate the file.
-  private static final String ORC_TIMEZONE_FILE = "orc_timezone_info.data";
-
-  // the mapped memory for the file
-  private static MappedByteBuffer serializedBuf = null;
-
-  static {
-    readTimezoneInfoFromFile();
-  }
-
-  private static void readTimezoneInfoFromFile() {
-    URL path = OrcTimezoneInfo.class.getClassLoader().getResource(ORC_TIMEZONE_FILE);
-    if (path == null) {
-      throw new RuntimeException("Can not find ORC timezone info file " + ORC_TIMEZONE_FILE);
+  /**
+   * Extract DST rule by probing getOffset() or from ZoneRules transition rules.
+   * Returns null if the timezone has no DST.
+   */
+  static DstRule extractDstRule(String timezoneId, TimeZone tz, ZoneRules rules) {
+    if (!tz.useDaylightTime()) {
+      return null;
+    }
+    DstRule dstRule = extractDstRuleByProbing(tz);
+    if (dstRule != null) {
+      return dstRule;
     }
 
-    try (RandomAccessFile file = new RandomAccessFile(path.getPath(), "r");
-         FileChannel fileChannel = file.getChannel()) {
+    dstRule = extractDstRuleFromZoneRules(timezoneId, tz, rules);
+    if (dstRule != null) {
+      return dstRule;
+    }
+    throw new IllegalStateException("Failed to extract ORC DST rule for timezone: " + timezoneId);
+  }
 
-      if (fileChannel.size() > 2 * 1024 * 1024) { // > 2M
-        throw new RuntimeException("Failed to load ORC timezone info, file is too large > 2M.");
+  private static DstRule extractDstRuleFromZoneRules(String timezoneId, TimeZone tz,
+      ZoneRules rules) {
+    List<ZoneOffsetTransitionRule> transitionRules = rules.getTransitionRules();
+    if (transitionRules.isEmpty()) {
+      return null;
+    }
+    if (transitionRules.size() != 2) {
+      throw new IllegalStateException("Unsupported ORC DST rule count for timezone: " + timezoneId);
+    }
+
+    ZoneOffsetTransitionRule startTransitionRule = null;
+    ZoneOffsetTransitionRule endTransitionRule = null;
+    for (ZoneOffsetTransitionRule transitionRule : transitionRules) {
+      int deltaMillis = (transitionRule.getOffsetAfter().getTotalSeconds() -
+          transitionRule.getOffsetBefore().getTotalSeconds()) * 1000;
+      if (deltaMillis > 0) {
+        startTransitionRule = transitionRule;
+      } else if (deltaMillis < 0) {
+        endTransitionRule = transitionRule;
+      } else {
+        throw new IllegalStateException("Unsupported zero-delta ORC DST rule for timezone: " +
+            timezoneId);
       }
-
-      // Map the file into memory
-      serializedBuf = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size());
-    } catch (IOException e) {
-      throw new RuntimeException("Failed to load ORC timezone info file " + ORC_TIMEZONE_FILE, e);
     }
+    if (startTransitionRule == null || endTransitionRule == null) {
+      throw new IllegalStateException("Failed to identify ORC DST start/end rules for timezone: " +
+          timezoneId);
+    }
+
+    int dstSavings = (startTransitionRule.getOffsetAfter().getTotalSeconds() -
+        startTransitionRule.getOffsetBefore().getTotalSeconds()) * 1000;
+    int endDeltaMillis = (endTransitionRule.getOffsetBefore().getTotalSeconds() -
+        endTransitionRule.getOffsetAfter().getTotalSeconds()) * 1000;
+    if (dstSavings != endDeltaMillis) {
+      throw new IllegalStateException("Mismatched ORC DST savings for timezone: " + timezoneId);
+    }
+
+    DstRule rule = new DstRule();
+    rule.dstSavings = dstSavings;
+    fillDstRuleFromTransitionRule(timezoneId, rule, startTransitionRule, true);
+    fillDstRuleFromTransitionRule(timezoneId, rule, endTransitionRule, false);
+
+    if (!verifyDstRuleAcrossReferenceYears(tz, rule)) {
+      throw new IllegalStateException("ZoneRules ORC DST rule verification failed for timezone: " +
+          timezoneId);
+    }
+    return rule;
+  }
+
+  private static void fillDstRuleFromTransitionRule(String timezoneId, DstRule rule,
+      ZoneOffsetTransitionRule transitionRule, boolean isStartRule) {
+    // We only accept rules shaped as "first <dayOfWeek> on or after <dayOfMonthIndicator>",
+    // i.e. ZoneRules' positive-day-indicator form. A negative indicator would mean
+    // "last <dayOfWeek> on or before day" (DOW_LE_DOM_MODE); we reject those here so that
+    // downstream code can assume DOW_GE_DOM_MODE unconditionally.
+    if (transitionRule.getDayOfWeek() == null ||
+        transitionRule.getDayOfMonthIndicator() <= 0) {
+      throw new IllegalStateException("Unsupported ORC DST transition rule shape for timezone: " +
+          timezoneId);
+    }
+
+    int month = transitionRule.getMonth().getValue() - 1;
+    int day = transitionRule.getDayOfMonthIndicator();
+    int dayOfWeek = toCalendarDayOfWeek(transitionRule.getDayOfWeek().getValue());
+    int time = getTransitionRuleTimeMillis(transitionRule);
+    int timeMode = getTransitionRuleTimeMode(transitionRule);
+    // Guaranteed by the precondition above.
+    int mode = DstRuleMode.DOW_GE_DOM_MODE.value;
+
+    if (isStartRule) {
+      rule.startMonth = month;
+      rule.startDay = day;
+      rule.startDayOfWeek = dayOfWeek;
+      rule.startTime = time;
+      rule.startTimeMode = timeMode;
+      rule.startMode = mode;
+    } else {
+      rule.endMonth = month;
+      rule.endDay = day;
+      rule.endDayOfWeek = dayOfWeek;
+      rule.endTime = time;
+      rule.endTimeMode = timeMode;
+      rule.endMode = mode;
+    }
+  }
+
+  private static int getTransitionRuleTimeMillis(
+      ZoneOffsetTransitionRule transitionRule) {
+    int secondOfDay = transitionRule.isMidnightEndOfDay() ?
+        24 * 3600 :
+        transitionRule.getLocalTime().toSecondOfDay();
+    return secondOfDay * 1000;
+  }
+
+  private static int getTransitionRuleTimeMode(ZoneOffsetTransitionRule transitionRule) {
+    ZoneOffsetTransitionRule.TimeDefinition timeDef = transitionRule.getTimeDefinition();
+    if (ZoneOffsetTransitionRule.TimeDefinition.UTC == timeDef) {
+      return DstTimeMode.UTC_TIME.value;
+    } else if (ZoneOffsetTransitionRule.TimeDefinition.STANDARD == timeDef) {
+      return DstTimeMode.STANDARD_TIME.value;
+    } else {
+      return DstTimeMode.WALL_TIME.value;
+    }
+  }
+
+  private static int toCalendarDayOfWeek(int javaTimeDayOfWeek) {
+    return (javaTimeDayOfWeek % 7) + 1;
   }
 
   /**
-   * Get timezone info for the specified timezone Id
-   * @param timezoneId timezone Id
-   * @return timezone info
+   * Extract DST rule by probing getOffset() at hourly intervals in a reference year.
+   * This works for any TimeZone implementation (ZoneInfo, SimpleTimeZone, etc.)
+   * and captures the effective DST rule as the JVM sees it.
+   *
+   * We find the exact DST start and end transitions, then encode them in the
+   * same format that SimpleTimeZone uses internally (month, day, dayOfWeek, time, mode).
    */
-  public static OrcTimezoneInfo get(String timezoneId) {
-    int index = Arrays.binarySearch(timezoneIds, timezoneId);
-    if (index < 0) {
-      throw new IllegalArgumentException("Timezone ID not found: " + timezoneId);
+  private static DstRule extractDstRuleByProbing(TimeZone tz) {
+    for (int refYear : DST_RULE_VALIDATION_YEARS) {
+      DstRule rule = extractDstRuleByProbing(tz, refYear);
+      if (rule != null && verifyDstRuleAcrossReferenceYears(tz, rule)) {
+        return rule;
+      }
     }
-
-    // shallow copy
-    ByteBuffer buf = serializedBuf.duplicate();
-    buf.order(ByteOrder.BIG_ENDIAN);
-
-    int timezoneInfoOffsetInFile = buf.getInt(Integer.BYTES * index);
-    buf.position(timezoneInfoOffsetInFile);
-
-    int rawOffsets = buf.getInt();
-
-    int numTransitions = buf.getInt();
-    long[] transitions = new long[numTransitions];
-    for (int i = 0; i < numTransitions; ++i) {
-      transitions[i] = buf.getLong();
-    }
-
-    int numOffsets = buf.getInt();
-    int[] offsets = new int[numOffsets];
-    for (int i = 0; i < numOffsets; ++i) {
-      offsets[i] = buf.getInt();
-    }
-
-    return new OrcTimezoneInfo(rawOffsets, transitions, offsets);
+    return null;
   }
 
-  public static List<String> getAllTimezoneIds() {
-    return Arrays.asList(timezoneIds);
+  private static DstRule extractDstRuleByProbing(TimeZone tz, int refYear) {
+    long janFirst = utcMillisForDate(refYear, 0, 1);
+    long nextJanFirst = utcMillisForDate(refYear + 1, 0, 1);
+
+    // Find DST-on and DST-off transitions by scanning hourly
+    long dstOnTransition = -1;
+    long dstOffTransition = -1;
+    int prevOffset = tz.getOffset(janFirst - 1);
+    long step = 3600_000L; // 1 hour
+
+    for (long ms = janFirst; ms < nextJanFirst; ms += step) {
+      int curOffset = tz.getOffset(ms);
+      if (curOffset != prevOffset) {
+        // Found a transition; narrow down to exact millisecond with binary search
+        long exactMs = binarySearchTransition(tz, ms - step, ms);
+        if (curOffset > prevOffset) {
+          // More than one DST-on transition in the same year means this year
+          // doesn't fit a SimpleTimeZone-style two-transition rule; let the
+          // caller fall back to extractDstRuleFromZoneRules.
+          if (dstOnTransition >= 0) return null;
+          dstOnTransition = exactMs;
+        } else {
+          if (dstOffTransition >= 0) return null;
+          dstOffTransition = exactMs;
+        }
+        prevOffset = curOffset;
+      }
+    }
+
+    if (dstOnTransition < 0 || dstOffTransition < 0) {
+      return null;
+    }
+
+    DstRule rule = new DstRule();
+    rule.dstSavings = tz.getDSTSavings();
+
+    // decodeTransition converts to standard local time, so the rule time mode is STANDARD_TIME.
+    int[] startFields = decodeTransition(dstOnTransition, tz.getRawOffset());
+    rule.startMonth = startFields[0];
+    rule.startDay = startFields[1];
+    rule.startDayOfWeek = startFields[2];
+    rule.startTime = startFields[3];
+    rule.startTimeMode = DstTimeMode.STANDARD_TIME.value;
+    rule.startMode = startFields[4];
+
+    int[] endFields = decodeTransition(dstOffTransition, tz.getRawOffset());
+    rule.endMonth = endFields[0];
+    rule.endDay = endFields[1];
+    rule.endDayOfWeek = endFields[2];
+    rule.endTime = endFields[3];
+    rule.endTimeMode = DstTimeMode.STANDARD_TIME.value;
+    rule.endMode = endFields[4];
+
+    return rule;
   }
 
-  private static final String[] timezoneIds = {"ACT", "AET", "AGT", "ART", "AST", "Africa/Abidjan", "Africa/Accra", "Africa/Addis_Ababa", "Africa/Algiers", "Africa/Asmara", "Africa/Asmera", "Africa/Bamako", "Africa/Bangui", "Africa/Banjul", "Africa/Bissau", "Africa/Blantyre", "Africa/Brazzaville", "Africa/Bujumbura", "Africa/Cairo", "Africa/Casablanca", "Africa/Ceuta", "Africa/Conakry", "Africa/Dakar", "Africa/Dar_es_Salaam", "Africa/Djibouti", "Africa/Douala", "Africa/El_Aaiun", "Africa/Freetown", "Africa/Gaborone", "Africa/Harare", "Africa/Johannesburg", "Africa/Juba", "Africa/Kampala", "Africa/Khartoum", "Africa/Kigali", "Africa/Kinshasa", "Africa/Lagos", "Africa/Libreville", "Africa/Lome", "Africa/Luanda", "Africa/Lubumbashi", "Africa/Lusaka", "Africa/Malabo", "Africa/Maputo", "Africa/Maseru", "Africa/Mbabane", "Africa/Mogadishu", "Africa/Monrovia", "Africa/Nairobi", "Africa/Ndjamena", "Africa/Niamey", "Africa/Nouakchott", "Africa/Ouagadougou", "Africa/Porto-Novo", "Africa/Sao_Tome", "Africa/Timbuktu", "Africa/Tripoli", "Africa/Tunis", "Africa/Windhoek", "America/Adak", "America/Anchorage", "America/Anguilla", "America/Antigua", "America/Araguaina", "America/Argentina/Buenos_Aires", "America/Argentina/Catamarca", "America/Argentina/ComodRivadavia", "America/Argentina/Cordoba", "America/Argentina/Jujuy", "America/Argentina/La_Rioja", "America/Argentina/Mendoza", "America/Argentina/Rio_Gallegos", "America/Argentina/Salta", "America/Argentina/San_Juan", "America/Argentina/San_Luis", "America/Argentina/Tucuman", "America/Argentina/Ushuaia", "America/Aruba", "America/Asuncion", "America/Atikokan", "America/Atka", "America/Bahia", "America/Bahia_Banderas", "America/Barbados", "America/Belem", "America/Belize", "America/Blanc-Sablon", "America/Boa_Vista", "America/Bogota", "America/Boise", "America/Buenos_Aires", "America/Cambridge_Bay", "America/Campo_Grande", "America/Cancun", "America/Caracas", "America/Catamarca", "America/Cayenne", "America/Cayman", "America/Chicago", "America/Chihuahua", "America/Ciudad_Juarez", "America/Coral_Harbour", "America/Cordoba", "America/Costa_Rica", "America/Coyhaique", "America/Creston", "America/Cuiaba", "America/Curacao", "America/Danmarkshavn", "America/Dawson", "America/Dawson_Creek", "America/Denver", "America/Detroit", "America/Dominica", "America/Edmonton", "America/Eirunepe", "America/El_Salvador", "America/Ensenada", "America/Fort_Nelson", "America/Fort_Wayne", "America/Fortaleza", "America/Glace_Bay", "America/Godthab", "America/Goose_Bay", "America/Grand_Turk", "America/Grenada", "America/Guadeloupe", "America/Guatemala", "America/Guayaquil", "America/Guyana", "America/Halifax", "America/Havana", "America/Hermosillo", "America/Indiana/Indianapolis", "America/Indiana/Knox", "America/Indiana/Marengo", "America/Indiana/Petersburg", "America/Indiana/Tell_City", "America/Indiana/Vevay", "America/Indiana/Vincennes", "America/Indiana/Winamac", "America/Indianapolis", "America/Inuvik", "America/Iqaluit", "America/Jamaica", "America/Jujuy", "America/Juneau", "America/Kentucky/Louisville", "America/Kentucky/Monticello", "America/Knox_IN", "America/Kralendijk", "America/La_Paz", "America/Lima", "America/Los_Angeles", "America/Louisville", "America/Lower_Princes", "America/Maceio", "America/Managua", "America/Manaus", "America/Marigot", "America/Martinique", "America/Matamoros", "America/Mazatlan", "America/Mendoza", "America/Menominee", "America/Merida", "America/Metlakatla", "America/Mexico_City", "America/Miquelon", "America/Moncton", "America/Monterrey", "America/Montevideo", "America/Montreal", "America/Montserrat", "America/Nassau", "America/New_York", "America/Nipigon", "America/Nome", "America/Noronha", "America/North_Dakota/Beulah", "America/North_Dakota/Center", "America/North_Dakota/New_Salem", "America/Nuuk", "America/Ojinaga", "America/Panama", "America/Pangnirtung", "America/Paramaribo", "America/Phoenix", "America/Port-au-Prince", "America/Port_of_Spain", "America/Porto_Acre", "America/Porto_Velho", "America/Puerto_Rico", "America/Punta_Arenas", "America/Rainy_River", "America/Rankin_Inlet", "America/Recife", "America/Regina", "America/Resolute", "America/Rio_Branco", "America/Rosario", "America/Santa_Isabel", "America/Santarem", "America/Santiago", "America/Santo_Domingo", "America/Sao_Paulo", "America/Scoresbysund", "America/Shiprock", "America/Sitka", "America/St_Barthelemy", "America/St_Johns", "America/St_Kitts", "America/St_Lucia", "America/St_Thomas", "America/St_Vincent", "America/Swift_Current", "America/Tegucigalpa", "America/Thule", "America/Thunder_Bay", "America/Tijuana", "America/Toronto", "America/Tortola", "America/Vancouver", "America/Virgin", "America/Whitehorse", "America/Winnipeg", "America/Yakutat", "America/Yellowknife", "Antarctica/Casey", "Antarctica/Davis", "Antarctica/DumontDUrville", "Antarctica/Macquarie", "Antarctica/Mawson", "Antarctica/McMurdo", "Antarctica/Palmer", "Antarctica/Rothera", "Antarctica/South_Pole", "Antarctica/Syowa", "Antarctica/Troll", "Antarctica/Vostok", "Arctic/Longyearbyen", "Asia/Aden", "Asia/Almaty", "Asia/Amman", "Asia/Anadyr", "Asia/Aqtau", "Asia/Aqtobe", "Asia/Ashgabat", "Asia/Ashkhabad", "Asia/Atyrau", "Asia/Baghdad", "Asia/Bahrain", "Asia/Baku", "Asia/Bangkok", "Asia/Barnaul", "Asia/Beirut", "Asia/Bishkek", "Asia/Brunei", "Asia/Calcutta", "Asia/Chita", "Asia/Choibalsan", "Asia/Chongqing", "Asia/Chungking", "Asia/Colombo", "Asia/Dacca", "Asia/Damascus", "Asia/Dhaka", "Asia/Dili", "Asia/Dubai", "Asia/Dushanbe", "Asia/Famagusta", "Asia/Gaza", "Asia/Harbin", "Asia/Hebron", "Asia/Ho_Chi_Minh", "Asia/Hong_Kong", "Asia/Hovd", "Asia/Irkutsk", "Asia/Istanbul", "Asia/Jakarta", "Asia/Jayapura", "Asia/Jerusalem", "Asia/Kabul", "Asia/Kamchatka", "Asia/Karachi", "Asia/Kashgar", "Asia/Kathmandu", "Asia/Katmandu", "Asia/Khandyga", "Asia/Kolkata", "Asia/Krasnoyarsk", "Asia/Kuala_Lumpur", "Asia/Kuching", "Asia/Kuwait", "Asia/Macao", "Asia/Macau", "Asia/Magadan", "Asia/Makassar", "Asia/Manila", "Asia/Muscat", "Asia/Nicosia", "Asia/Novokuznetsk", "Asia/Novosibirsk", "Asia/Omsk", "Asia/Oral", "Asia/Phnom_Penh", "Asia/Pontianak", "Asia/Pyongyang", "Asia/Qatar", "Asia/Qostanay", "Asia/Qyzylorda", "Asia/Rangoon", "Asia/Riyadh", "Asia/Saigon", "Asia/Sakhalin", "Asia/Samarkand", "Asia/Seoul", "Asia/Shanghai", "Asia/Singapore", "Asia/Srednekolymsk", "Asia/Taipei", "Asia/Tashkent", "Asia/Tbilisi", "Asia/Tehran", "Asia/Tel_Aviv", "Asia/Thimbu", "Asia/Thimphu", "Asia/Tokyo", "Asia/Tomsk", "Asia/Ujung_Pandang", "Asia/Ulaanbaatar", "Asia/Ulan_Bator", "Asia/Urumqi", "Asia/Ust-Nera", "Asia/Vientiane", "Asia/Vladivostok", "Asia/Yakutsk", "Asia/Yangon", "Asia/Yekaterinburg", "Asia/Yerevan", "Atlantic/Azores", "Atlantic/Bermuda", "Atlantic/Canary", "Atlantic/Cape_Verde", "Atlantic/Faeroe", "Atlantic/Faroe", "Atlantic/Jan_Mayen", "Atlantic/Madeira", "Atlantic/Reykjavik", "Atlantic/South_Georgia", "Atlantic/St_Helena", "Atlantic/Stanley", "Australia/ACT", "Australia/Adelaide", "Australia/Brisbane", "Australia/Broken_Hill", "Australia/Canberra", "Australia/Currie", "Australia/Darwin", "Australia/Eucla", "Australia/Hobart", "Australia/LHI", "Australia/Lindeman", "Australia/Lord_Howe", "Australia/Melbourne", "Australia/NSW", "Australia/North", "Australia/Perth", "Australia/Queensland", "Australia/South", "Australia/Sydney", "Australia/Tasmania", "Australia/Victoria", "Australia/West", "Australia/Yancowinna", "BET", "BST", "Brazil/Acre", "Brazil/DeNoronha", "Brazil/East", "Brazil/West", "CAT", "CET", "CNT", "CST", "CST6CDT", "CTT", "Canada/Atlantic", "Canada/Central", "Canada/Eastern", "Canada/Mountain", "Canada/Newfoundland", "Canada/Pacific", "Canada/Saskatchewan", "Canada/Yukon", "Chile/Continental", "Chile/EasterIsland", "Cuba", "EAT", "ECT", "EET", "EST", "EST5EDT", "Egypt", "Eire", "Etc/GMT", "Etc/GMT+0", "Etc/GMT+1", "Etc/GMT+10", "Etc/GMT+11", "Etc/GMT+12", "Etc/GMT+2", "Etc/GMT+3", "Etc/GMT+4", "Etc/GMT+5", "Etc/GMT+6", "Etc/GMT+7", "Etc/GMT+8", "Etc/GMT+9", "Etc/GMT-0", "Etc/GMT-1", "Etc/GMT-10", "Etc/GMT-11", "Etc/GMT-12", "Etc/GMT-13", "Etc/GMT-14", "Etc/GMT-2", "Etc/GMT-3", "Etc/GMT-4", "Etc/GMT-5", "Etc/GMT-6", "Etc/GMT-7", "Etc/GMT-8", "Etc/GMT-9", "Etc/GMT0", "Etc/Greenwich", "Etc/UCT", "Etc/UTC", "Etc/Universal", "Etc/Zulu", "Europe/Amsterdam", "Europe/Andorra", "Europe/Astrakhan", "Europe/Athens", "Europe/Belfast", "Europe/Belgrade", "Europe/Berlin", "Europe/Bratislava", "Europe/Brussels", "Europe/Bucharest", "Europe/Budapest", "Europe/Busingen", "Europe/Chisinau", "Europe/Copenhagen", "Europe/Dublin", "Europe/Gibraltar", "Europe/Guernsey", "Europe/Helsinki", "Europe/Isle_of_Man", "Europe/Istanbul", "Europe/Jersey", "Europe/Kaliningrad", "Europe/Kiev", "Europe/Kirov", "Europe/Kyiv", "Europe/Lisbon", "Europe/Ljubljana", "Europe/London", "Europe/Luxembourg", "Europe/Madrid", "Europe/Malta", "Europe/Mariehamn", "Europe/Minsk", "Europe/Monaco", "Europe/Moscow", "Europe/Nicosia", "Europe/Oslo", "Europe/Paris", "Europe/Podgorica", "Europe/Prague", "Europe/Riga", "Europe/Rome", "Europe/Samara", "Europe/San_Marino", "Europe/Sarajevo", "Europe/Saratov", "Europe/Simferopol", "Europe/Skopje", "Europe/Sofia", "Europe/Stockholm", "Europe/Tallinn", "Europe/Tirane", "Europe/Tiraspol", "Europe/Ulyanovsk", "Europe/Uzhgorod", "Europe/Vaduz", "Europe/Vatican", "Europe/Vienna", "Europe/Vilnius", "Europe/Volgograd", "Europe/Warsaw", "Europe/Zagreb", "Europe/Zaporozhye", "Europe/Zurich", "GB", "GB-Eire", "GMT", "GMT0", "Greenwich", "HST", "Hongkong", "IET", "IST", "Iceland", "Indian/Antananarivo", "Indian/Chagos", "Indian/Christmas", "Indian/Cocos", "Indian/Comoro", "Indian/Kerguelen", "Indian/Mahe", "Indian/Maldives", "Indian/Mauritius", "Indian/Mayotte", "Indian/Reunion", "Iran", "Israel", "JST", "Jamaica", "Japan", "Kwajalein", "Libya", "MET", "MIT", "MST", "MST7MDT", "Mexico/BajaNorte", "Mexico/BajaSur", "Mexico/General", "NET", "NST", "NZ", "NZ-CHAT", "Navajo", "PLT", "PNT", "PRC", "PRT", "PST", "PST8PDT", "Pacific/Apia", "Pacific/Auckland", "Pacific/Bougainville", "Pacific/Chatham", "Pacific/Chuuk", "Pacific/Easter", "Pacific/Efate", "Pacific/Enderbury", "Pacific/Fakaofo", "Pacific/Fiji", "Pacific/Funafuti", "Pacific/Galapagos", "Pacific/Gambier", "Pacific/Guadalcanal", "Pacific/Guam", "Pacific/Honolulu", "Pacific/Johnston", "Pacific/Kanton", "Pacific/Kiritimati", "Pacific/Kosrae", "Pacific/Kwajalein", "Pacific/Majuro", "Pacific/Marquesas", "Pacific/Midway", "Pacific/Nauru", "Pacific/Niue", "Pacific/Norfolk", "Pacific/Noumea", "Pacific/Pago_Pago", "Pacific/Palau", "Pacific/Pitcairn", "Pacific/Pohnpei", "Pacific/Ponape", "Pacific/Port_Moresby", "Pacific/Rarotonga", "Pacific/Saipan", "Pacific/Samoa", "Pacific/Tahiti", "Pacific/Tarawa", "Pacific/Tongatapu", "Pacific/Truk", "Pacific/Wake", "Pacific/Wallis", "Pacific/Yap", "Poland", "Portugal", "ROK", "SST", "Singapore", "SystemV/AST4", "SystemV/AST4ADT", "SystemV/CST6", "SystemV/CST6CDT", "SystemV/EST5", "SystemV/EST5EDT", "SystemV/HST10", "SystemV/MST7", "SystemV/MST7MDT", "SystemV/PST8", "SystemV/PST8PDT", "SystemV/YST9", "SystemV/YST9YDT", "Turkey", "UCT", "US/Alaska", "US/Aleutian", "US/Arizona", "US/Central", "US/East-Indiana", "US/Eastern", "US/Hawaii", "US/Indiana-Starke", "US/Michigan", "US/Mountain", "US/Pacific", "US/Samoa", "UTC", "Universal", "VST", "W-SU", "WET", "Zulu"};
+  private static boolean verifyDstRuleAcrossReferenceYears(TimeZone tz, DstRule rule) {
+    for (int refYear : DST_RULE_VALIDATION_YEARS) {
+      if (!verifyDstRule(tz, rule, refYear)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static long binarySearchTransition(TimeZone tz, long lo, long hi) {
+    int loOffset = tz.getOffset(lo);
+    while (hi - lo > 1) {
+      long mid = lo + (hi - lo) / 2;
+      if (tz.getOffset(mid) == loOffset) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    return hi;
+  }
 
   /**
-   * This method is only used to generate the timezone info file for maintenance purpose.
+   * Decode a UTC transition instant into (month, day, dayOfWeek, timeInDay, mode).
+   * Returns [month(0-11), day, dayOfWeek(1-7), timeMs, {@link DstRuleMode#value}].
    *
-   * The generated file is based on OpenJDK 8's `sun.util.calendar.ZoneInfo` implementation.
-   * Since `ZoneInfo` is not public API, on some JDK distributions (like Oracle JDK),
-   * it's not accessible. So we comment the method out to avoid build issues.
+   * We encode recurring weekday rules as {@link DstRuleMode#DOW_GE_DOM_MODE}.
+   * For nth-weekday rules, the base day is the earliest possible day of that
+   * occurrence in the month:
+   *   1st => 1, 2nd => 8, 3rd => 15, 4th => 22.
+   * For last-weekday rules, the base day is the earliest day of the final week
+   * in the month, i.e. {@code monthLength - 6}.
    *
-   * File format:
-   * - First N * 4 bytes: N is number of timezone Ids
-   *   - each 4 bytes is the offset of the timezone info in the file
-   * - Then each timezone info:
-   *   - 4 bytes: rawOffset (int)
-   *   - 4 bytes: numTransitions (int)
-   *   - numTransitions * 8 bytes: transitions (long[])
-   *   - 4 bytes: numOffsets (int)
-   *   - numOffsets * 4 bytes: offsets (int[])
-   *
-   * How to do the maintenance:
-   * - update the `timezoneIds` via TimeZone.getAvailableIDs() and sort them.
-   * - run this method to generate the timezone info file, and copy the file to resources folder.
+   * This mirrors encodings such as "Sun >= 8" for the second Sunday in March
+   * and "Sun >= 25" for the last Sunday in October.
    */
-  public static void serializeTimezoneInfo() {
-//    try {
-//      String path = "/tmp/orc_timezone_info.data";
-//
-//      // sort timezone ids
-//      String[] ids = TimeZone.getAvailableIDs();
-//      ArrayList<String> sortedIds = new ArrayList<>(Arrays.asList(ids));
-//      sortedIds.sort(String::compareTo);
-//
-//      List<Integer> timezoneOffsets = new ArrayList<>();
-//      DataOutputStream out = new DataOutputStream(Files.newOutputStream(Paths.get(path)));
-//
-//      // from ZoneInfo source code
-//      long OFFSET_MASK_IN_ZONE_INFO = 0x0FL;
-//      int TRANSITION_NSHIFT_IN_ZONE_INFO = 12;
-//
-//      // collect offsets for each timezone
-//      int timezoneOffsetInFile = 0;
-//      for (String id : sortedIds) {
-//        timezoneOffsets.add(timezoneOffsetInFile);
-//
-//        ZoneInfo zoneInfo = (ZoneInfo) TimeZone.getTimeZone(id);
-//        long[] trans = (long[]) FieldUtils.readField(zoneInfo, "transitions");
-//        int numTransitions = trans == null ? 0 : trans.length;
-//
-//        // timezone serialized size calculation
-//        timezoneOffsetInFile += 4; // rawOffset
-//        timezoneOffsetInFile += 4; // numTransitions
-//        timezoneOffsetInFile += numTransitions * 8; // transitions longs
-//        timezoneOffsetInFile += 4; // numOffsets
-//        timezoneOffsetInFile += numTransitions * 4; // offsets ints
-//      }
-//
-//      // First write all timezone offsets in the file
-//      int totalOffsetIndicesSize = sortedIds.size() * 4;
-//      for (int off : timezoneOffsets) {
-//        out.writeInt(off + totalOffsetIndicesSize);
-//      }
-//
-//      // Then write each timezone info
-//      for (String id : sortedIds) {
-//        ZoneInfo zoneInfo = (ZoneInfo) TimeZone.getTimeZone(id);
-//        long[] trans = (long[]) FieldUtils.readField(zoneInfo, "transitions");
-//        int[] offs = (int[]) FieldUtils.readField(zoneInfo, "offsets");
-//        int rawOff = (int) FieldUtils.readField(zoneInfo, "rawOffset");
-//
-//        int numTransitions = trans == null ? 0 : trans.length;
-//
-//        long[] actualTrans = new long[numTransitions];
-//        int[] actualOffsets = new int[numTransitions];
-//        for (int i = 0; i < numTransitions; ++i) {
-//          // `trans` is combination of transition and offset index
-//          actualTrans[i] = trans[i] >> TRANSITION_NSHIFT_IN_ZONE_INFO;
-//          // the `offs` is a dictionary, get the actual offset value via index
-//          // `trans[i] & OFFSET_MASK_IN_ZONE_INFO` is to get offset index
-//          actualOffsets[i] = offs[(int) (trans[i] & OFFSET_MASK_IN_ZONE_INFO)];
-//        }
-//
-//        out.writeInt(rawOff);
-//
-//        out.writeInt(numTransitions);
-//        for (long t : actualTrans) {
-//          out.writeLong(t);
-//        }
-//
-//        out.writeInt(numTransitions);
-//        for (int o : actualOffsets) {
-//          out.writeInt(o);
-//        }
-//      }
-//      out.flush();
-//      out.close();
-//    } catch (Exception e) {
-//      throw new RuntimeException("Failed to serialize ORC timezone info.", e);
-//    }
+  private static int[] decodeTransition(long utcMs, int rawOffsetMs) {
+    // Convert UTC ms to standard local time
+    long localMs = utcMs + rawOffsetMs;
+    java.time.Instant instant = java.time.Instant.ofEpochMilli(localMs);
+    java.time.LocalDateTime ldt = java.time.LocalDateTime.ofInstant(
+        instant, java.time.ZoneOffset.UTC);
+
+    int month = ldt.getMonthValue() - 1; // 0-based for Calendar compat
+    int dayOfMonth = ldt.getDayOfMonth();
+    // Calendar: 1=Sun..7=Sat
+    int dayOfWeek = toCalendarDayOfWeek(ldt.getDayOfWeek().getValue());
+    int timeInDay = ldt.getHour() * 3600_000 + ldt.getMinute() * 60_000
+        + ldt.getSecond() * 1000 + ldt.getNano() / 1_000_000;
+
+    int monthLength = ldt.toLocalDate().lengthOfMonth();
+    int dayOfWeekInMonth = (dayOfMonth - 1) / 7 + 1;
+    boolean isLastOccurrence = dayOfMonth + 7 > monthLength;
+    int baseDayOfMonth = isLastOccurrence ?
+        monthLength - 6 :
+        1 + (dayOfWeekInMonth - 1) * 7;
+
+    // DOW_GE_DOM: first <dayOfWeek> on or after <baseDayOfMonth>
+    return new int[]{month, baseDayOfMonth, dayOfWeek, timeInDay, DstRuleMode.DOW_GE_DOM_MODE.value};
   }
+
 }
