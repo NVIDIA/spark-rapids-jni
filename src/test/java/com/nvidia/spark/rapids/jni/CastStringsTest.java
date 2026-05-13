@@ -1400,10 +1400,26 @@ public class CastStringsTest {
         "yyyy-MM", false,
         new Long[]{y2024_05_01, null, null});
 
+    // yyyy/MM/dd corrected: preserves the old compatible regex's 1-2 digit month/day fields.
+    assertParsedTimestamp(
+        new String[]{"2024/05/06", "2024/5/6", "2024/005/06", "2024/05/006"},
+        "yyyy/MM/dd", false,
+        new Long[]{y2024_05_06, y2024_05_06, null, null});
+
     // MM-dd corrected: no year, defaults to 1970.
     assertParsedTimestamp(
         new String[]{"05-06", "5-06", "05-6", "05/06"},
         "MM-dd", false,
+        new Long[]{y1970_05_06, null, null, null});
+
+    // dd-MM / dd/MM corrected: day-first, no year, defaults to 1970.
+    assertParsedTimestamp(
+        new String[]{"06-05", "6-05", "06-5", "06/05"},
+        "dd-MM", false,
+        new Long[]{y1970_05_06, null, null, null});
+    assertParsedTimestamp(
+        new String[]{"06/05", "6/05", "06/5", "06-05"},
+        "dd/MM", false,
         new Long[]{y1970_05_06, null, null, null});
   }
 
@@ -1431,6 +1447,16 @@ public class CastStringsTest {
         new String[]{"05-06-2024", "5-6-2024"},
         "MM-dd-yyyy", false,
         new Long[]{expectedUs(2024, 5, 6, 0, 0, 0), null});
+
+    // Day-first and slash-separated corrected formats.
+    assertParsedTimestamp(
+        new String[]{"06/05/2024", "6/05/2024", "06/5/2024"},
+        "dd/MM/yyyy", false,
+        new Long[]{expectedUs(2024, 5, 6, 0, 0, 0), null, null});
+    assertParsedTimestamp(
+        new String[]{"05/06/2024", "5/06/2024", "05/6/2024"},
+        "MM/dd/yyyy", false,
+        new Long[]{expectedUs(2024, 5, 6, 0, 0, 0), null, null});
   }
 
   @Test
@@ -1473,6 +1499,25 @@ public class CastStringsTest {
         new String[]{"20241231 23:59:58", "20241231T23:59:58", "20241231 23:59:58Z"},
         "yyyyMMdd HH:mm:ss", true,
         new Long[]{ts, ts, ts});
+
+    // Slash-separated legacy timestamp path.
+    assertParsedTimestamp(
+        new String[]{"2024/12/31 23:59:58", "2024/12/31T23:59:58", "2024/12/31 23:59:58Z"},
+        "yyyy/MM/dd HH:mm:ss", true,
+        new Long[]{ts, ts, ts});
+  }
+
+  @Test
+  void parseTimestampWithFormat_legacyDayFirstFormats() {
+    long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
+    assertParsedTimestamp(
+        new String[]{"06-05-2024", "6-5-2024", "6- 5-2024", "06-05-2024x"},
+        "dd-MM-yyyy", true,
+        new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06});
+    assertParsedTimestamp(
+        new String[]{"06/05/2024", "6/5/2024", "6/ 5/2024", "06/05/2024x"},
+        "dd/MM/yyyy", true,
+        new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06});
   }
 
   @Test
@@ -1543,6 +1588,10 @@ public class CastStringsTest {
         ColumnVector exp = ColumnVector.timestampMicroSecondsFromBoxedLongs(new Long[]{})) {
       AssertUtils.assertColumnsAreEqual(exp, actual);
     }
+    try (ColumnVector in = ColumnVector.fromStrings(new String[]{})) {
+      Assertions.assertThrows(CudfException.class,
+          () -> CastStrings.parseTimestampWithFormat(in, "", false));
+    }
   }
 
   @Test
@@ -1554,6 +1603,11 @@ public class CastStringsTest {
       // Unsupported letter.
       Assertions.assertThrows(CudfException.class,
           () -> CastStrings.parseTimestampWithFormat(in, "yyyy-MM-dd a", false));
+      // A format with no datetime field should not silently parse to default 1970-01-01.
+      Assertions.assertThrows(CudfException.class,
+          () -> CastStrings.parseTimestampWithFormat(in, "", false));
+      Assertions.assertThrows(CudfException.class,
+          () -> CastStrings.parseTimestampWithFormat(in, "--", false));
     }
   }
 }

@@ -155,6 +155,8 @@ struct format_token {
 //   - "Packed" runs (a digit field abutting another digit field without a literal between them,
 //     e.g. yyyyMMdd) get exact width — otherwise the boundary is ambiguous.
 //   - Otherwise CORRECTED uses exact width and LEGACY uses [1, 2].
+//   - CORRECTED `yyyy/MM/dd` keeps the existing spark-rapids compatibility contract and accepts
+//     1-2 digit month/day fields.
 // Literal handling:
 //   - Space ' ' compiles to TOK_T_OR_SPACE (Spark accepts both as the date/time separator).
 //   - In LEGACY, '-' and '/' literals are followed by TOK_SKIP_HT_WS, folding the legacy
@@ -177,7 +179,9 @@ uint8_t letter_to_field(char c)
 std::vector<format_token> compile_format(std::string const& fmt, bool legacy)
 {
   std::vector<format_token> out;
-  size_t const n = fmt.size();
+  size_t const n                                 = fmt.size();
+  bool saw_digit_field                           = false;
+  bool const corrected_variable_width_slash_date = !legacy && fmt == "yyyy/MM/dd";
   for (size_t i = 0; i < n;) {
     char const c = fmt[i];
     if (std::isalpha(static_cast<unsigned char>(c))) {
@@ -197,11 +201,13 @@ std::vector<format_token> compile_format(std::string const& fmt, bool legacy)
         throw std::invalid_argument(std::string("non-year pattern letter run must be length 2: ") +
                                     c);
       }
-      uint8_t const run   = static_cast<uint8_t>(j - i);
-      uint8_t const min_d = (c == 'y') ? run : (legacy && !packed ? 1 : run);
-      uint8_t const max_d = run;
+      uint8_t const run         = static_cast<uint8_t>(j - i);
+      bool const variable_width = (legacy && !packed) || corrected_variable_width_slash_date;
+      uint8_t const min_d       = (c == 'y') ? run : (variable_width ? 1 : run);
+      uint8_t const max_d       = run;
       out.push_back({TOK_DIGITS, letter_to_field(c), min_d, max_d});
-      i = j;
+      saw_digit_field = true;
+      i               = j;
     } else {
       if (c == ' ') {
         out.push_back({TOK_T_OR_SPACE, 0, 0, 0});
@@ -217,21 +223,23 @@ std::vector<format_token> compile_format(std::string const& fmt, bool legacy)
       ++i;
     }
   }
+  if (!saw_digit_field) { throw std::invalid_argument("timestamp format has no datetime fields"); }
   out.push_back({legacy ? TOK_TRAIL_NON_DIGIT : TOK_TRAIL_EOF, 0, 0, 0});
   return out;
 }
 
 // ---- Device-side: per-row walker over the compiled token stream. --------------------------------
 
-__device__ void store_field(parsed_dt& d, uint8_t field, int v)
+__device__ bool store_field(parsed_dt& d, uint8_t field, int v)
 {
   switch (field) {
-    case FLD_YEAR: d.year = v; break;
-    case FLD_MONTH: d.month = v; break;
-    case FLD_DAY: d.day = v; break;
-    case FLD_HOUR: d.hour = v; break;
-    case FLD_MINUTE: d.minute = v; break;
-    case FLD_SECOND: d.second = v; break;
+    case FLD_YEAR: d.year = v; return true;
+    case FLD_MONTH: d.month = v; return true;
+    case FLD_DAY: d.day = v; return true;
+    case FLD_HOUR: d.hour = v; return true;
+    case FLD_MINUTE: d.minute = v; return true;
+    case FLD_SECOND: d.second = v; return true;
+    default: return false;
   }
 }
 
@@ -249,7 +257,7 @@ __device__ bool walk_tokens(unsigned char const* p,
       case TOK_DIGITS: {
         int v = 0;
         ok    = read_min_max_digits(p, pos, end, t.b, t.c, v);
-        if (ok) { store_field(d, t.a, v); }
+        if (ok) { ok = store_field(d, t.a, v); }
         break;
       }
       case TOK_LITERAL: ok = try_parse_char(p, pos, end, t.a); break;
@@ -262,6 +270,7 @@ __device__ bool walk_tokens(unsigned char const* p,
           ok                    = !(c >= '0' && c <= '9');
         }
         break;
+      default: ok = false; break;
     }
     if (!ok) { return false; }
   }
@@ -335,12 +344,12 @@ std::unique_ptr<cudf::column> parse_timestamp_strings_with_format(
   rmm::device_async_resource_ref mr)
 {
   SRJ_FUNC_RANGE();
-  auto const num_rows = input.size();
+  auto const host_tokens = compile_format(format, legacy);
+  auto const num_rows    = input.size();
   if (num_rows == 0) {
     return cudf::make_empty_column(cudf::data_type{cudf::type_to_id<cudf::timestamp_us>()});
   }
 
-  auto const host_tokens = compile_format(format, legacy);
   rmm::device_uvector<format_token> device_tokens(
     host_tokens.size(), stream, cudf::get_current_device_resource_ref());
   CUDF_CUDA_TRY(cudaMemcpyAsync(device_tokens.data(),
