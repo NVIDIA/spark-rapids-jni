@@ -30,6 +30,7 @@
 #include <cub/warp/warp_reduce.cuh>
 #include <cuda/std/cmath>
 #include <cuda/std/limits>
+#include <cuda/std/type_traits>
 #include <cuda/std/utility>
 
 using namespace cudf;
@@ -39,6 +40,148 @@ namespace spark_rapids_jni {
 namespace detail {
 
 __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
+
+/**
+ * @brief Correctly-rounded conversion of `digits * 10^q` to a double for the
+ *        case where `digits` exceeds the safe-cast range of double (2^53) and
+ *        the existing `static_cast<double>(digits) * exp10(q)` path therefore
+ *        loses up to 1 ULP. See NVIDIA/spark-rapids#10773.
+ *
+ *        The fast path (digits <= 2^53 AND |q| <= 22) is still handled by the
+ *        caller using the existing exp10 multiplier — both operands are exact
+ *        as doubles in that range so the result is already correctly rounded.
+ *
+ *        This helper covers digits in (2^53, 2^64) with |q| <= 19 (i.e. where
+ *        10^|q| still fits in a uint64). Returns NaN to signal "out of range"
+ *        so the caller can fall back to the old, less accurate path for the
+ *        rare |q| > 19 case.
+ */
+__device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digits,
+                                                                  int q,
+                                                                  int sign)
+{
+  if (digits == 0) { return sign >= 0 ? 0.0 : -0.0; }
+
+  int const abs_q = q < 0 ? -q : q;
+  if (abs_q > 19) {
+    // Out of the helper's range; caller falls back.
+    return cuda::std::numeric_limits<double>::quiet_NaN();
+  }
+
+  // 10^abs_q for abs_q in [0, 19] — exact as uint64.
+  uint64_t const kPow10[20] = {1ULL,
+                               10ULL,
+                               100ULL,
+                               1000ULL,
+                               10000ULL,
+                               100000ULL,
+                               1000000ULL,
+                               10000000ULL,
+                               100000000ULL,
+                               1000000000ULL,
+                               10000000000ULL,
+                               100000000000ULL,
+                               1000000000000ULL,
+                               10000000000000ULL,
+                               100000000000000ULL,
+                               1000000000000000ULL,
+                               10000000000000000ULL,
+                               100000000000000000ULL,
+                               1000000000000000000ULL,
+                               10000000000000000000ULL};
+  uint64_t const pow10_abs_q = kPow10[abs_q];
+
+  // Form `quotient128 * 2^binary_scale` exactly equal to `digits * 10^q`:
+  //   q < 0: quotient128 = (digits << 64) / 10^|q|, binary_scale = -64.
+  //          The truncation remainder feeds into the sticky bit so rounding
+  //          stays correct.
+  //   q > 0: quotient128 = digits * 10^q (exact in 128 bits), binary_scale = 0.
+  //   q == 0: quotient128 = digits, binary_scale = 0.
+  __uint128_t quotient128;
+  uint64_t division_rem;
+  int binary_scale;
+  if (q < 0) {
+    __uint128_t const numerator = static_cast<__uint128_t>(digits) << 64;
+    quotient128                 = numerator / pow10_abs_q;
+    division_rem                = static_cast<uint64_t>(numerator % pow10_abs_q);
+    binary_scale                = -64;
+  } else if (q > 0) {
+    quotient128 = static_cast<__uint128_t>(digits) * static_cast<__uint128_t>(pow10_abs_q);
+    division_rem = 0;
+    binary_scale = 0;
+  } else {
+    quotient128  = static_cast<__uint128_t>(digits);
+    division_rem = 0;
+    binary_scale = 0;
+  }
+
+  uint64_t const q_hi = static_cast<uint64_t>(quotient128 >> 64);
+  uint64_t const q_lo = static_cast<uint64_t>(quotient128);
+
+  int msb_pos;
+  if (q_hi != 0) {
+    msb_pos = 127 - __clzll(q_hi);
+  } else if (q_lo != 0) {
+    msb_pos = 63 - __clzll(q_lo);
+  } else {
+    return sign >= 0 ? 0.0 : -0.0;
+  }
+
+  int const shift = msb_pos - 52;
+
+  uint64_t mantissa;
+  bool round_bit;
+  bool sticky;
+
+  if (shift > 0) {
+    // Shift in [1, 127]. All bit ops use __uint128_t to avoid undefined
+    // 64-bit shifts at the shift==64 boundary.
+    mantissa  = static_cast<uint64_t>(quotient128 >> shift);
+    round_bit = (static_cast<uint64_t>(quotient128 >> (shift - 1)) & 1ULL) != 0;
+    __uint128_t const low_mask = (static_cast<__uint128_t>(1) << (shift - 1)) - 1;
+    sticky = ((quotient128 & low_mask) != 0) || (division_rem != 0);
+  } else {
+    mantissa  = q_lo << (-shift);
+    round_bit = false;
+    sticky    = (division_rem != 0);
+  }
+
+  // Round to nearest, ties to even.
+  uint64_t rounded = mantissa;
+  if (round_bit && (sticky || (mantissa & 1ULL))) { rounded += 1; }
+
+  int unbiased_exp = msb_pos + binary_scale;
+  if (rounded >= (1ULL << 53)) {
+    rounded >>= 1;
+    unbiased_exp += 1;
+  }
+
+  int const biased_exp = unbiased_exp + 1023;
+  if (biased_exp >= 0x7FF) {
+    return sign >= 0 ? cuda::std::numeric_limits<double>::infinity()
+                     : -cuda::std::numeric_limits<double>::infinity();
+  }
+
+  uint64_t bits;
+  if (biased_exp <= 0) {
+    int const subnormal_shift = 1 - biased_exp;
+    if (subnormal_shift >= 53) { return sign >= 0 ? 0.0 : -0.0; }
+    bool const sub_round_bit = ((rounded >> (subnormal_shift - 1)) & 1ULL) != 0;
+    uint64_t const sub_low_mask =
+      subnormal_shift > 1 ? ((1ULL << (subnormal_shift - 1)) - 1ULL) : 0ULL;
+    bool const sub_sticky    = ((rounded & sub_low_mask) != 0) || sticky;
+    uint64_t sub_mantissa    = rounded >> subnormal_shift;
+    if (sub_round_bit && (sub_sticky || (sub_mantissa & 1ULL))) { sub_mantissa += 1; }
+    bits = sub_mantissa & ((1ULL << 52) - 1);
+    if (sign < 0) { bits |= (1ULL << 63); }
+    return __longlong_as_double(static_cast<long long>(bits));
+  }
+
+  uint64_t const mant_bits = rounded & ((1ULL << 52) - 1);
+  bits = (static_cast<uint64_t>(biased_exp) << 52) | mant_bits;
+  if (sign < 0) { bits |= (1ULL << 63); }
+  return __longlong_as_double(static_cast<long long>(bits));
+}
 
 /**
  * @brief Identify if a character is whitespace or C0 control code.
@@ -164,6 +307,23 @@ class string_to_float {
 
       // exponent
       int exp_ten = exp_base + manual_exp;
+
+      // For double outputs, when the parsed mantissa exceeds 2^53 the
+      // static_cast<double>(digits) above already loses precision and the
+      // subsequent multiply by exp10 propagates that error (NVIDIA/spark-rapids#10773).
+      // For these inputs the helper performs a correctly-rounded conversion
+      // using 128-bit arithmetic.
+      if constexpr (cuda::std::is_same_v<T, double>) {
+        bool const slow_path_eligible = (digits > (1ULL << 53)) && (cuda::std::abs(exp_ten) <= 19);
+        if (slow_path_eligible) {
+          double const cr = correctly_rounded_uint64_times_pow10(digits, exp_ten, sign);
+          if (!cuda::std::isnan(cr)) {
+            _out[_row] = cr;
+            compute_validity(_valid, _except);
+            return;
+          }
+        }
+      }
 
       // final value
       if (exp_ten > cuda::std::numeric_limits<double>::max_exponent10) {

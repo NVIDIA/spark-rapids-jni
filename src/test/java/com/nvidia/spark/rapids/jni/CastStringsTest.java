@@ -215,6 +215,38 @@ public class CastStringsTest {
     }
   }
 
+  // Regression test for https://github.com/NVIDIA/spark-rapids/issues/10773.
+  // Inputs whose decimal mantissa exceeds 2^53 used to lose 1 ULP because the
+  // kernel cast the uint64 digits to double *before* applying the exp10 factor.
+  // After the correctly-rounded fallback was added, the GPU result must match
+  // Java's Double.parseDouble (which falls back to BigDecimal for these).
+  @Test
+  void castToDoubleHighPrecisionTest() {
+    String[] inputs = new String[] {
+        "1.7976931348623157",        // the literal that broke RapidsJsonSuite
+        "9.9999999999999999",
+        "1.0000000000000001",
+        "1.0000000000000002",
+        "3.1415926535897932",
+        "2.7182818284590452",
+        "2.2250738585072014",        // ~Double.MIN_NORMAL
+        "1.234567890123456789",      // 19-digit mantissa
+        "9.999999999999999999",
+        "-1.7976931348623157",
+        "1.5",
+        "0.1"
+    };
+    Double[] expected = new Double[inputs.length];
+    for (int i = 0; i < inputs.length; ++i) {
+      expected[i] = Double.parseDouble(inputs[i]);
+    }
+    try (ColumnVector in = ColumnVector.fromStrings(inputs);
+         ColumnVector got = CastStrings.toFloat(in, false, DType.FLOAT64);
+         ColumnVector exp = ColumnVector.fromBoxedDoubles(expected)) {
+      AssertUtils.assertColumnsAreEqual(exp, got);
+    }
+  }
+
   @Test
   void castToDecimalTest() {
     Table.TestBuilder tb = new Table.TestBuilder();
