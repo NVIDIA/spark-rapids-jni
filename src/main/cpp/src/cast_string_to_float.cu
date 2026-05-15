@@ -33,6 +33,8 @@
 #include <cuda/std/type_traits>
 #include <cuda/std/utility>
 
+#include <cassert>
+
 using namespace cudf;
 
 namespace spark_rapids_jni {
@@ -66,9 +68,13 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
     return cuda::std::numeric_limits<double>::quiet_NaN();
   }
 
-  // 10^abs_q for abs_q in [0, 19] — exact as uint64. `static constexpr` so
-  // the 160 bytes of constants live in constant memory rather than being
-  // initialized on the kernel's local stack every invocation.
+  // 10^abs_q for abs_q in [0, 19] — exact as uint64. `static constexpr` marks
+  // the table as a compile-time constant so the compiler is free to fold each
+  // load as an immediate, place it in the binary's read-only data, or keep it
+  // in registers — anywhere but re-initialized on the kernel's local stack on
+  // every invocation. (This is not CUDA `__constant__` memory; that requires a
+  // file-scope `__constant__` qualifier and is not applicable to a local
+  // table inside a `__device__` helper.)
   static constexpr uint64_t kPow10[20] = {1ULL,
                                           10ULL,
                                           100ULL,
@@ -162,23 +168,16 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
                      : -cuda::std::numeric_limits<double>::infinity();
   }
 
-  uint64_t bits;
-  if (biased_exp <= 0) {
-    int const subnormal_shift = 1 - biased_exp;
-    if (subnormal_shift >= 53) { return sign >= 0 ? 0.0 : -0.0; }
-    bool const sub_round_bit = ((rounded >> (subnormal_shift - 1)) & 1ULL) != 0;
-    uint64_t const sub_low_mask =
-      subnormal_shift > 1 ? ((1ULL << (subnormal_shift - 1)) - 1ULL) : 0ULL;
-    bool const sub_sticky = ((rounded & sub_low_mask) != 0) || sticky;
-    uint64_t sub_mantissa = rounded >> subnormal_shift;
-    if (sub_round_bit && (sub_sticky || (sub_mantissa & 1ULL))) { sub_mantissa += 1; }
-    bits = sub_mantissa & ((1ULL << 52) - 1);
-    if (sign < 0) { bits |= (1ULL << 63); }
-    return __longlong_as_double(static_cast<long long>(bits));
-  }
+  // No subnormal branch: the caller only invokes this helper when
+  // `digits > 2^53`, so msb_pos >= 53 in every reachable path. Combined with
+  // binary_scale in {0, -64}, the smallest reachable unbiased_exp is
+  // 53 - 64 = -11, giving biased_exp >= 1012. Subnormals (biased_exp <= 0)
+  // therefore never round-trip through this helper; the caller's legacy
+  // path handles them.
+  assert(biased_exp > 0);
 
   uint64_t const mant_bits = rounded & ((1ULL << 52) - 1);
-  bits                     = (static_cast<uint64_t>(biased_exp) << 52) | mant_bits;
+  uint64_t bits            = (static_cast<uint64_t>(biased_exp) << 52) | mant_bits;
   if (sign < 0) { bits |= (1ULL << 63); }
   return __longlong_as_double(static_cast<long long>(bits));
 }

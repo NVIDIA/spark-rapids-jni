@@ -263,11 +263,21 @@ public class CastStringsTest {
         // --- subnormal magnitudes ---
         "5e-324",                    // Double.MIN_VALUE (smallest subnormal)
         "1.5e-310",                  // mid-subnormal range
-        // --- |q| > 19, helper returns NaN -> caller falls back ---
-        // digits below 2^53 so the legacy path is correctly rounded too.
+        // --- |q| > 19, helper NOT triggered because digits <= 2^53 ---
+        // slow_path_eligible is already false in the caller, so the helper
+        // is never called for these. They keep the legacy `digits * exp10(q)`
+        // path honest (both operands exact, so already correctly rounded).
         "1e20",
         "1e-100",
-        "9.99e25"
+        "9.99e25",
+        // --- |q| > 19 AND digits > 2^53 -> helper IS called and returns NaN ---
+        // slow_path_eligible is true (digits > 2^53), abs_q > 19 so the
+        // helper hits its early NaN return, then the caller's
+        // `!cuda::std::isnan(cr)` fall-through exercises the legacy path.
+        // 12345678901234567 = 1.2345...e16 > 2^53 (9.007e15).
+        "12345678901234567e21",       // q = +21, large magnitude
+        "12345678901234567e-23",      // q = -23, tiny magnitude
+        "99999999999999999e30"        // q = +30, near overflow-to-infinity
     };
     Double[] expected = new Double[inputs.length];
     for (int i = 0; i < inputs.length; ++i) {
