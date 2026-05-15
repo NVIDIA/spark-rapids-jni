@@ -56,9 +56,7 @@ __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
  *        so the caller can fall back to the old, less accurate path for the
  *        rare |q| > 19 case.
  */
-__device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digits,
-                                                                  int q,
-                                                                  int sign)
+__device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digits, int q, int sign)
 {
   if (digits == 0) { return sign >= 0 ? 0.0 : -0.0; }
 
@@ -69,26 +67,26 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   }
 
   // 10^abs_q for abs_q in [0, 19] — exact as uint64.
-  uint64_t const kPow10[20] = {1ULL,
-                               10ULL,
-                               100ULL,
-                               1000ULL,
-                               10000ULL,
-                               100000ULL,
-                               1000000ULL,
-                               10000000ULL,
-                               100000000ULL,
-                               1000000000ULL,
-                               10000000000ULL,
-                               100000000000ULL,
-                               1000000000000ULL,
-                               10000000000000ULL,
-                               100000000000000ULL,
-                               1000000000000000ULL,
-                               10000000000000000ULL,
-                               100000000000000000ULL,
-                               1000000000000000000ULL,
-                               10000000000000000000ULL};
+  uint64_t const kPow10[20]  = {1ULL,
+                                10ULL,
+                                100ULL,
+                                1000ULL,
+                                10000ULL,
+                                100000ULL,
+                                1000000ULL,
+                                10000000ULL,
+                                100000000ULL,
+                                1000000000ULL,
+                                10000000000ULL,
+                                100000000000ULL,
+                                1000000000000ULL,
+                                10000000000000ULL,
+                                100000000000000ULL,
+                                1000000000000000ULL,
+                                10000000000000000ULL,
+                                100000000000000000ULL,
+                                1000000000000000000ULL,
+                                10000000000000000000ULL};
   uint64_t const pow10_abs_q = kPow10[abs_q];
 
   // Form `quotient128 * 2^binary_scale` exactly equal to `digits * 10^q`:
@@ -106,7 +104,7 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
     division_rem                = static_cast<uint64_t>(numerator % pow10_abs_q);
     binary_scale                = -64;
   } else if (q > 0) {
-    quotient128 = static_cast<__uint128_t>(digits) * static_cast<__uint128_t>(pow10_abs_q);
+    quotient128  = static_cast<__uint128_t>(digits) * static_cast<__uint128_t>(pow10_abs_q);
     division_rem = 0;
     binary_scale = 0;
   } else {
@@ -136,10 +134,10 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   if (shift > 0) {
     // Shift in [1, 127]. All bit ops use __uint128_t to avoid undefined
     // 64-bit shifts at the shift==64 boundary.
-    mantissa  = static_cast<uint64_t>(quotient128 >> shift);
-    round_bit = (static_cast<uint64_t>(quotient128 >> (shift - 1)) & 1ULL) != 0;
+    mantissa                   = static_cast<uint64_t>(quotient128 >> shift);
+    round_bit                  = (static_cast<uint64_t>(quotient128 >> (shift - 1)) & 1ULL) != 0;
     __uint128_t const low_mask = (static_cast<__uint128_t>(1) << (shift - 1)) - 1;
-    sticky = ((quotient128 & low_mask) != 0) || (division_rem != 0);
+    sticky                     = ((quotient128 & low_mask) != 0) || (division_rem != 0);
   } else {
     mantissa  = q_lo << (-shift);
     round_bit = false;
@@ -169,8 +167,8 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
     bool const sub_round_bit = ((rounded >> (subnormal_shift - 1)) & 1ULL) != 0;
     uint64_t const sub_low_mask =
       subnormal_shift > 1 ? ((1ULL << (subnormal_shift - 1)) - 1ULL) : 0ULL;
-    bool const sub_sticky    = ((rounded & sub_low_mask) != 0) || sticky;
-    uint64_t sub_mantissa    = rounded >> subnormal_shift;
+    bool const sub_sticky = ((rounded & sub_low_mask) != 0) || sticky;
+    uint64_t sub_mantissa = rounded >> subnormal_shift;
     if (sub_round_bit && (sub_sticky || (sub_mantissa & 1ULL))) { sub_mantissa += 1; }
     bits = sub_mantissa & ((1ULL << 52) - 1);
     if (sign < 0) { bits |= (1ULL << 63); }
@@ -178,7 +176,7 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   }
 
   uint64_t const mant_bits = rounded & ((1ULL << 52) - 1);
-  bits = (static_cast<uint64_t>(biased_exp) << 52) | mant_bits;
+  bits                     = (static_cast<uint64_t>(biased_exp) << 52) | mant_bits;
   if (sign < 0) { bits |= (1ULL << 63); }
   return __longlong_as_double(static_cast<long long>(bits));
 }
