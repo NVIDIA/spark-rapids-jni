@@ -220,9 +220,20 @@ public class CastStringsTest {
   // kernel cast the uint64 digits to double *before* applying the exp10 factor.
   // After the correctly-rounded fallback was added, the GPU result must match
   // Java's Double.parseDouble (which falls back to BigDecimal for these).
+  //
+  // Coverage groups:
+  //  - happy path: 17- to 19-digit mantissas across normal magnitudes
+  //  - the 2^53 trigger boundary (exactly at, one above, far above)
+  //  - mantissa rounding that overflows into the exponent
+  //  - overflow to +/-infinity past Double.MAX_VALUE
+  //  - subnormal magnitudes
+  //  - signs, halfway cases
+  //  - |q| > 19 fallback to the legacy path (digits chosen so the legacy
+  //    cast/multiply still matches Java for the cases listed)
   @Test
   void castToDoubleHighPrecisionTest() {
     String[] inputs = new String[] {
+        // --- happy path (helper) ---
         "1.7976931348623157",        // the literal that broke RapidsJsonSuite
         "9.9999999999999999",
         "1.0000000000000001",
@@ -234,7 +245,29 @@ public class CastStringsTest {
         "9.999999999999999999",
         "-1.7976931348623157",
         "1.5",
-        "0.1"
+        "0.1",
+        // --- 2^53 trigger boundary ---
+        // digits = 2^53 exactly: helper NOT triggered (need strictly greater)
+        "9007199254740992",
+        // digits = 2^53 + 1: first input the helper handles
+        "9007199254740993",
+        // digits = 2^53 + 1 with q < 0 and >16 sig figs
+        "9.007199254740993",
+        // --- mantissa rounding rolls into the exponent ---
+        // After rounding, the 53-bit mantissa hits 2^53 and the helper
+        // increments unbiased_exp.
+        "9999999999999999.5",        // rounds to 1e16
+        // --- overflow to infinity ---
+        "1.8e308",                   // > Double.MAX_VALUE
+        "-1.8e308",                  // negative infinity
+        // --- subnormal magnitudes ---
+        "5e-324",                    // Double.MIN_VALUE (smallest subnormal)
+        "1.5e-310",                  // mid-subnormal range
+        // --- |q| > 19, helper returns NaN -> caller falls back ---
+        // digits below 2^53 so the legacy path is correctly rounded too.
+        "1e20",
+        "1e-100",
+        "9.99e25"
     };
     Double[] expected = new Double[inputs.length];
     for (int i = 0; i < inputs.length; ++i) {

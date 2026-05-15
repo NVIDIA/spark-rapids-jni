@@ -47,14 +47,14 @@ __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
  *        the existing `static_cast<double>(digits) * exp10(q)` path therefore
  *        loses up to 1 ULP. See NVIDIA/spark-rapids#10773.
  *
- *        The fast path (digits <= 2^53 AND |q| <= 22) is still handled by the
- *        caller using the existing exp10 multiplier — both operands are exact
- *        as doubles in that range so the result is already correctly rounded.
- *
- *        This helper covers digits in (2^53, 2^64) with |q| <= 19 (i.e. where
- *        10^|q| still fits in a uint64). Returns NaN to signal "out of range"
- *        so the caller can fall back to the old, less accurate path for the
- *        rare |q| > 19 case.
+ *        Trigger condition (see caller): `digits > 2^53 AND |q| <= 19`.
+ *        Outside that window the caller keeps using the existing exp10
+ *        multiplier — for digits <= 2^53 that path is already correctly
+ *        rounded (both operands are exact as doubles), and for the rare
+ *        |q| > 19 case the helper returns NaN to signal the caller to fall
+ *        back to the old (less accurate) path. The 19 cap matches the
+ *        largest power of ten that fits in `uint64_t` (10^19), which the
+ *        128-bit arithmetic below relies on.
  */
 __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digits, int q, int sign)
 {
@@ -66,28 +66,30 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
     return cuda::std::numeric_limits<double>::quiet_NaN();
   }
 
-  // 10^abs_q for abs_q in [0, 19] — exact as uint64.
-  uint64_t const kPow10[20]  = {1ULL,
-                                10ULL,
-                                100ULL,
-                                1000ULL,
-                                10000ULL,
-                                100000ULL,
-                                1000000ULL,
-                                10000000ULL,
-                                100000000ULL,
-                                1000000000ULL,
-                                10000000000ULL,
-                                100000000000ULL,
-                                1000000000000ULL,
-                                10000000000000ULL,
-                                100000000000000ULL,
-                                1000000000000000ULL,
-                                10000000000000000ULL,
-                                100000000000000000ULL,
-                                1000000000000000000ULL,
-                                10000000000000000000ULL};
-  uint64_t const pow10_abs_q = kPow10[abs_q];
+  // 10^abs_q for abs_q in [0, 19] — exact as uint64. `static constexpr` so
+  // the 160 bytes of constants live in constant memory rather than being
+  // initialized on the kernel's local stack every invocation.
+  static constexpr uint64_t kPow10[20] = {1ULL,
+                                          10ULL,
+                                          100ULL,
+                                          1000ULL,
+                                          10000ULL,
+                                          100000ULL,
+                                          1000000ULL,
+                                          10000000ULL,
+                                          100000000ULL,
+                                          1000000000ULL,
+                                          10000000000ULL,
+                                          100000000000ULL,
+                                          1000000000000ULL,
+                                          10000000000000ULL,
+                                          100000000000000ULL,
+                                          1000000000000000ULL,
+                                          10000000000000000ULL,
+                                          100000000000000000ULL,
+                                          1000000000000000000ULL,
+                                          10000000000000000000ULL};
+  uint64_t const pow10_abs_q           = kPow10[abs_q];
 
   // Form `quotient128 * 2^binary_scale` exactly equal to `digits * 10^q`:
   //   q < 0: quotient128 = (digits << 64) / 10^|q|, binary_scale = -64.
