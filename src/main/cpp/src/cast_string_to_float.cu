@@ -110,8 +110,8 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
     quotient128                 = numerator / pow10_abs_q;
     // Equivalent to `numerator % pow10_abs_q` but saves one 128-bit division
     // by reusing `quotient128`.
-    division_rem = static_cast<uint64_t>(numerator -
-                                         quotient128 * static_cast<__uint128_t>(pow10_abs_q));
+    division_rem =
+      static_cast<uint64_t>(numerator - quotient128 * static_cast<__uint128_t>(pow10_abs_q));
     binary_scale = -64;
   } else if (q > 0) {
     quotient128  = static_cast<__uint128_t>(digits) * static_cast<__uint128_t>(pow10_abs_q);
