@@ -49,24 +49,23 @@ __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
  *        the existing `static_cast<double>(digits) * exp10(q)` path therefore
  *        loses up to 1 ULP. See NVIDIA/spark-rapids#10773.
  *
- *        Trigger condition (see caller): `digits > 2^53 AND |q| <= 19`.
- *        Outside that window the caller keeps using the existing exp10
- *        multiplier — for digits <= 2^53 that path is already correctly
- *        rounded (both operands are exact as doubles), and for the rare
- *        |q| > 19 case the helper returns NaN to signal the caller to fall
- *        back to the old (less accurate) path. The 19 cap matches the
+ *        Caller precondition: `digits > 2^53 AND |q| <= 19`. The caller (see
+ *        `slow_path_eligible` at the call site) guards on both bounds before
+ *        invoking this helper, so they hold inside. The 19 cap matches the
  *        largest power of ten that fits in `uint64_t` (10^19), which the
- *        128-bit arithmetic below relies on.
+ *        128-bit arithmetic below relies on. Subnormal range, overflow to
+ *        infinity, and degenerate inputs (`digits == 0`, `q_lo == q_hi == 0`)
+ *        are all unreachable under that precondition and are asserted
+ *        accordingly.
  */
 __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digits, int q, int sign)
 {
-  if (digits == 0) { return sign >= 0 ? 0.0 : -0.0; }
+  // Caller precondition: digits > 2^53, so digits cannot be 0.
+  assert(digits > (1ULL << 53));
 
   int const abs_q = q < 0 ? -q : q;
-  if (abs_q > 19) {
-    // Out of the helper's range; caller falls back.
-    return cuda::std::numeric_limits<double>::quiet_NaN();
-  }
+  // Caller precondition: |q| <= 19, so abs_q is in [0, 19] and indexes k_pow10.
+  assert(abs_q <= 19);
 
   // 10^abs_q for abs_q in [0, 19] — exact as uint64. `static constexpr` marks
   // the table as a compile-time constant so the compiler is free to fold each
@@ -75,27 +74,27 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   // every invocation. (This is not CUDA `__constant__` memory; that requires a
   // file-scope `__constant__` qualifier and is not applicable to a local
   // table inside a `__device__` helper.)
-  static constexpr uint64_t kPow10[20] = {1ULL,
-                                          10ULL,
-                                          100ULL,
-                                          1000ULL,
-                                          10000ULL,
-                                          100000ULL,
-                                          1000000ULL,
-                                          10000000ULL,
-                                          100000000ULL,
-                                          1000000000ULL,
-                                          10000000000ULL,
-                                          100000000000ULL,
-                                          1000000000000ULL,
-                                          10000000000000ULL,
-                                          100000000000000ULL,
-                                          1000000000000000ULL,
-                                          10000000000000000ULL,
-                                          100000000000000000ULL,
-                                          1000000000000000000ULL,
-                                          10000000000000000000ULL};
-  uint64_t const pow10_abs_q           = kPow10[abs_q];
+  static constexpr uint64_t k_pow10[20] = {1ULL,
+                                           10ULL,
+                                           100ULL,
+                                           1000ULL,
+                                           10000ULL,
+                                           100000ULL,
+                                           1000000ULL,
+                                           10000000ULL,
+                                           100000000ULL,
+                                           1000000000ULL,
+                                           10000000000ULL,
+                                           100000000000ULL,
+                                           1000000000000ULL,
+                                           10000000000000ULL,
+                                           100000000000000ULL,
+                                           1000000000000000ULL,
+                                           10000000000000000ULL,
+                                           100000000000000000ULL,
+                                           1000000000000000000ULL,
+                                           10000000000000000000ULL};
+  uint64_t const pow10_abs_q            = k_pow10[abs_q];
 
   // Form `quotient128 * 2^binary_scale` exactly equal to `digits * 10^q`:
   //   q < 0: quotient128 = (digits << 64) / 10^|q|, binary_scale = -64.
@@ -109,8 +108,11 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   if (q < 0) {
     __uint128_t const numerator = static_cast<__uint128_t>(digits) << 64;
     quotient128                 = numerator / pow10_abs_q;
-    division_rem                = static_cast<uint64_t>(numerator % pow10_abs_q);
-    binary_scale                = -64;
+    // Equivalent to `numerator % pow10_abs_q` but saves one 128-bit division
+    // by reusing `quotient128`.
+    division_rem = static_cast<uint64_t>(numerator -
+                                         quotient128 * static_cast<__uint128_t>(pow10_abs_q));
+    binary_scale = -64;
   } else if (q > 0) {
     quotient128  = static_cast<__uint128_t>(digits) * static_cast<__uint128_t>(pow10_abs_q);
     division_rem = 0;
@@ -124,33 +126,31 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   uint64_t const q_hi = static_cast<uint64_t>(quotient128 >> 64);
   uint64_t const q_lo = static_cast<uint64_t>(quotient128);
 
+  // Caller precondition guarantees `quotient128 != 0` (q == 0 case has
+  // q_lo = digits > 2^53; q > 0 multiplies that further; q < 0 shifts left
+  // by 64 before dividing by a value <= 10^19 < 2^64, so q_hi != 0 here).
+  // The branch is just to choose the MSB-locator path.
   int msb_pos;
   if (q_hi != 0) {
     msb_pos = 127 - __clzll(q_hi);
-  } else if (q_lo != 0) {
-    msb_pos = 63 - __clzll(q_lo);
   } else {
-    return sign >= 0 ? 0.0 : -0.0;
+    assert(q_lo != 0);
+    msb_pos = 63 - __clzll(q_lo);
   }
 
   int const shift = msb_pos - 52;
 
-  uint64_t mantissa;
-  bool round_bit;
-  bool sticky;
+  // Caller precondition: digits > 2^53 implies msb_pos(quotient128) > 52 in
+  // every (q < 0, q == 0, q > 0) branch above, so `shift > 0` always holds
+  // and the `shift <= 0` left-shift branch is unreachable.
+  assert(shift > 0);
 
-  if (shift > 0) {
-    // Shift in [1, 127]. All bit ops use __uint128_t to avoid undefined
-    // 64-bit shifts at the shift==64 boundary.
-    mantissa                   = static_cast<uint64_t>(quotient128 >> shift);
-    round_bit                  = (static_cast<uint64_t>(quotient128 >> (shift - 1)) & 1ULL) != 0;
-    __uint128_t const low_mask = (static_cast<__uint128_t>(1) << (shift - 1)) - 1;
-    sticky                     = ((quotient128 & low_mask) != 0) || (division_rem != 0);
-  } else {
-    mantissa  = q_lo << (-shift);
-    round_bit = false;
-    sticky    = (division_rem != 0);
-  }
+  // Shift in [1, 127]. All bit ops use __uint128_t to avoid undefined 64-bit
+  // shifts at the shift == 64 boundary.
+  uint64_t const mantissa    = static_cast<uint64_t>(quotient128 >> shift);
+  bool const round_bit       = (static_cast<uint64_t>(quotient128 >> (shift - 1)) & 1ULL) != 0;
+  __uint128_t const low_mask = (static_cast<__uint128_t>(1) << (shift - 1)) - 1;
+  bool const sticky          = ((quotient128 & low_mask) != 0) || (division_rem != 0);
 
   // Round to nearest, ties to even.
   uint64_t rounded = mantissa;
@@ -163,18 +163,13 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   }
 
   int const biased_exp = unbiased_exp + 1023;
-  if (biased_exp >= 0x7FF) {
-    return sign >= 0 ? cuda::std::numeric_limits<double>::infinity()
-                     : -cuda::std::numeric_limits<double>::infinity();
-  }
 
-  // No subnormal branch: the caller only invokes this helper when
-  // `digits > 2^53`, so msb_pos >= 53 in every reachable path. Combined with
-  // binary_scale in {0, -64}, the smallest reachable unbiased_exp is
-  // 53 - 64 = -11, giving biased_exp >= 1012. Subnormals (biased_exp <= 0)
-  // therefore never round-trip through this helper; the caller's legacy
-  // path handles them.
-  assert(biased_exp > 0);
+  // Subnormal range (biased_exp <= 0) and overflow-to-infinity (biased_exp
+  // >= 0x7FF) are both unreachable: msb_pos lies in [53, 127] under the
+  // caller's precondition, binary_scale lies in {0, -64}, so unbiased_exp is
+  // in [-11, 127] and biased_exp is in [1012, 1150], well inside the normal
+  // range [1, 0x7FE]. The legacy path handles subnormals and overflows.
+  assert(biased_exp > 0 && biased_exp < 0x7FF);
 
   uint64_t const mant_bits = rounded & ((1ULL << 52) - 1);
   uint64_t bits            = (static_cast<uint64_t>(biased_exp) << 52) | mant_bits;
@@ -311,16 +306,17 @@ class string_to_float {
       // static_cast<double>(digits) above already loses precision and the
       // subsequent multiply by exp10 propagates that error (NVIDIA/spark-rapids#10773).
       // For these inputs the helper performs a correctly-rounded conversion
-      // using 128-bit arithmetic.
+      // using 128-bit arithmetic. The helper's preconditions
+      // (digits > 2^53 AND |exp_ten| <= 19) are enforced by this gate; outside
+      // them the legacy `digits * exp10(exp_ten)` path is already correctly
+      // rounded (both operands exact as doubles for digits <= 2^53; the rare
+      // |exp_ten| > 19 + large-digits case is the legacy 1-ULP path).
       if constexpr (cuda::std::is_same_v<T, double>) {
         bool const slow_path_eligible = (digits > (1ULL << 53)) && (cuda::std::abs(exp_ten) <= 19);
         if (slow_path_eligible) {
-          double const cr = correctly_rounded_uint64_times_pow10(digits, exp_ten, sign);
-          if (!cuda::std::isnan(cr)) {
-            _out[_row] = cr;
-            compute_validity(_valid, _except);
-            return;
-          }
+          _out[_row] = correctly_rounded_uint64_times_pow10(digits, exp_ten, sign);
+          compute_validity(_valid, _except);
+          return;
         }
       }
 

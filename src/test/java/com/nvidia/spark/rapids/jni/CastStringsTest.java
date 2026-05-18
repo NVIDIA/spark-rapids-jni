@@ -221,31 +221,38 @@ public class CastStringsTest {
   // After the correctly-rounded fallback was added, the GPU result must match
   // Java's Double.parseDouble (which falls back to BigDecimal for these).
   //
-  // Coverage groups:
-  //  - happy path: 17- to 19-digit mantissas across normal magnitudes
-  //  - the 2^53 trigger boundary (exactly at, one above, far above)
-  //  - mantissa rounding that overflows into the exponent
-  //  - overflow to +/-infinity past Double.MAX_VALUE
-  //  - subnormal magnitudes
-  //  - signs, halfway cases
-  //  - |q| > 19 fallback to the legacy path (digits chosen so the legacy
-  //    cast/multiply still matches Java for the cases listed)
+  // Coverage groups (helper-triggered unless noted):
+  //  - happy path: 17- to 19-digit mantissas across normal magnitudes (q <= 0)
+  //  - positive-exponent (q > 0) path with digits > 2^53
+  //  - the 2^53 trigger boundary (exactly at, one above)
+  //  - mantissa rounding that rolls into the exponent
+  //  - overflow to +/-infinity past Double.MAX_VALUE (caller's legacy path)
+  //  - subnormal magnitudes (caller's legacy path)
+  //  - signs
+  //  - |q| > 19 fallback to the legacy path
   @Test
   void castToDoubleHighPrecisionTest() {
     String[] inputs = new String[] {
-        // --- happy path (helper) ---
+        // --- happy path: helper, q <= 0 ---
         "1.7976931348623157",        // the literal that broke RapidsJsonSuite
         "9.9999999999999999",
         "1.0000000000000001",
         "1.0000000000000002",
         "3.1415926535897932",
         "2.7182818284590452",
-        "2.2250738585072014",        // ~Double.MIN_NORMAL
+        "2.2250738585072014",        // Double.MIN_NORMAL mantissa (no e-308 here)
         "1.234567890123456789",      // 19-digit mantissa
         "9.999999999999999999",
         "-1.7976931348623157",
         "1.5",
         "0.1",
+        // --- helper q > 0 path: 17-digit mantissa with explicit positive
+        // exponent. digits > 2^53 AND |exp_ten| <= 19, so slow_path_eligible
+        // is true and exp_ten is positive, exercising the
+        // `quotient128 = digits * 10^q` branch inside the helper.
+        "9007199254740993e10",
+        "12345678901234567e7",
+        "-9007199254740993e15",
         // --- 2^53 trigger boundary ---
         // digits = 2^53 exactly: helper NOT triggered (need strictly greater)
         "9007199254740992",
@@ -257,24 +264,21 @@ public class CastStringsTest {
         // After rounding, the 53-bit mantissa hits 2^53 and the helper
         // increments unbiased_exp.
         "9999999999999999.5",        // rounds to 1e16
-        // --- overflow to infinity ---
+        // --- overflow to infinity (caller's legacy path: digits ~ 1.8 fits
+        // in double exactly, exp10(308) overflow handled there) ---
         "1.8e308",                   // > Double.MAX_VALUE
         "-1.8e308",                  // negative infinity
-        // --- subnormal magnitudes ---
+        // --- subnormal magnitudes (caller's legacy path: small digits) ---
         "5e-324",                    // Double.MIN_VALUE (smallest subnormal)
         "1.5e-310",                  // mid-subnormal range
-        // --- |q| > 19, helper NOT triggered because digits <= 2^53 ---
-        // slow_path_eligible is already false in the caller, so the helper
-        // is never called for these. They keep the legacy `digits * exp10(q)`
-        // path honest (both operands exact, so already correctly rounded).
+        // --- |q| > 19 fallback to legacy ---
+        // slow_path_eligible is false (|exp_ten| > 19), so the helper is
+        // never called. Inputs span both small digits (legacy already exact)
+        // and large digits (legacy 1-ULP path is the documented limitation
+        // outside the helper's window).
         "1e20",
         "1e-100",
         "9.99e25",
-        // --- |q| > 19 AND digits > 2^53 -> helper IS called and returns NaN ---
-        // slow_path_eligible is true (digits > 2^53), abs_q > 19 so the
-        // helper hits its early NaN return, then the caller's
-        // `!cuda::std::isnan(cr)` fall-through exercises the legacy path.
-        // 12345678901234567 = 1.2345...e16 > 2^53 (9.007e15).
         "12345678901234567e21",       // q = +21, large magnitude
         "12345678901234567e-23",      // q = -23, tiny magnitude
         "99999999999999999e30"        // q = +30, near overflow-to-infinity
