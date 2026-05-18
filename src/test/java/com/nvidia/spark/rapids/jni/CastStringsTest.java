@@ -253,13 +253,29 @@ public class CastStringsTest {
         "9007199254740993e10",
         "12345678901234567e7",
         "-9007199254740993e15",
+        // --- helper |q| = 19 boundary: exact upper edge of the eligibility
+        // window (`cuda::std::abs(exp_ten) <= 19`). Tests both signs so a
+        // mutation from `<= 19` to `< 19` in the gate trips this case.
+        "9007199254740993e19",
+        "9007199254740993e-19",
         // --- 2^53 trigger boundary ---
-        // digits = 2^53 exactly: helper NOT triggered (need strictly greater)
+        // digits = 2^53 exactly: helper NOT triggered (need strictly greater).
+        // 2^53 is exactly representable as a double (IEEE 754 exponent 52,
+        // mantissa 0), so static_cast<double>(2^53) is lossless and the
+        // legacy path returns the correct value.
         "9007199254740992",
         // digits = 2^53 + 1: first input the helper handles
         "9007199254740993",
         // digits = 2^53 + 1 with q < 0 and >16 sig figs
         "9.007199254740993",
+        // --- tie-to-even rounds UP via the (mantissa & 1ULL) arm:
+        // round_bit=1, sticky=0, mantissa odd → `mantissa & 1ULL` adds 1.
+        // 9007199254740995 (2^53 + 3): shift=1, mantissa=4503599627370497
+        // (odd), round_bit=1, sticky=0 → rounds to 9007199254740996.0,
+        // matching Double.parseDouble's correctly-rounded result. Without
+        // this case the `mantissa & 1ULL` arm of the round-up condition is
+        // dead under the existing inputs.
+        "9007199254740995",
         // --- mantissa rounding rolls into the exponent ---
         // After rounding, the 53-bit mantissa hits 2^53 and the helper
         // increments unbiased_exp.
@@ -287,10 +303,21 @@ public class CastStringsTest {
     for (int i = 0; i < inputs.length; ++i) {
       expected[i] = Double.parseDouble(inputs[i]);
     }
+    // AssertUtils.assertColumnsAreEqual on FLOAT64 uses a 0.01% relative
+    // tolerance (CudfTestBase.assertEqualsWithinPercentage), which is ~13
+    // orders of magnitude looser than 1 ULP. Compare bit-for-bit instead so
+    // a 1-ULP regression in the correctly-rounded helper actually trips this
+    // regression test.
     try (ColumnVector in = ColumnVector.fromStrings(inputs);
          ColumnVector got = CastStrings.toFloat(in, false, DType.FLOAT64);
-         ColumnVector exp = ColumnVector.fromBoxedDoubles(expected)) {
-      AssertUtils.assertColumnsAreEqual(exp, got);
+         HostColumnVector hostGot = got.copyToHost()) {
+      for (int i = 0; i < inputs.length; i++) {
+        double actual = hostGot.getDouble(i);
+        assertEquals(Double.doubleToLongBits(expected[i]),
+                     Double.doubleToLongBits(actual),
+                     "row " + i + " input=" + inputs[i] +
+                     " expected=" + expected[i] + " actual=" + actual);
+      }
     }
   }
 

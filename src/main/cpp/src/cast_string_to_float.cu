@@ -28,12 +28,12 @@
 #include <rmm/resource_ref.hpp>
 
 #include <cub/warp/warp_reduce.cuh>
+#include <cuda/std/bit>
+#include <cuda/std/cassert>
 #include <cuda/std/cmath>
 #include <cuda/std/limits>
 #include <cuda/std/type_traits>
 #include <cuda/std/utility>
-
-#include <cassert>
 
 using namespace cudf;
 
@@ -63,7 +63,7 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   // Caller precondition: digits > 2^53, so digits cannot be 0.
   assert(digits > (1ULL << 53));
 
-  int const abs_q = q < 0 ? -q : q;
+  int const abs_q = cuda::std::abs(q);
   // Caller precondition: |q| <= 19, so abs_q is in [0, 19] and indexes k_pow10.
   assert(abs_q <= 19);
 
@@ -77,23 +77,23 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   static constexpr uint64_t k_pow10[20] = {1ULL,
                                            10ULL,
                                            100ULL,
-                                           1000ULL,
-                                           10000ULL,
-                                           100000ULL,
-                                           1000000ULL,
-                                           10000000ULL,
-                                           100000000ULL,
-                                           1000000000ULL,
-                                           10000000000ULL,
-                                           100000000000ULL,
-                                           1000000000000ULL,
-                                           10000000000000ULL,
-                                           100000000000000ULL,
-                                           1000000000000000ULL,
-                                           10000000000000000ULL,
-                                           100000000000000000ULL,
-                                           1000000000000000000ULL,
-                                           10000000000000000000ULL};
+                                           1'000ULL,
+                                           10'000ULL,
+                                           100'000ULL,
+                                           1'000'000ULL,
+                                           10'000'000ULL,
+                                           100'000'000ULL,
+                                           1'000'000'000ULL,
+                                           10'000'000'000ULL,
+                                           100'000'000'000ULL,
+                                           1'000'000'000'000ULL,
+                                           10'000'000'000'000ULL,
+                                           100'000'000'000'000ULL,
+                                           1'000'000'000'000'000ULL,
+                                           10'000'000'000'000'000ULL,
+                                           100'000'000'000'000'000ULL,
+                                           1'000'000'000'000'000'000ULL,
+                                           10'000'000'000'000'000'000ULL};
   uint64_t const pow10_abs_q            = k_pow10[abs_q];
 
   // Form `quotient128 * 2^binary_scale` exactly equal to `digits * 10^q`:
@@ -126,10 +126,14 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   uint64_t const q_hi = static_cast<uint64_t>(quotient128 >> 64);
   uint64_t const q_lo = static_cast<uint64_t>(quotient128);
 
-  // Caller precondition guarantees `quotient128 != 0` (q == 0 case has
-  // q_lo = digits > 2^53; q > 0 multiplies that further; q < 0 shifts left
-  // by 64 before dividing by a value <= 10^19 < 2^64, so q_hi != 0 here).
-  // The branch is just to choose the MSB-locator path.
+  // Caller precondition guarantees `quotient128 != 0` in every branch:
+  //   q == 0: q_lo = digits > 2^53.
+  //   q > 0:  digits * 10^q >= digits > 2^53 (so q_hi or q_lo is non-zero).
+  //   q < 0:  (digits << 64) / 10^|q| > 2^53 (since digits > 2^53 and
+  //           10^|q| <= 10^19 < 2^64, so the quotient exceeds 2^53).
+  // Either q_hi or q_lo may be the most-significant limb in the q < 0 case,
+  // depending on whether digits >= 10^|q|, so both MSB-locator branches
+  // below are reachable.
   int msb_pos;
   if (q_hi != 0) {
     msb_pos = 127 - __clzll(q_hi);
@@ -174,7 +178,7 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   uint64_t const mant_bits = rounded & ((1ULL << 52) - 1);
   uint64_t bits            = (static_cast<uint64_t>(biased_exp) << 52) | mant_bits;
   if (sign < 0) { bits |= (1ULL << 63); }
-  return __longlong_as_double(static_cast<long long>(bits));
+  return cuda::std::bit_cast<double>(bits);
 }
 
 /**
@@ -296,21 +300,18 @@ class string_to_float {
 
     // construct the final float value
     if (_warp_lane == 0) {
-      // base value
-      double digitsf = sign >= 0 ? static_cast<double>(digits) : -static_cast<double>(digits);
-
       // exponent
       int exp_ten = exp_base + manual_exp;
 
       // For double outputs, when the parsed mantissa exceeds 2^53 the
-      // static_cast<double>(digits) above already loses precision and the
-      // subsequent multiply by exp10 propagates that error (NVIDIA/spark-rapids#10773).
-      // For these inputs the helper performs a correctly-rounded conversion
-      // using 128-bit arithmetic. The helper's preconditions
-      // (digits > 2^53 AND |exp_ten| <= 19) are enforced by this gate; outside
-      // them the legacy `digits * exp10(exp_ten)` path is already correctly
-      // rounded (both operands exact as doubles for digits <= 2^53; the rare
-      // |exp_ten| > 19 + large-digits case is the legacy 1-ULP path).
+      // static_cast<double>(digits) used in the legacy path below already loses
+      // precision and the subsequent multiply by exp10 propagates that error
+      // (NVIDIA/spark-rapids#10773). For these inputs the helper performs a
+      // correctly-rounded conversion using 128-bit arithmetic. The helper's
+      // preconditions (digits > 2^53 AND |exp_ten| <= 19) are enforced by this
+      // gate; outside them the legacy `digits * exp10(exp_ten)` path is already
+      // correctly rounded (both operands exact as doubles for digits <= 2^53;
+      // the rare |exp_ten| > 19 + large-digits case is the legacy 1-ULP path).
       if constexpr (cuda::std::is_same_v<T, double>) {
         bool const slow_path_eligible = (digits > (1ULL << 53)) && (cuda::std::abs(exp_ten) <= 19);
         if (slow_path_eligible) {
@@ -319,6 +320,11 @@ class string_to_float {
           return;
         }
       }
+
+      // Legacy path: `static_cast<double>(digits)` is reached only when the
+      // slow-path gate above is false, which guarantees `digits <= 2^53` for T
+      // == double (or T is float). In both cases the cast is lossless.
+      double digitsf = sign >= 0 ? static_cast<double>(digits) : -static_cast<double>(digits);
 
       // final value
       if (exp_ten > cuda::std::numeric_limits<double>::max_exponent10) {

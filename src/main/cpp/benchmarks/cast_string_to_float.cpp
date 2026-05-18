@@ -21,6 +21,7 @@
 #include <cudf/strings/convert/convert_floats.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/error.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -29,9 +30,11 @@
 #include <cast_string.hpp>
 #include <nvbench/nvbench.cuh>
 
+#include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <random>
 #include <string>
 #include <utility>
@@ -76,7 +79,10 @@ parsed_decimal parse_for_trigger_gate(std::string const& s)
     if (c == 'e' || c == 'E') { break; }
     if (c < '0' || c > '9') { return out; }
     digits = digits * 10 + static_cast<uint64_t>(c - '0');
-    if (digits > UINT64_MAX) { return out; }
+    // Reject inputs whose accumulator no longer fits in uint64_t. `digits` is
+    // __uint128_t so this is a direct high-half check rather than a
+    // cross-width comparison.
+    if ((digits >> 64) != 0) { return out; }
     any_digit = true;
     if (seen_dot) { ++frac_digits; }
   }
@@ -186,6 +192,10 @@ packed_host_strings pack_host_strings(std::vector<std::string> const& strings)
   for (auto const& s : strings) {
     std::memcpy(out.chars.data() + pos, s.data(), s.size());
     pos += s.size();
+    // Guard the int32 cast — cudf strings columns currently use int32 offsets.
+    // If a future change bumps `num_rows` or string length past INT32_MAX,
+    // fail loudly here instead of silently truncating to a negative offset.
+    assert(pos <= static_cast<size_t>(std::numeric_limits<int32_t>::max()));
     out.offsets.push_back(static_cast<int32_t>(pos));
   }
   return out;
@@ -204,16 +214,16 @@ std::unique_ptr<cudf::column> string_column_from_host(std::vector<std::string> c
   auto const mr = cudf::get_current_device_resource_ref();
   rmm::device_uvector<char> d_chars(packed.chars.size(), stream, mr);
   rmm::device_uvector<int32_t> d_offsets(packed.offsets.size(), stream, mr);
-  cudaMemcpyAsync(d_chars.data(),
-                  packed.chars.data(),
-                  packed.chars.size(),
-                  cudaMemcpyHostToDevice,
-                  stream.value());
-  cudaMemcpyAsync(d_offsets.data(),
-                  packed.offsets.data(),
-                  packed.offsets.size() * sizeof(int32_t),
-                  cudaMemcpyHostToDevice,
-                  stream.value());
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_chars.data(),
+                                packed.chars.data(),
+                                packed.chars.size(),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_offsets.data(),
+                                packed.offsets.data(),
+                                packed.offsets.size() * sizeof(int32_t),
+                                cudaMemcpyHostToDevice,
+                                stream.value()));
   stream.synchronize();
 
   auto offsets_col = std::make_unique<cudf::column>(std::move(d_offsets), rmm::device_buffer{}, 0);
