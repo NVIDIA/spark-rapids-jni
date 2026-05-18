@@ -178,7 +178,9 @@ packed_host_strings pack_host_strings(std::vector<std::string> const& strings)
   out.offsets.reserve(strings.size() + 1);
   out.offsets.push_back(0);
   size_t total = 0;
-  for (auto const& s : strings) { total += s.size(); }
+  for (auto const& s : strings) {
+    total += s.size();
+  }
   out.chars.resize(total);
   size_t pos = 0;
   for (auto const& s : strings) {
@@ -193,7 +195,7 @@ packed_host_strings pack_host_strings(std::vector<std::string> const& strings)
 // pulling in cudf::cudftestutil (which isn't linked into benchmarks unless
 // BUILD_CUDF_TESTS=ON).
 std::unique_ptr<cudf::column> string_column_from_host(std::vector<std::string> const& strings,
-                                                     rmm::cuda_stream_view stream)
+                                                      rmm::cuda_stream_view stream)
 {
   auto const n = static_cast<cudf::size_type>(strings.size());
   if (n == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
@@ -214,8 +216,7 @@ std::unique_ptr<cudf::column> string_column_from_host(std::vector<std::string> c
                   stream.value());
   stream.synchronize();
 
-  auto offsets_col =
-    std::make_unique<cudf::column>(std::move(d_offsets), rmm::device_buffer{}, 0);
+  auto offsets_col = std::make_unique<cudf::column>(std::move(d_offsets), rmm::device_buffer{}, 0);
   return cudf::make_strings_column(
     n, std::move(offsets_col), d_chars.release(), 0, rmm::device_buffer{});
 }
@@ -261,9 +262,10 @@ void string_to_double_helper_off(nvbench::state& state)
   auto const float_col  = float_tbl->get_column(0);
   auto const string_col = cudf::strings::from_floats(float_col.view());
 
-  std::printf("[helper-trigger] string_to_double_helper_off: 0/%d rows triggered "
-              "(by construction — from_floats caps digits at ~10^10 < 2^53)\n",
-              static_cast<int>(n_rows));
+  std::printf(
+    "[helper-trigger] string_to_double_helper_off: 0/%d rows triggered "
+    "(by construction — from_floats caps digits at ~10^10 < 2^53)\n",
+    static_cast<int>(n_rows));
 
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     auto rows = spark_rapids_jni::string_to_float(cudf::data_type{cudf::type_id::FLOAT64},
