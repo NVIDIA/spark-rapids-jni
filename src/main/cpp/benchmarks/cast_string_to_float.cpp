@@ -32,7 +32,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <random>
@@ -41,109 +40,6 @@
 #include <vector>
 
 namespace {
-
-// Caller-side helper trigger gate (mirrors the device-side gate in
-// cast_string_to_float.cu): `slow_path_eligible = (digits > 2^53) AND
-// (|exp_ten| <= 19)`. Re-computed on the host from the same input strings so
-// each benchmark axis can print a verifiable trigger rate before timing,
-// instead of inferring it from input shape.
-struct parsed_decimal {
-  uint64_t digits;
-  int exp_ten;
-  bool parse_ok;
-};
-
-// Lightweight host-side decimal parser sufficient to evaluate the
-// `slow_path_eligible` predicate for our benchmark inputs (sign / leading
-// whitespace / NaN / Inf / hex etc. are not relevant for the inputs we
-// construct here and are not handled — that matches what the device parser
-// peels off before reaching the slow-path gate).
-parsed_decimal parse_for_trigger_gate(std::string const& s)
-{
-  parsed_decimal out{0, 0, false};
-  size_t i           = 0;
-  bool seen_dot      = false;
-  int frac_digits    = 0;
-  bool any_digit     = false;
-  __uint128_t digits = 0;
-
-  if (i < s.size() && (s[i] == '+' || s[i] == '-')) { ++i; }
-
-  for (; i < s.size(); ++i) {
-    char c = s[i];
-    if (c == '.') {
-      if (seen_dot) { return out; }
-      seen_dot = true;
-      continue;
-    }
-    if (c == 'e' || c == 'E') { break; }
-    if (c < '0' || c > '9') { return out; }
-    digits = digits * 10 + static_cast<uint64_t>(c - '0');
-    // Reject inputs whose accumulator no longer fits in uint64_t. `digits` is
-    // __uint128_t so this is a direct high-half check rather than a
-    // cross-width comparison.
-    if ((digits >> 64) != 0) { return out; }
-    any_digit = true;
-    if (seen_dot) { ++frac_digits; }
-  }
-  if (!any_digit) { return out; }
-
-  int manual_exp = 0;
-  if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
-    ++i;
-    bool exp_neg = false;
-    if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
-      exp_neg = (s[i] == '-');
-      ++i;
-    }
-    if (i >= s.size()) { return out; }
-    int e = 0;
-    for (; i < s.size(); ++i) {
-      char c = s[i];
-      if (c < '0' || c > '9') { return out; }
-      e = e * 10 + (c - '0');
-    }
-    manual_exp = exp_neg ? -e : e;
-  }
-
-  out.digits   = static_cast<uint64_t>(digits);
-  out.exp_ten  = manual_exp - frac_digits;
-  out.parse_ok = true;
-  return out;
-}
-
-// Print the share of rows that satisfy the helper's caller-side gate.
-// Run once per axis right before timing so the trigger rate is part of the
-// benchmark transcript and the perf numbers cannot be misread. `sample_cap`
-// is the maximum number of rows to inspect (the host parser is O(N) and we
-// don't want to pay it for 100M-row axes).
-void print_trigger_rate(std::vector<std::string> const& strings,
-                        char const* tag,
-                        size_t sample_cap = 1'000'000)
-{
-  size_t const inspect = std::min(strings.size(), sample_cap);
-  size_t triggered     = 0;
-  size_t parse_err     = 0;
-  for (size_t i = 0; i < inspect; ++i) {
-    auto const p = parse_for_trigger_gate(strings[i]);
-    if (!p.parse_ok) {
-      ++parse_err;
-      continue;
-    }
-    int const abs_q = p.exp_ten < 0 ? -p.exp_ten : p.exp_ten;
-    if (p.digits > (1ULL << 53) && abs_q <= 19) { ++triggered; }
-  }
-  double const pct =
-    inspect == 0 ? 0.0 : 100.0 * static_cast<double>(triggered) / static_cast<double>(inspect);
-  double const errpct =
-    inspect == 0 ? 0.0 : 100.0 * static_cast<double>(parse_err) / static_cast<double>(inspect);
-  std::printf("[helper-trigger] %s: %zu/%zu inspected = %.2f%% triggered (parse-err: %.2f%%)\n",
-              tag,
-              triggered,
-              inspect,
-              pct,
-              errpct);
-}
 
 // Construct host strings that all satisfy the helper's caller-side gate:
 // `digits > 2^53 AND |exp_ten| <= 19`. Random uint64 in [2^53+1, UINT64_MAX]
@@ -259,23 +155,17 @@ NVBENCH_BENCH(string_to_float)
 // produced by `cudf::strings::from_floats`, which caps significant digits at
 // 10 via `nine_digits = 10^9` in `dissect_value` (cudf
 // `convert_floats.cu:134`), so the parsed mantissa is at most ~10^10 — well
-// below 2^53 (~9.007e15). The caller's `slow_path_eligible` is `false` for
-// every row and the legacy `digits * exp10(exp_ten)` path runs. The trigger
-// rate is not host-verified here (avoids reading the device output back to
-// the host); instead it is asserted statically by `from_floats`'s contract.
-// This is the regression-check baseline: cost on the FP64 path WITHOUT the
-// new helper.
+// below 2^53 (~9.007e15). The caller's `use_high_precision_path` is `false` for
+// every row and the default `digits * exp10(exp_ten)` path runs. The trigger
+// rate is asserted statically by `from_floats`'s contract (no host-side
+// re-parse needed). This is the regression-check baseline: cost on the FP64
+// path WITHOUT the new helper.
 void string_to_double_helper_off(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
   auto const float_tbl  = create_random_table({cudf::type_id::FLOAT64}, row_count{n_rows});
   auto const float_col  = float_tbl->get_column(0);
   auto const string_col = cudf::strings::from_floats(float_col.view());
-
-  std::printf(
-    "[helper-trigger] string_to_double_helper_off: 0/%d rows triggered "
-    "(by construction — from_floats caps digits at ~10^10 < 2^53)\n",
-    static_cast<int>(n_rows));
 
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     auto rows = spark_rapids_jni::string_to_float(cudf::data_type{cudf::type_id::FLOAT64},
@@ -292,17 +182,14 @@ NVBENCH_BENCH(string_to_double_helper_off)
 // FP64 cast where the correctly-rounded helper IS entered for every row.
 // Strings are hand-built on the host so the parsed mantissa is always
 // `> 2^53` and the explicit exponent is always in `[-19, 19]`, guaranteeing
-// the caller's `slow_path_eligible` predicate is `true` for every row. A
-// host-side re-parse over a sample prints the actual trigger rate before
-// timing. This measures the worst case: every row pays the int128 helper
-// cost.
+// the caller's `use_high_precision_path` predicate is `true` for every row.
+// This measures the worst case: every row pays the int128 helper cost.
 void string_to_double_helper_on(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
   auto const host_strings = make_helper_triggering_strings(n_rows);
-  print_trigger_rate(host_strings, "string_to_double_helper_on");
-  auto const stream     = cudf::get_default_stream();
-  auto const string_col = string_column_from_host(host_strings, stream);
+  auto const stream       = cudf::get_default_stream();
+  auto const string_col   = string_column_from_host(host_strings, stream);
 
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     auto rows = spark_rapids_jni::string_to_float(
