@@ -268,6 +268,7 @@ add_library(
   src/map_zip_with_utils.cu
   src/multiply.cu
   src/number_converter.cu
+  src/parse_timestamp_with_format.cu
   src/parse_uri.cu
   src/protobuf/protobuf.cu
   src/protobuf/protobuf_builders.cu
