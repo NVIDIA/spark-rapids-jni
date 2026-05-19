@@ -518,103 +518,201 @@ __device__ static int32_t get_transition_index(int64_t const* begin,
 }
 
 /**
- * @brief Find the relative offset when moving between timezones at a particular point in time.
- * This is for ORC timezone support.
+ * @brief Convert a timestamp between ORC writer and reader timezones.
  *
- * This function implements `org.apache.orc.impl.SerializationUtils.convertBetweenTimezones`
- * Refer to link: https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/
- * java/org/apache/orc/impl/SerializationUtils.java#L1440
+ * Implements org.apache.orc.impl.SerializationUtils.convertBetweenTimezones.
  *
- * If the input `trans_begin` == `trans_begin` == nullptr, it means the timezone is fixed offset,
- * then use the raw_offset directly.
+ * Optimized for common cases:
+ * - Fixed-offset reader (e.g. UTC): skip all reader lookups, use constant offset.
+ * - Fixed-offset writer: skip writer lookups.
+ *
+ * @param writer_fixed,reader_fixed precomputed by the host since they depend
+ *        only on per-call inputs (transition table size and DST presence),
+ *        letting the per-row path skip the equality/has-DST check entirely.
  */
 __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   cudf::timestamp_us ts,
+  int64_t base_offset_us,
+  bool writer_fixed,
   int64_t const* writer_trans_begin,
   int64_t const* writer_trans_end,
   int32_t const* writer_offsets_begin,
-  int32_t const* writer_offsets_end,
+  int32_t writer_initial_offset,
   int32_t writer_raw_offset,
+  spark_rapids_jni::dst_rule const& writer_dst,
+  bool reader_fixed,
   int64_t const* reader_trans_begin,
   int64_t const* reader_trans_end,
   int32_t const* reader_offsets_begin,
-  int32_t const* reader_offsets_end,
-  int32_t reader_raw_offset)
+  int32_t reader_initial_offset,
+  int32_t reader_raw_offset,
+  spark_rapids_jni::dst_rule const& reader_dst)
 {
   constexpr int64_t MICROS_PER_MILLI = 1000L;
 
-  int64_t const epoch_millis = static_cast<int64_t>(
-    cuda::std::chrono::duration_cast<cudf::duration_ms>(ts.time_since_epoch()).count());
+  int64_t const adjusted_us =
+    static_cast<int64_t>(
+      cuda::std::chrono::duration_cast<cudf::duration_us>(ts.time_since_epoch()).count()) -
+    base_offset_us;
 
-  int32_t writer_offset_millis = get_transition_index(writer_trans_begin,
-                                                      writer_trans_end,
-                                                      epoch_millis,
-                                                      writer_offsets_begin,
-                                                      writer_offsets_end,
-                                                      writer_raw_offset);
+  // Floor-divide to get epoch millis (handles negative timestamps correctly)
+  int64_t const epoch_millis =
+    (adjusted_us >= 0) ? adjusted_us / MICROS_PER_MILLI : (adjusted_us - 999) / MICROS_PER_MILLI;
 
-  int32_t reader_offset_millis = get_transition_index(reader_trans_begin,
-                                                      reader_trans_end,
-                                                      epoch_millis,
-                                                      reader_offsets_begin,
-                                                      reader_offsets_end,
-                                                      reader_raw_offset);
+  int32_t writer_offset_millis = writer_fixed ? writer_raw_offset
+                                              : get_transition_index(writer_trans_begin,
+                                                                     writer_trans_end,
+                                                                     epoch_millis,
+                                                                     writer_offsets_begin,
+                                                                     writer_initial_offset,
+                                                                     writer_raw_offset,
+                                                                     writer_dst);
 
-  int64_t adjusted_milliseconds    = epoch_millis + (writer_offset_millis - reader_offset_millis);
-  int const reader_adjusted_offset = get_transition_index(reader_trans_begin,
-                                                          reader_trans_end,
-                                                          adjusted_milliseconds,
-                                                          reader_offsets_begin,
-                                                          reader_offsets_end,
-                                                          reader_raw_offset);
+  int32_t reader_offset_millis = reader_fixed ? reader_raw_offset
+                                              : get_transition_index(reader_trans_begin,
+                                                                     reader_trans_end,
+                                                                     epoch_millis,
+                                                                     reader_offsets_begin,
+                                                                     reader_initial_offset,
+                                                                     reader_raw_offset,
+                                                                     reader_dst);
+
+  int64_t adjusted_milliseconds = epoch_millis + (writer_offset_millis - reader_offset_millis);
+
+  int32_t reader_adjusted_offset = reader_fixed ? reader_raw_offset
+                                                : get_transition_index(reader_trans_begin,
+                                                                       reader_trans_end,
+                                                                       adjusted_milliseconds,
+                                                                       reader_offsets_begin,
+                                                                       reader_initial_offset,
+                                                                       reader_raw_offset,
+                                                                       reader_dst);
 
   int32_t final_offset_millis = writer_offset_millis - reader_adjusted_offset;
-  int64_t const epoch_us      = static_cast<int64_t>(
-    cuda::std::chrono::duration_cast<cudf::duration_us>(ts.time_since_epoch()).count());
-  int64_t final_result = epoch_us + static_cast<int64_t>(final_offset_millis) * MICROS_PER_MILLI;
+  int64_t final_result = adjusted_us + static_cast<int64_t>(final_offset_millis) * MICROS_PER_MILLI;
   return cudf::timestamp_us{cudf::duration_us{final_result}};
 }
 
-struct convert_timezones_functor {
-  // writer timezone info
-  int64_t const* writer_trans_begin;
-  int64_t const* writer_trans_end;
-  int32_t const* writer_offsets_begin;
-  int32_t const* writer_offsets_end;
-  int32_t writer_raw_offset;
+// Max transition entries per timezone that can be loaded into shared memory.
+// Each entry = 8 bytes (transition) + 4 bytes (offset) = 12 bytes.
+// With writer + reader at max: 2 * 512 * 12 = 12KB, well within 48KB limit.
+constexpr int32_t MAX_SMEM_TRANSITIONS  = 512;
+constexpr int32_t CONVERT_TZ_BLOCK_SIZE = 256;
 
-  // reader timezone info
-  int64_t const* reader_trans_begin;
-  int64_t const* reader_trans_end;
-  int32_t const* reader_offsets_begin;
-  int32_t const* reader_offsets_end;
-  int32_t reader_raw_offset;
+__global__ void convert_timezones_kernel(cudf::timestamp_us const* __restrict__ input,
+                                         cudf::bitmask_type const* __restrict__ null_mask,
+                                         cudf::timestamp_us* __restrict__ output,
+                                         cudf::size_type num_rows,
+                                         int64_t base_offset_us,
+                                         bool writer_fixed,
+                                         int64_t const* __restrict__ g_writer_trans,
+                                         int32_t const* __restrict__ g_writer_offsets,
+                                         int32_t writer_trans_count,
+                                         int32_t writer_initial_offset,
+                                         int32_t writer_raw_offset,
+                                         spark_rapids_jni::dst_rule writer_dst,
+                                         bool reader_fixed,
+                                         int64_t const* __restrict__ g_reader_trans,
+                                         int32_t const* __restrict__ g_reader_offsets,
+                                         int32_t reader_trans_count,
+                                         int32_t reader_initial_offset,
+                                         int32_t reader_raw_offset,
+                                         spark_rapids_jni::dst_rule reader_dst)
+{
+  // Shared memory layout: writer transitions, writer offsets, reader transitions, reader offsets
+  extern __shared__ char smem[];
 
-  __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp) const
-  {
-    return convert_timestamp_between_timezones(timestamp,
-                                               writer_trans_begin,
-                                               writer_trans_end,
-                                               writer_offsets_begin,
-                                               writer_offsets_end,
-                                               writer_raw_offset,
-                                               reader_trans_begin,
-                                               reader_trans_end,
-                                               reader_offsets_begin,
-                                               reader_offsets_end,
-                                               reader_raw_offset);
+  bool const writer_fits = writer_trans_count <= MAX_SMEM_TRANSITIONS;
+  bool const reader_fits = reader_trans_count <= MAX_SMEM_TRANSITIONS;
+
+  int64_t* s_writer_trans   = nullptr;
+  int32_t* s_writer_offsets = nullptr;
+  int64_t* s_reader_trans   = nullptr;
+  int32_t* s_reader_offsets = nullptr;
+
+  auto align_up = [](char* p, size_t alignment) -> char* {
+    auto addr = reinterpret_cast<uintptr_t>(p);
+    return reinterpret_cast<char*>((addr + alignment - 1) & ~(alignment - 1));
+  };
+
+  char* ptr = smem;
+  if (writer_fits && writer_trans_count > 0) {
+    s_writer_trans = reinterpret_cast<int64_t*>(ptr);
+    ptr += writer_trans_count * sizeof(int64_t);
+    s_writer_offsets = reinterpret_cast<int32_t*>(ptr);
+    ptr += writer_trans_count * sizeof(int32_t);
   }
-};
+  if (reader_fits && reader_trans_count > 0) {
+    ptr            = align_up(ptr, alignof(int64_t));
+    s_reader_trans = reinterpret_cast<int64_t*>(ptr);
+    ptr += reader_trans_count * sizeof(int64_t);
+    s_reader_offsets = reinterpret_cast<int32_t*>(ptr);
+  }
+
+  // Cooperatively load transition tables into shared memory
+  for (int32_t i = threadIdx.x; i < writer_trans_count && writer_fits; i += blockDim.x) {
+    s_writer_trans[i]   = g_writer_trans[i];
+    s_writer_offsets[i] = g_writer_offsets[i];
+  }
+  for (int32_t i = threadIdx.x; i < reader_trans_count && reader_fits; i += blockDim.x) {
+    s_reader_trans[i]   = g_reader_trans[i];
+    s_reader_offsets[i] = g_reader_offsets[i];
+  }
+  __syncthreads();
+
+  int64_t const* wt_begin = writer_fits ? s_writer_trans : g_writer_trans;
+  int64_t const* wt_end   = wt_begin ? wt_begin + writer_trans_count : nullptr;
+  int32_t const* wo_begin = writer_fits ? s_writer_offsets : g_writer_offsets;
+
+  int64_t const* rt_begin = reader_fits ? s_reader_trans : g_reader_trans;
+  int64_t const* rt_end   = rt_begin ? rt_begin + reader_trans_count : nullptr;
+  int32_t const* ro_begin = reader_fits ? s_reader_offsets : g_reader_offsets;
+
+  // Handle null transition tables (fixed-offset timezones use nullptr)
+  if (!g_writer_trans) {
+    wt_begin = wt_end = nullptr;
+    wo_begin          = nullptr;
+  }
+  if (!g_reader_trans) {
+    rt_begin = rt_end = nullptr;
+    ro_begin          = nullptr;
+  }
+
+  cudf::size_type idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < num_rows) {
+    if (null_mask && !cudf::bit_is_set(null_mask, idx)) { return; }
+    output[idx] = convert_timestamp_between_timezones(input[idx],
+                                                      base_offset_us,
+                                                      writer_fixed,
+                                                      wt_begin,
+                                                      wt_end,
+                                                      wo_begin,
+                                                      writer_initial_offset,
+                                                      writer_raw_offset,
+                                                      writer_dst,
+                                                      reader_fixed,
+                                                      rt_begin,
+                                                      rt_end,
+                                                      ro_begin,
+                                                      reader_initial_offset,
+                                                      reader_raw_offset,
+                                                      reader_dst);
+  }
+}
 
 std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
+                                          int64_t base_offset_us,
                                           cudf::table_view const* writer_tz_info_table,
+                                          cudf::size_type writer_initial_offset,
                                           cudf::size_type writer_raw_offset,
+                                          spark_rapids_jni::dst_rule writer_dst,
                                           cudf::table_view const* reader_tz_info_table,
+                                          cudf::size_type reader_initial_offset,
                                           cudf::size_type reader_raw_offset,
+                                          spark_rapids_jni::dst_rule reader_dst,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
 {
-  // Input is from Spark, so it should be TIMESTAMP_MICROSECONDS type
   CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
                "Input column must be of type TIMESTAMP_MICROSECONDS");
   auto results = cudf::make_timestamp_column(input.type(),
@@ -624,92 +722,58 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
                                              stream,
                                              mr);
 
-  int64_t const* writer_trans_begin = [&]() {
-    if (writer_tz_info_table != nullptr) {
-      return writer_tz_info_table->column(0).begin<int64_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int64_t const*>(0);
-    }
-  }();
+  if (input.size() == 0) { return results; }
 
-  int64_t const* writer_trans_end = [&]() {
-    if (writer_tz_info_table != nullptr) {
-      return writer_tz_info_table->column(0).end<int64_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int64_t const*>(0);
-    }
-  }();
+  int64_t const* writer_trans_ptr =
+    writer_tz_info_table ? writer_tz_info_table->column(0).begin<int64_t>() : nullptr;
+  int32_t const* writer_offsets_ptr =
+    writer_tz_info_table ? writer_tz_info_table->column(1).begin<int32_t>() : nullptr;
+  int32_t writer_trans_count = writer_tz_info_table ? writer_tz_info_table->column(0).size() : 0;
 
-  int32_t const* writer_offsets_begin = [&]() {
-    if (writer_tz_info_table != nullptr) {
-      return writer_tz_info_table->column(1).begin<int32_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int32_t const*>(0);
-    }
-  }();
+  int64_t const* reader_trans_ptr =
+    reader_tz_info_table ? reader_tz_info_table->column(0).begin<int64_t>() : nullptr;
+  int32_t const* reader_offsets_ptr =
+    reader_tz_info_table ? reader_tz_info_table->column(1).begin<int32_t>() : nullptr;
+  int32_t reader_trans_count = reader_tz_info_table ? reader_tz_info_table->column(0).size() : 0;
 
-  int32_t const* writer_offsets_end = [&]() {
-    if (writer_tz_info_table != nullptr) {
-      return writer_tz_info_table->column(1).end<int32_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int32_t const*>(0);
-    }
-  }();
+  size_t smem_bytes = 0;
+  if (writer_trans_count > 0 && writer_trans_count <= MAX_SMEM_TRANSITIONS) {
+    smem_bytes += writer_trans_count * (sizeof(int64_t) + sizeof(int32_t));
+  }
+  if (reader_trans_count > 0 && reader_trans_count <= MAX_SMEM_TRANSITIONS) {
+    // Alignment padding between writer offsets (int32_t) and reader transitions (int64_t)
+    smem_bytes = (smem_bytes + alignof(int64_t) - 1) & ~(alignof(int64_t) - 1);
+    smem_bytes += reader_trans_count * (sizeof(int64_t) + sizeof(int32_t));
+  }
 
-  int64_t const* reader_trans_begin = [&]() {
-    if (reader_tz_info_table != nullptr) {
-      return reader_tz_info_table->column(0).begin<int64_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int64_t const*>(0);
-    }
-  }();
+  int32_t num_blocks = (input.size() + CONVERT_TZ_BLOCK_SIZE - 1) / CONVERT_TZ_BLOCK_SIZE;
 
-  int64_t const* reader_trans_end = [&]() {
-    if (reader_tz_info_table != nullptr) {
-      return reader_tz_info_table->column(0).end<int64_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int64_t const*>(0);
-    }
-  }();
+  // Fixed-offset (no transitions and no DST) is a per-call property, so resolve
+  // it on the host and pass the bools through; the per-row path can then skip
+  // the redundant check.
+  bool const writer_fixed = (writer_trans_count == 0) && !writer_dst.has_dst;
+  bool const reader_fixed = (reader_trans_count == 0) && !reader_dst.has_dst;
 
-  int32_t const* reader_offsets_begin = [&]() {
-    if (reader_tz_info_table != nullptr) {
-      return reader_tz_info_table->column(1).begin<int32_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int32_t const*>(0);
-    }
-  }();
-
-  int32_t const* reader_offsets_end = [&]() {
-    if (reader_tz_info_table != nullptr) {
-      return reader_tz_info_table->column(1).end<int32_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int32_t const*>(0);
-    }
-  }();
-
-  thrust::transform(rmm::exec_policy_nosync(stream),
-                    input.begin<cudf::timestamp_us>(),
-                    input.end<cudf::timestamp_us>(),
-                    results->mutable_view().begin<cudf::timestamp_us>(),
-                    convert_timezones_functor{writer_trans_begin,
-                                              writer_trans_end,
-                                              writer_offsets_begin,
-                                              writer_offsets_end,
-                                              writer_raw_offset,
-                                              reader_trans_begin,
-                                              reader_trans_end,
-                                              reader_offsets_begin,
-                                              reader_offsets_end,
-                                              reader_raw_offset});
+  convert_timezones_kernel<<<num_blocks, CONVERT_TZ_BLOCK_SIZE, smem_bytes, stream.value()>>>(
+    input.begin<cudf::timestamp_us>(),
+    input.null_mask(),
+    results->mutable_view().begin<cudf::timestamp_us>(),
+    input.size(),
+    base_offset_us,
+    writer_fixed,
+    writer_trans_ptr,
+    writer_offsets_ptr,
+    writer_trans_count,
+    static_cast<int32_t>(writer_initial_offset),
+    writer_raw_offset,
+    writer_dst,
+    reader_fixed,
+    reader_trans_ptr,
+    reader_offsets_ptr,
+    reader_trans_count,
+    static_cast<int32_t>(reader_initial_offset),
+    reader_raw_offset,
+    reader_dst);
 
   return results;
 }
@@ -790,18 +854,28 @@ std::unique_ptr<column> convert_timestamp_to_utc(column_view const& input_second
 
 std::unique_ptr<cudf::column> convert_orc_writer_reader_timezones(
   cudf::column_view const& input,
+  int64_t base_offset_us,
   cudf::table_view const* writer_tz_info_table,
+  cudf::size_type writer_initial_offset,
   cudf::size_type writer_raw_offset,
+  dst_rule writer_dst,
   cudf::table_view const* reader_tz_info_table,
+  cudf::size_type reader_initial_offset,
   cudf::size_type reader_raw_offset,
+  dst_rule reader_dst,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   return convert_timezones(input,
+                           base_offset_us,
                            writer_tz_info_table,
+                           writer_initial_offset,
                            writer_raw_offset,
+                           writer_dst,
                            reader_tz_info_table,
+                           reader_initial_offset,
                            reader_raw_offset,
+                           reader_dst,
                            stream,
                            mr);
 }
