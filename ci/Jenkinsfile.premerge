@@ -31,7 +31,7 @@ import ipp.blossom.*
 def githubHelper // blossom github helper
 def TEMP_IMAGE_BUILD = true
 def IMAGE_PREMERGE_CU12 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.9.1-blossom"
-def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.1.0-blossom"
+def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.2.1-blossom"
 def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE_CU12)
 def PREMERGE_DOCKERFILE = 'ci/Dockerfile'
 def PREMERGE_TAG_CU12
@@ -71,7 +71,8 @@ pipeline {
         GITHUB_TOKEN = credentials("github-token")
 
         ART_URL = "https://${common.ARTIFACTORY_NAME}/artifactory/sw-spark-maven"
-        MVN_MIRROR = '-s ci/settings.xml -P mirror-apache-to-urm'
+        MVN_SETTINGS = 'ci/settings.xml'
+        MVN_MIRROR = '-P mirror-apache-to-urm'
         ART_CREDS = credentials("urm_creds")
         ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME}"
 
@@ -164,7 +165,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                                 "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU12 .")
                             uploadDocker(IMAGE_PREMERGE_CU12)
                             docker.build(IMAGE_PREMERGE_CU13,
-                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 --build-arg CUDA_VERSION=13.1.0 .")
+                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 --build-arg CUDA_VERSION=13.2.1 .")
                             uploadDocker(IMAGE_PREMERGE_CU13)
                         }
                     }
@@ -184,7 +185,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                     unstash "source_tree"
                     container('cpu') {
                         // Retrieve PROJECT_VER from pom
-                        PROJECT_VER = sh(returnStdout: true, script: "mvn help:evaluate -q " +
+                        PROJECT_VER = sh(returnStdout: true, script: "mvn -s ${MVN_SETTINGS} help:evaluate -q " +
                             "-Dexpression=project.version -DforceStdout | cut -d'.' -f1,2")
                         echo PROJECT_VER
                     }
@@ -246,7 +247,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
 
                 stage ('cuda13') {
                     options {
-                        lock(label: "${params.GPU_POOL}", quantity: 1, variable: 'GPU_RESOURCE')
+                        lock(label: "cuda13", quantity: 1, variable: 'GPU_RESOURCE')
                     }
                     agent {
                         kubernetes {

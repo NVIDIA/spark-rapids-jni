@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,8 @@
 #include <row_conversion.hpp>
 #include <utilities/iterator.cuh>
 
+#include <cstddef>
+#include <cstring>
 #include <limits>
 #include <random>
 
@@ -434,6 +436,64 @@ TEST_F(ColumnToRowTests, Biggest)
     }
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
+  }
+}
+
+// Regression test for https://github.com/NVIDIA/spark-rapids/issues/10062.
+//
+// AcceleratedColumnarToRowIterator packs columns by size descending, so a
+// pivot-shaped schema of N INT64 columns plus one INT32 places the INT32
+// last. Choosing N so that the INT32 is the column that tips the estimated
+// shmem usage in detail::determine_tiles over the per-tile budget is what
+// triggers the bug: the tile containing only that column is never emitted,
+// leaving the column's output bytes at whatever rmm::device_buffer handed
+// back. With the 48 KB default shmem budget and tile_height = 32, 191 Longs
+// fit in one tile (1528 * 32 = 48896 <= 49136) and adding the trailing INT32
+// tips the estimate to 1536 * 32 = 49152 > 49136.
+//
+// We check the trailing INT32 directly against the raw JCUDF bytes rather
+// than round-tripping through convert_from_rows, which would mask the bug by
+// using the same layout code on the read side.
+TEST_F(ColumnToRowTests, PivotLikeLayout)
+{
+  constexpr int num_longs = 191;
+  constexpr int num_rows  = 100;
+
+  std::vector<int64_t> long_data(num_rows, 0);
+  std::vector<int32_t> int_data(num_rows);
+  for (int r = 0; r < num_rows; ++r) {
+    int_data[r] = 0x11223344 + r;
+  }
+
+  std::vector<cudf::test::fixed_width_column_wrapper<int64_t>> long_cols;
+  long_cols.reserve(num_longs);
+  for (int i = 0; i < num_longs; ++i) {
+    long_cols.emplace_back(long_data.begin(), long_data.end());
+  }
+  cudf::test::fixed_width_column_wrapper<int32_t> int_col(int_data.begin(), int_data.end());
+
+  std::vector<cudf::column_view> views;
+  views.reserve(num_longs + 1);
+  for (auto& c : long_cols) {
+    views.emplace_back(c);
+  }
+  views.emplace_back(int_col);
+
+  auto rows = spark_rapids_jni::convert_to_rows(cudf::table_view(views));
+  ASSERT_EQ(rows.size(), 1u);
+
+  // JCUDF row layout: [Longs][INT32][validity bits][pad to 8B].
+  constexpr std::size_t int_offset     = static_cast<std::size_t>(num_longs) * sizeof(int64_t);
+  constexpr std::size_t data_end       = int_offset + sizeof(int32_t);
+  constexpr std::size_t validity_bytes = (num_longs + 1 + 7) / 8;
+  constexpr std::size_t row_stride     = (data_end + validity_bytes + 7) & ~std::size_t{7};
+
+  auto host_bytes = cudf::test::to_host<int8_t>(cudf::lists_column_view(*rows[0]).child()).first;
+  ASSERT_GE(host_bytes.size(), row_stride * num_rows);
+  for (int r = 0; r < num_rows; ++r) {
+    int32_t actual = 0;
+    std::memcpy(&actual, host_bytes.data() + r * row_stride + int_offset, sizeof(int32_t));
+    EXPECT_EQ(actual, int_data[r]) << "row " << r;
   }
 }
 

@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.0 FATAL_ERROR)
 
 # CUDF_DIR is set from the environment variable, allowing to specify
 # a custom cudf repository other than `thirdparty/cudf`.
@@ -44,7 +44,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 26.06.00
+  VERSION 26.08.00
   LANGUAGES CXX CUDA
 )
 
@@ -140,6 +140,15 @@ else()
   rapids_find_package(cudf REQUIRED)
 endif()
 
+# cuCollections
+# As of rapidsai/cudf PR #22277 (commit 5a375a3417ef70c55564bd0c4c6255a2da5dca49), libcudf
+# wraps its `cuco::cuco` link with `$<BUILD_LOCAL_INTERFACE:...>`, so the cuco headers are no
+# longer transitively exposed to downstream consumers via `find_package(cudf)`. Several
+# spark-rapids-jni sources (e.g. the hash kernels) include cudf detail headers that pull in
+# `<cuco/hash_functions.cuh>`, so we need to fetch cuco ourselves.
+include(${rapids-cmake-dir}/cpm/cuco.cmake)
+rapids_cpm_cuco()
+
 # Get the compilation flags and definitions from cudf.
 get_target_property(CUDF_CXX_FLAGS cudf::cudf CUDF_CXX_FLAGS)
 get_target_property(CUDF_CUDA_FLAGS cudf::cudf CUDF_CUDA_FLAGS)
@@ -203,6 +212,7 @@ add_library(
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
   src/MapJni.cpp
+  src/MapUtilsJni.cpp
   src/MapZipWithUtilsJNI.cpp
   src/JoinPrimitivesJni.cpp
   src/NativeParquetJni.cpp
@@ -255,9 +265,11 @@ add_library(
   src/join_primitives.cu
   src/list_slice.cu
   src/map.cu
+  src/map_utils.cu
   src/map_zip_with_utils.cu
   src/multiply.cu
   src/number_converter.cu
+  src/parse_timestamp_with_format.cu
   src/parse_uri.cu
   src/protobuf/protobuf.cu
   src/protobuf/protobuf_builders.cu
@@ -322,6 +334,7 @@ target_link_libraries(
     cudf::cudf
     nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
+    cuco::cuco
     spdlog::spdlog_header_only
     ${ARROW_LIB}
     ${PARQUET_LIB}

@@ -1,5 +1,5 @@
 #=============================================================================
-# Copyright (c) 2022-2025, NVIDIA CORPORATION.
+# Copyright (c) 2022-2026, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -107,11 +107,17 @@ ConfigureTest(UTILITIES
 ConfigureTest(PARSE_URI
     parse_uri.cpp)
 
+ConfigureTest(PROTOBUF_HELPERS
+    protobuf_helpers.cu)
+
 ConfigureTest(LIST_SLICE
     list_slice.cpp)
 
 ConfigureTest(MAP_ZIP_WITH
     map_zip_with_utils.cpp)
+
+ConfigureTest(MAP_UTILS
+    map_utils.cpp)
 
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
