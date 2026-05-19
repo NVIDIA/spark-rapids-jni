@@ -38,11 +38,12 @@ namespace {
 class pretouched_pageable_host_memory_resource final : public rmm::mr::device_memory_resource {
  public:
   explicit pretouched_pageable_host_memory_resource(int pretouch_threads)
-      : pretouch_threads_{pretouch_threads}
+    : pretouch_threads_{pretouch_threads}
   {
   }
 
-  pretouched_pageable_host_memory_resource(pretouched_pageable_host_memory_resource const&) = delete;
+  pretouched_pageable_host_memory_resource(pretouched_pageable_host_memory_resource const&) =
+    delete;
   pretouched_pageable_host_memory_resource& operator=(
     pretouched_pageable_host_memory_resource const&) = delete;
 
@@ -55,7 +56,7 @@ class pretouched_pageable_host_memory_resource final : public rmm::mr::device_me
   {
     if (bytes == 0) return nullptr;
     void* ptr = nullptr;
-    int rc   = ::posix_memalign(&ptr, alignment_, bytes);
+    int rc    = ::posix_memalign(&ptr, alignment_, bytes);
     if (rc != 0 || ptr == nullptr) { RMM_FAIL("posix_memalign failed", rmm::out_of_memory); }
     pretouch_parallel(ptr, bytes);
     return ptr;
@@ -87,10 +88,12 @@ class pretouched_pageable_host_memory_resource final : public rmm::mr::device_me
       std::size_t end = std::min(off + per, bytes);
       ts.emplace_back([base, off, end]() {
         auto* c = static_cast<volatile char*>(base);
-        for (std::size_t k = off; k < end; k += page_size_) c[k] = 0;
+        for (std::size_t k = off; k < end; k += page_size_)
+          c[k] = 0;
       });
     }
-    for (auto& t : ts) t.join();
+    for (auto& t : ts)
+      t.join();
   }
 
   friend void get_property(pretouched_pageable_host_memory_resource const&,
@@ -100,34 +103,25 @@ class pretouched_pageable_host_memory_resource final : public rmm::mr::device_me
 };
 }  // namespace
 
-using rmm_pageable_pool_t =
-  rmm::mr::pool_memory_resource<pretouched_pageable_host_memory_resource>;
+using rmm_pageable_pool_t = rmm::mr::pool_memory_resource<pretouched_pageable_host_memory_resource>;
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL
-Java_ai_rapids_cudf_PageableMemoryPool_newPageablePoolMemoryResource(JNIEnv* env,
-                                                                      jclass clazz,
-                                                                      jlong init,
-                                                                      jlong max,
-                                                                      jint pretouch_threads)
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_PageableMemoryPool_newPageablePoolMemoryResource(
+  JNIEnv* env, jclass clazz, jlong init, jlong max, jint pretouch_threads)
 {
   JNI_TRY
   {
     cudf::jni::auto_set_device(env);
     auto pool = new rmm_pageable_pool_t(
-      new pretouched_pageable_host_memory_resource(static_cast<int>(pretouch_threads)),
-      init,
-      max);
+      new pretouched_pageable_host_memory_resource(static_cast<int>(pretouch_threads)), init, max);
     return reinterpret_cast<jlong>(pool);
   }
   JNI_CATCH(env, 0);
 }
 
-JNIEXPORT void JNICALL
-Java_ai_rapids_cudf_PageableMemoryPool_releasePageablePoolMemoryResource(JNIEnv* env,
-                                                                          jclass clazz,
-                                                                          jlong pool_ptr)
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_PageableMemoryPool_releasePageablePoolMemoryResource(
+  JNIEnv* env, jclass clazz, jlong pool_ptr)
 {
   JNI_TRY
   {
@@ -137,11 +131,10 @@ Java_ai_rapids_cudf_PageableMemoryPool_releasePageablePoolMemoryResource(JNIEnv*
   JNI_CATCH(env, );
 }
 
-JNIEXPORT jlong JNICALL
-Java_ai_rapids_cudf_PageableMemoryPool_allocFromPageablePool(JNIEnv* env,
-                                                              jclass clazz,
-                                                              jlong pool_ptr,
-                                                              jlong size)
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_PageableMemoryPool_allocFromPageablePool(JNIEnv* env,
+                                                                                     jclass clazz,
+                                                                                     jlong pool_ptr,
+                                                                                     jlong size)
 {
   JNI_TRY
   {
@@ -155,12 +148,8 @@ Java_ai_rapids_cudf_PageableMemoryPool_allocFromPageablePool(JNIEnv* env,
   // -1 indicates failure; 0 indicates success but null ptr (e.g. 0-byte alloc).
 }
 
-JNIEXPORT void JNICALL
-Java_ai_rapids_cudf_PageableMemoryPool_freeFromPageablePool(JNIEnv* env,
-                                                             jclass clazz,
-                                                             jlong pool_ptr,
-                                                             jlong ptr,
-                                                             jlong size)
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_PageableMemoryPool_freeFromPageablePool(
+  JNIEnv* env, jclass clazz, jlong pool_ptr, jlong ptr, jlong size)
 {
   JNI_TRY
   {
