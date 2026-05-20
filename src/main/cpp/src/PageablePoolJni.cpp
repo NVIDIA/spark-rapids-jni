@@ -18,9 +18,9 @@
 
 #include <rmm/aligned.hpp>
 #include <rmm/detail/error.hpp>
+#include <rmm/mr/detail/coalescing_free_list.hpp>
 
 #include <cstdlib>
-#include <map>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -34,6 +34,9 @@ void pretouch_parallel(void* base, std::size_t bytes, int threads)
   int const n = std::max(1, threads);
   std::vector<std::thread> ts;
   ts.reserve(n);
+  // Divide work ceiling-fashion so every byte is covered, then round up to a page boundary
+  // so each thread's range starts/ends on a page — preventing two threads from touching the same
+  // page.
   std::size_t per = (bytes + n - 1) / static_cast<std::size_t>(n);
   per             = (per + page_size_ - 1) & ~(page_size_ - 1);
   for (int i = 0; i < n; ++i) {
@@ -41,6 +44,8 @@ void pretouch_parallel(void* base, std::size_t bytes, int threads)
     if (off >= bytes) break;
     std::size_t end = std::min(off + per, bytes);
     ts.emplace_back([base, off, end]() {
+      // volatile prevents the compiler from eliding these as dead stores — the write's
+      // only purpose is to fault in the page, not to store a meaningful value.
       auto* c = static_cast<volatile char*>(base);
       for (std::size_t k = off; k < end; k += page_size_)
         c[k] = 0;
@@ -50,21 +55,47 @@ void pretouch_parallel(void* base, std::size_t bytes, int threads)
     t.join();
 }
 
+using free_list_t = rmm::mr::detail::coalescing_free_list;
+using block_t     = rmm::mr::detail::block;
+
+inline std::size_t align_up(std::size_t bytes)
+{
+  return (bytes + rmm::CUDA_ALLOCATION_ALIGNMENT - 1) & ~(rmm::CUDA_ALLOCATION_ALIGNMENT - 1);
+}
+
 /**
- * @brief Simple coalescing best-fit pool over a single malloc'd backing buffer.
+ * @brief Coalescing best-fit pool over a single posix_memalign'd backing buffer.
  *
- * RMM's pool_memory_resource now requires device-accessible upstream resources, so
- * we can't use it for pageable host memory. This pool pre-touches all backing pages
- * at construction time (amortizing first-touch page-fault cost) and then provides
- * lock-protected sub-allocation with adjacent-block coalescing on free.
+ * RMM's pool_memory_resource requires a device-accessible upstream resource (i.e. one whose
+ * pointers GPU kernels can dereference directly). Pageable malloc memory does not satisfy that
+ * property on PCIe systems — it is only usable as a cudaMemcpyAsync destination via CUDA's
+ * internal staging mechanism, not for in-kernel pointer access. We therefore cannot use
+ * pool_memory_resource here and instead build our own pool using RMM's coalescing_free_list
+ * (rmm/mr/detail/coalescing_free_list.hpp), the same free-list implementation that
+ * pool_memory_resource uses internally.
+ *
+ * All blocks within the single backing buffer are marked is_head=false so that coalescing_free_list
+ * treats them as contiguous sub-allocations that may be merged freely.
+ *
+ * Pre-touching all backing pages at construction time amortizes first-touch page-fault cost,
+ * allowing DtoH copies into pool-allocated buffers to reach near-pinned bandwidth rather than
+ * incurring per-page faults at copy time.
  */
 struct pageable_pool {
   void* base;
   std::size_t pool_size;
   std::mutex mtx;
-  std::map<void*, std::size_t> free_blocks;   // addr -> size, sorted for coalescing
-  std::map<void*, std::size_t> alloc_blocks;  // addr -> size, for tracking on free
+  free_list_t free_list;
 
+  /**
+   * @brief Construct the pool: allocate the backing buffer, pre-touch all pages in parallel,
+   *        then register the entire region as a single free block.
+   *
+   * @throws rmm::out_of_memory if the backing allocation fails.
+   *
+   * @param size             total pool size in bytes
+   * @param pretouch_threads number of threads used to fault in backing pages at construction time
+   */
   pageable_pool(std::size_t size, int pretouch_threads)
   {
     void* ptr = nullptr;
@@ -75,48 +106,48 @@ struct pageable_pool {
     base      = ptr;
     pool_size = size;
     pretouch_parallel(base, pool_size, pretouch_threads);
-    free_blocks[base] = pool_size;
+    // is_head=false: all sub-blocks are within one contiguous upstream allocation and may coalesce.
+    free_list.insert(block_t{static_cast<char*>(base), pool_size, false});
   }
 
+  /**
+   * @brief Destroy the pool, releasing the backing allocation.
+   *
+   * Any outstanding allocations become dangling after this call.
+   */
   ~pageable_pool() { ::free(base); }
 
+  /**
+   * @brief Try to sub-allocate @p bytes from the pool using a best-fit search.
+   *
+   * The request is rounded up to rmm::CUDA_ALLOCATION_ALIGNMENT. If the chosen block is larger
+   * than needed, the remainder is returned to the free list.
+   *
+   * @param bytes requested allocation size in bytes
+   * @return pointer to the allocated region, or nullptr if no free block is large enough
+   */
   void* try_allocate(std::size_t bytes)
   {
-    bytes = (bytes + rmm::CUDA_ALLOCATION_ALIGNMENT - 1) & ~(rmm::CUDA_ALLOCATION_ALIGNMENT - 1);
+    bytes = align_up(bytes);
     std::lock_guard<std::mutex> lock(mtx);
-    for (auto it = free_blocks.begin(); it != free_blocks.end(); ++it) {
-      if (it->second < bytes) continue;
-      void* ptr             = it->first;
-      std::size_t remaining = it->second - bytes;
-      free_blocks.erase(it);
-      if (remaining > 0) { free_blocks[static_cast<char*>(ptr) + bytes] = remaining; }
-      alloc_blocks[ptr] = bytes;
-      return ptr;
+    block_t blk = free_list.get_block(bytes);
+    if (!blk.is_valid()) { return nullptr; }
+    if (blk.size() > bytes) {
+      free_list.insert(block_t{blk.pointer() + bytes, blk.size() - bytes, false});
     }
-    return nullptr;
+    return blk.pointer();
   }
 
+  /**
+   * @brief Return a previously allocated block to the pool, coalescing with adjacent free blocks.
+   *
+   * @param ptr  pointer returned by a prior call to try_allocate
+   * @param size size passed to that try_allocate call (will be rounded up to alignment)
+   */
   void free(void* ptr, std::size_t size)
   {
-    std::size_t aligned =
-      (size + rmm::CUDA_ALLOCATION_ALIGNMENT - 1) & ~(rmm::CUDA_ALLOCATION_ALIGNMENT - 1);
     std::lock_guard<std::mutex> lock(mtx);
-    alloc_blocks.erase(ptr);
-    auto [it, _] = free_blocks.emplace(ptr, aligned);
-    // coalesce with next
-    auto next = std::next(it);
-    if (next != free_blocks.end() && static_cast<char*>(it->first) + it->second == next->first) {
-      it->second += next->second;
-      free_blocks.erase(next);
-    }
-    // coalesce with prev
-    if (it != free_blocks.begin()) {
-      auto prev = std::prev(it);
-      if (static_cast<char*>(prev->first) + prev->second == it->first) {
-        prev->second += it->second;
-        free_blocks.erase(it);
-      }
-    }
+    free_list.insert(block_t{static_cast<char*>(ptr), align_up(size), false});
   }
 };
 
@@ -154,7 +185,11 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_PageableMemoryPool_allocFromPageable
     void* ret  = pool->try_allocate(static_cast<std::size_t>(size));
     return ret == nullptr ? -1L : reinterpret_cast<jlong>(ret);
   }
-  JNI_CATCH(env, -1);
+  JNI_CATCH_BEGIN(env, 0)
+  catch (...) { return -1; }  // Catch and suppress all exceptions.
+  // The return value of -1 indicates that the allocation failed.
+  // This is different from the return value of 0, which indicates that the allocation succeeded
+  // but the returned pointer is null (such cases can be due to allocating 0 bytes).
 }
 
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_PageableMemoryPool_freeFromPageablePool(

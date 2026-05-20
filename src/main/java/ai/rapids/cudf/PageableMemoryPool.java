@@ -26,6 +26,8 @@ import java.util.concurrent.Future;
 public final class PageableMemoryPool implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(PageableMemoryPool.class);
 
+  // These static fields should only ever be accessed when class-synchronized.
+  // Do NOT use singleton_ directly!  Use the getSingleton accessor instead.
   private static volatile PageableMemoryPool singleton_ = null;
   private static Future<PageableMemoryPool> initFuture = null;
   private long poolHandle;
@@ -62,6 +64,9 @@ public final class PageableMemoryPool implements AutoCloseable {
         try {
           PageableMemoryPool.freeInternal(address, origLength);
         } finally {
+          // Always mark the resource as freed even if an exception is thrown.
+          // We cannot know how far it progressed before the exception, and
+          // therefore it is unsafe to retry.
           address = -1;
         }
         neededCleanup = true;
@@ -146,8 +151,11 @@ public final class PageableMemoryPool implements AutoCloseable {
   }
 
   /**
-   * Try to allocate from the pageable pool. Returns null if the pool is uninitialized
-   * or exhausted (caller should fall back to a regular malloc'd buffer).
+   * Factory method to create a pageable host memory buffer.
+   *
+   * @param bytes size in bytes to allocate
+   * @return newly created buffer, or null if the pool is uninitialized or exhausted
+   *         (caller should fall back to a regular malloc'd buffer)
    */
   public static HostMemoryBuffer tryAllocate(long bytes) {
     HostMemoryBuffer result = null;
@@ -180,6 +188,10 @@ public final class PageableMemoryPool implements AutoCloseable {
     this.poolHandle = -1;
   }
 
+  /**
+   * Attempts to allocate from the pageable pool. Returns null rather than throwing if
+   * the pool is exhausted, so callers can fall back gracefully.
+   */
   private synchronized HostMemoryBuffer tryAllocateInternal(long bytes) {
     long allocated = allocFromPageablePool(this.poolHandle, bytes);
     if (allocated == -1) {
