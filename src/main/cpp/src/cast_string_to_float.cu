@@ -43,38 +43,27 @@ namespace detail {
 
 __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
 
-/**
- * @brief Correctly-rounded conversion of `digits * 10^q` to a double for the
- *        case where `digits` exceeds the safe-cast range of double (2^53) and
- *        the existing `static_cast<double>(digits) * exp10(q)` path therefore
- *        loses up to 1 ULP. See NVIDIA/spark-rapids#10773.
- *
- *        Caller precondition: `digits > 2^53 AND |q| <= 19`. The caller (the
- *        high-precision-path gate inside `string_to_float::operator()`) guards
- *        on both bounds before invoking, so they hold inside. The 19 cap matches
- *        the largest power of ten that fits in `uint64_t` (10^19), which the
- *        128-bit arithmetic below relies on. Subnormal range, overflow to
- *        infinity, and degenerate inputs (`digits == 0`, `q_lo == q_hi == 0`)
- *        are all unreachable under that precondition and are asserted
- *        accordingly.
- *
- *        Conceptually this proceeds in 4 named steps, marked inline below:
- *        (1) scale digits to a 128-bit `quotient128 * 2^binary_scale` exact
- *            of `digits * 10^q`; (2) locate the MSB of that 128-bit value;
- *            (3) round the top 53 bits to nearest-ties-to-even using the
- *            truncation remainder as the sticky bit; (4) assemble the IEEE
- *            754 bit pattern. The helper stays a single function so nvcc
- *            inlines the whole pipeline into the calling kernel without any
- *            FP-semantics shifts that splitting into sub-functions can
- *            introduce.
- */
-__device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digits, int q, int sign)
-{
-  // Caller precondition: digits > 2^53, so digits cannot be 0.
-  assert(digits > (1ULL << 53));
+// (1) Scale `digits * 10^q` exactly into a 128-bit value.
+//
+// Returns `quotient128 * 2^binary_scale` exactly equal to `digits * 10^q`, plus
+// the q<0 truncation remainder that the rounding step will fold into the
+// sticky bit. Three sub-cases:
+//   q < 0:  quotient128 = (digits << 64) / 10^|q|, binary_scale = -64.
+//   q > 0:  quotient128 = digits * 10^q (exact in 128 bits), binary_scale = 0.
+//   q == 0: quotient128 = digits, binary_scale = 0.
+//
+// Caller precondition: `digits > 2^53 AND |q| <= 19`. Under those bounds 10^|q|
+// fits in uint64_t and `digits * 10^q` fits in 128 bits.
+struct scaled_uint128 {
+  __uint128_t quotient128;
+  uint64_t    division_rem;
+  int         binary_scale;
+};
 
+__device__ __inline__ scaled_uint128 scale_digits_times_pow10(uint64_t digits, int q)
+{
+  assert(digits > (1ULL << 53));
   int const abs_q = cuda::std::abs(q);
-  // Caller precondition: |q| <= 19, so abs_q is in [0, 19] and indexes k_pow10.
   assert(abs_q <= 19);
 
   // 10^abs_q for abs_q in [0, 19] — exact as uint64. `static constexpr` marks
@@ -106,69 +95,66 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
                                            10'000'000'000'000'000'000ULL};
   uint64_t const pow10_abs_q            = k_pow10[abs_q];
 
-  // (1) Scale digits to 128 bits.
-  // Form `quotient128 * 2^binary_scale` exactly equal to `digits * 10^q`:
-  //   q < 0: quotient128 = (digits << 64) / 10^|q|, binary_scale = -64.
-  //          The truncation remainder feeds into the sticky bit so rounding
-  //          stays correct.
-  //   q > 0: quotient128 = digits * 10^q (exact in 128 bits), binary_scale = 0.
-  //   q == 0: quotient128 = digits, binary_scale = 0.
-  __uint128_t quotient128;
-  uint64_t division_rem;
-  int binary_scale;
   if (q < 0) {
     __uint128_t const numerator = static_cast<__uint128_t>(digits) << 64;
-    quotient128                 = numerator / pow10_abs_q;
+    __uint128_t const quotient  = numerator / pow10_abs_q;
     // Equivalent to `numerator % pow10_abs_q` but saves one 128-bit division
-    // by reusing `quotient128`.
-    division_rem =
-      static_cast<uint64_t>(numerator - quotient128 * static_cast<__uint128_t>(pow10_abs_q));
-    binary_scale = -64;
-  } else if (q > 0) {
-    quotient128  = static_cast<__uint128_t>(digits) * static_cast<__uint128_t>(pow10_abs_q);
-    division_rem = 0;
-    binary_scale = 0;
-  } else {
-    quotient128  = static_cast<__uint128_t>(digits);
-    division_rem = 0;
-    binary_scale = 0;
+    // by reusing `quotient`.
+    uint64_t const rem =
+      static_cast<uint64_t>(numerator - quotient * static_cast<__uint128_t>(pow10_abs_q));
+    return {quotient, rem, -64};
   }
-
-  uint64_t const q_hi = static_cast<uint64_t>(quotient128 >> 64);
-  uint64_t const q_lo = static_cast<uint64_t>(quotient128);
-
-  // (2) Locate the MSB of the 128-bit value so we know where the implicit
-  // leading 1-bit of the IEEE 754 mantissa sits. `__clzll(x)` is the CUDA
-  // count-leading-zeros intrinsic on a 64-bit unsigned integer, so
-  // `63 - __clzll(x)` is the index of the most-significant set bit.
-  // For 128-bit inputs we split into hi/lo limbs and only inspect the upper
-  // when it is non-zero; otherwise the MSB lives in the lower 64 bits.
-  //
-  // Caller precondition guarantees `quotient128 != 0` in every branch:
-  //   q == 0: q_lo = digits > 2^53.
-  //   q > 0:  digits * 10^q >= digits > 2^53 (so q_hi or q_lo is non-zero).
-  //   q < 0:  (digits << 64) / 10^|q| > 2^53 (since digits > 2^53 and
-  //           10^|q| <= 10^19 < 2^64, so the quotient exceeds 2^53).
-  // Either q_hi or q_lo may be the most-significant limb in the q < 0 case,
-  // depending on whether digits >= 10^|q|, so both MSB-locator branches
-  // below are reachable.
-  int msb_pos;
-  if (q_hi != 0) {
-    msb_pos = 127 - __clzll(q_hi);
-  } else {
-    assert(q_lo != 0);
-    msb_pos = 63 - __clzll(q_lo);
+  if (q > 0) {
+    __uint128_t const quotient =
+      static_cast<__uint128_t>(digits) * static_cast<__uint128_t>(pow10_abs_q);
+    return {quotient, 0, 0};
   }
+  return {static_cast<__uint128_t>(digits), 0, 0};
+}
 
+// (2) Locate the MSB of a non-zero 128-bit value.
+//
+// `__clzll(x)` is the CUDA count-leading-zeros intrinsic on a 64-bit unsigned
+// integer, so `63 - __clzll(x)` is the index of the most-significant set bit.
+// For 128-bit inputs we split into hi/lo limbs and only inspect the upper when
+// it is non-zero; otherwise the MSB lives in the lower 64 bits.
+//
+// Caller precondition guarantees `value != 0` (see callers of
+// `scale_digits_times_pow10`: every branch produces a value at least `digits`,
+// which is > 2^53).
+__device__ __inline__ int locate_msb_uint128(__uint128_t value)
+{
+  uint64_t const hi = static_cast<uint64_t>(value >> 64);
+  if (hi != 0) { return 127 - __clzll(hi); }
+  uint64_t const lo = static_cast<uint64_t>(value);
+  assert(lo != 0);
+  return 63 - __clzll(lo);
+}
+
+// (3) Round the top 53 bits of a 128-bit integer to nearest-ties-to-even.
+//
+// `msb_pos` is the bit index of the leading 1 (so the 53-bit mantissa is at
+// bits [msb_pos-52 .. msb_pos]). The remaining low bits feed the round and
+// sticky decisions; the q<0 truncation remainder threads in as an additional
+// sticky input. On overflow back into bit 53 the function renormalizes by
+// shifting right and incrementing the unbiased exponent.
+struct rounded_mantissa {
+  uint64_t mantissa;
+  int      unbiased_exp;
+};
+
+__device__ __inline__ rounded_mantissa round_top_53_bits(__uint128_t quotient128,
+                                                         uint64_t    division_rem,
+                                                         int         msb_pos,
+                                                         int         binary_scale)
+{
   int const shift = msb_pos - 52;
 
   // Caller precondition: digits > 2^53 implies msb_pos(quotient128) > 52 in
-  // every (q < 0, q == 0, q > 0) branch above, so `shift > 0` always holds
+  // every (q < 0, q == 0, q > 0) scaling branch, so `shift > 0` always holds
   // and the `shift <= 0` left-shift branch is unreachable.
   assert(shift > 0);
 
-  // (3) Round the top 53 bits to nearest-ties-to-even, threading the q<0
-  // truncation remainder through the sticky bit.
   // Shift in [1, 127]. All bit ops use __uint128_t to avoid undefined 64-bit
   // shifts at the shift == 64 boundary.
   uint64_t const mantissa    = static_cast<uint64_t>(quotient128 >> shift);
@@ -176,7 +162,6 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   __uint128_t const low_mask = (static_cast<__uint128_t>(1) << (shift - 1)) - 1;
   bool const sticky          = ((quotient128 & low_mask) != 0) || (division_rem != 0);
 
-  // Round to nearest, ties to even.
   uint64_t rounded = mantissa;
   if (round_bit && (sticky || (mantissa & 1ULL))) { rounded += 1; }
 
@@ -185,9 +170,17 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
     rounded >>= 1;
     unbiased_exp += 1;
   }
+  return {rounded, unbiased_exp};
+}
 
-  // (4) Assemble the final IEEE 754 double from the normalized 53-bit
-  // mantissa, unbiased exponent, and sign.
+// (4) Assemble the IEEE 754 double bit pattern.
+//
+// Combines the normalized 53-bit mantissa, the unbiased exponent, and the sign
+// into the standard 1+11+52 layout, then bit-casts to double.
+__device__ __inline__ double assemble_ieee754_double(uint64_t mantissa,
+                                                     int      unbiased_exp,
+                                                     int      sign)
+{
   int const biased_exp = unbiased_exp + 1023;
 
   // Subnormal range (biased_exp <= 0) and overflow-to-infinity (biased_exp
@@ -197,10 +190,93 @@ __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digit
   // range [1, 0x7FE]. The default path handles subnormals and overflows.
   assert(biased_exp > 0 && biased_exp < 0x7FF);
 
-  uint64_t const mant_bits = rounded & ((1ULL << 52) - 1);
+  uint64_t const mant_bits = mantissa & ((1ULL << 52) - 1);
   uint64_t bits            = (static_cast<uint64_t>(biased_exp) << 52) | mant_bits;
   if (sign < 0) { bits |= (1ULL << 63); }
   return cuda::std::bit_cast<double>(bits);
+}
+
+/**
+ * @brief Correctly-rounded conversion of `digits * 10^q` to a double for the
+ *        case where `digits` exceeds the safe-cast range of double (2^53) and
+ *        the existing `static_cast<double>(digits) * exp10(q)` path therefore
+ *        loses up to 1 ULP. See NVIDIA/spark-rapids#10773.
+ *
+ *        Caller precondition: `digits > 2^53 AND |q| <= 19`. The caller (the
+ *        high-precision-path gate inside `string_to_float::operator()`) guards
+ *        on both bounds before invoking, so they hold inside. The 19 cap matches
+ *        the largest power of ten that fits in `uint64_t` (10^19), which the
+ *        128-bit arithmetic below relies on. Subnormal range, overflow to
+ *        infinity, and degenerate inputs (`digits == 0`, `q_lo == q_hi == 0`)
+ *        are all unreachable under that precondition and are asserted inside
+ *        the sub-helpers.
+ *
+ *        The four named steps each live in their own helper:
+ *          (1) `scale_digits_times_pow10`   — 128-bit scaling
+ *          (2) `locate_msb_uint128`         — MSB location
+ *          (3) `round_top_53_bits`          — round-to-nearest-ties-to-even
+ *          (4) `assemble_ieee754_double`    — final bit assembly
+ *        All four are `__device__ __inline__` and operate on integers only, so
+ *        nvcc folds them back into one straight-line sequence in the calling
+ *        kernel with no FP-semantics drift across the function boundaries.
+ */
+__device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digits, int q, int sign)
+{
+  auto const scaled  = scale_digits_times_pow10(digits, q);
+  int const msb_pos  = locate_msb_uint128(scaled.quotient128);
+  auto const rounded = round_top_53_bits(scaled.quotient128,
+                                         scaled.division_rem,
+                                         msb_pos,
+                                         scaled.binary_scale);
+  return assemble_ieee754_double(rounded.mantissa, rounded.unbiased_exp, sign);
+}
+
+/**
+ * @brief Default `digits * 10^exp_ten` conversion via
+ *        `static_cast<double>(digits) * exp10(exp_ten)`, including subnormal
+ *        and overflow handling. Used for float outputs, and for double outputs
+ *        outside the high-precision helper's window (`digits <= 2^53` or
+ *        `|exp_ten| > 19`).
+ *
+ *        Returns T-typed result with the input sign applied. The caller is
+ *        responsible for the `_warp_lane == 0` guard around the call site.
+ */
+template <typename T>
+__device__ __inline__ T default_double_path(uint64_t digits, int exp_ten, int sign)
+{
+  double digitsf = sign >= 0 ? static_cast<double>(digits) : -static_cast<double>(digits);
+
+  if (exp_ten > cuda::std::numeric_limits<double>::max_exponent10) {
+    return sign >= 0 ? cuda::std::numeric_limits<T>::infinity()
+                     : -cuda::std::numeric_limits<T>::infinity();
+  }
+
+  // make sure we don't produce a subnormal number.
+  // - a normal number is one where the leading digit of the floating point rep is not zero.
+  //      eg:   0.0123  represented as  1.23e-2
+  //
+  // - a denormalized number is one where the leading digit of the floating point rep is zero.
+  //      eg:   0.0123 represented as   0.123e-1
+  //
+  // - a subnormal number is a denormalized number where if you tried to normalize it, the
+  // exponent
+  //   required would be smaller then the smallest representable exponent.
+  //
+  // https://en.wikipedia.org/wiki/Denormal_number
+  //
+  auto const subnormal_shift = cuda::std::numeric_limits<double>::min_exponent10 - exp_ten;
+  if (subnormal_shift > 0) {
+    // Handle subnormal values. Ensure that both base and exponent are
+    // normal values before computing their product.
+    int const num_digits = static_cast<int>(log10(static_cast<double>(digits))) + 1;
+    digitsf = digitsf / exp10(static_cast<double>(num_digits - 1 + subnormal_shift));
+    exp_ten += num_digits - 1;  // adjust exponent
+    auto const exponent = exp10(static_cast<double>(exp_ten + subnormal_shift));
+    return static_cast<T>(digitsf * exponent);
+  }
+  double const exponent = exp10(static_cast<double>(cuda::std::abs(exp_ten)));
+  double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
+  return static_cast<T>(result);
 }
 
 /**
@@ -322,64 +398,21 @@ class string_to_float {
 
     // construct the final float value
     if (_warp_lane == 0) {
-      // exponent
-      int exp_ten = exp_base + manual_exp;
+      int const exp_ten = exp_base + manual_exp;
 
-      // High-precision path: route doubles in the `digits > 2^53 AND |q| <= 19`
-      // window through `correctly_rounded_uint64_times_pow10`, where the
-      // default `static_cast<double>(digits)` would lose up to 1 ULP and the
-      // subsequent `* exp10(exp_ten)` would propagate that error
-      // (NVIDIA/spark-rapids#10773). Outside that window the default path
-      // below is already correctly rounded (digits <= 2^53 is exact as a
-      // double; `|exp_ten| > 19` is the rare 1-ULP input class that the
-      // existing path has always handled).
-      if constexpr (cuda::std::is_same_v<T, double>) {
-        if ((digits > (1ULL << 53)) && (cuda::std::abs(exp_ten) <= 19)) {
-          _out[_row] = correctly_rounded_uint64_times_pow10(digits, exp_ten, sign);
-          compute_validity(_valid, _except);
-          return;
-        }
-      }
-
-      // Default path: `static_cast<double>(digits)` is reached only when the
-      // high-precision gate above is false, which guarantees `digits <= 2^53`
-      // for T == double (or T is float). In both cases the cast is lossless.
-      double digitsf = sign >= 0 ? static_cast<double>(digits) : -static_cast<double>(digits);
-
-      // final value
-      if (exp_ten > cuda::std::numeric_limits<double>::max_exponent10) {
-        _out[_row] = sign >= 0 ? cuda::std::numeric_limits<double>::infinity()
-                               : -cuda::std::numeric_limits<double>::infinity();
+      // Two output paths:
+      //  - High-precision helper for the `digits > 2^53 AND |q| <= 19` window
+      //    (T == double only), where the default `static_cast<double>(digits)
+      //    * exp10(exp_ten)` path loses up to 1 ULP (NVIDIA/spark-rapids#10773).
+      //  - Default path for everything else: float outputs, or doubles outside
+      //    the helper window (small digits or large |q|).
+      bool const helper_eligible = cuda::std::is_same_v<T, double> &&
+                                   (digits > (1ULL << 53)) &&
+                                   (cuda::std::abs(exp_ten) <= 19);
+      if (helper_eligible) {
+        _out[_row] = static_cast<T>(correctly_rounded_uint64_times_pow10(digits, exp_ten, sign));
       } else {
-        // make sure we don't produce a subnormal number.
-        // - a normal number is one where the leading digit of the floating point rep is not zero.
-        //      eg:   0.0123  represented as  1.23e-2
-        //
-        // - a denormalized number is one where the leading digit of the floating point rep is zero.
-        //      eg:   0.0123 represented as   0.123e-1
-        //
-        // - a subnormal number is a denormalized number where if you tried to normalize it, the
-        // exponent
-        //   required would be smaller then the smallest representable exponent.
-        //
-        // https://en.wikipedia.org/wiki/Denormal_number
-        //
-
-        auto const subnormal_shift = cuda::std::numeric_limits<double>::min_exponent10 - exp_ten;
-        if (subnormal_shift > 0) {
-          // Handle subnormal values. Ensure that both base and exponent are
-          // normal values before computing their product.
-          int const num_digits = static_cast<int>(log10(static_cast<double>(digits))) + 1;
-          digitsf = digitsf / exp10(static_cast<double>(num_digits - 1 + subnormal_shift));
-          exp_ten += num_digits - 1;  // adjust exponent
-          auto const exponent = exp10(static_cast<double>(exp_ten + subnormal_shift));
-          _out[_row]          = static_cast<T>(digitsf * exponent);
-        } else {
-          double const exponent = exp10(static_cast<double>(cuda::std::abs(exp_ten)));
-          double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
-
-          _out[_row] = static_cast<T>(result);
-        }
+        _out[_row] = default_double_path<T>(digits, exp_ten, sign);
       }
     }
     compute_validity(_valid, _except);
