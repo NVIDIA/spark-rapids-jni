@@ -103,7 +103,11 @@ struct gbk_decode_fn {
   cudf::size_type const* input_offsets;
   cudf::bitmask_type const* input_null_mask;
   cudf::size_type input_offset;
-  uint16_t const* gbk_table;
+  // The lookup table is referenced as the file-scope __device__ symbol
+  // `gbk_to_unicode_device` directly from the kernel below -- a __device__
+  // variable cannot be addressed from host code, so passing it through a
+  // pointer field would dereference an invalid device address at runtime
+  // (cudaErrorIllegalAddress).
 
   // REPORT mode flag. When non-null, any malformed/unmappable sequence sets *malformed_flag = 1.
   // In REPLACE mode the caller passes nullptr to disable signaling.
@@ -153,7 +157,7 @@ struct gbk_decode_fn {
           if (second <= GBK_SECOND_BYTE_MAX) {
             int table_idx =
               (byte - GBK_FIRST_BYTE_MIN) * GBK_SECOND_RANGE + (second - GBK_SECOND_BYTE_MIN);
-            unicode = gbk_table[table_idx];
+            unicode = gbk_to_unicode_device[table_idx];
             // Table entries equal to U+FFFD mark GBK pairs with no Unicode mapping (Java reports
             // these as unmappable when onUnmappableCharacter == REPORT).
             if (unicode == UNICODE_REPLACEMENT) { local_malformed = true; }
@@ -215,8 +219,6 @@ decode_result decode_gbk(cudf::column_view const& input,
     return decode_result{cudf::make_empty_column(cudf::type_id::STRING), false};
   }
 
-  auto const* gbk_table = gbk_to_unicode_device;
-
   // Only allocate a device-side flag when the caller actually wants REPORT semantics.
   std::unique_ptr<rmm::device_scalar<int32_t>> flag;
   int32_t* flag_ptr = nullptr;
@@ -225,13 +227,14 @@ decode_result decode_gbk(cudf::column_view const& input,
     flag_ptr = flag->data();
   }
 
-  // offsets_begin() accounts for the parent list offset on sliced columns
+  // offsets_begin() accounts for the parent list offset on sliced columns.
+  // The lookup table is referenced by name from the kernel; no host-side
+  // pointer to gbk_to_unicode_device is taken or threaded through the functor.
   auto [new_offsets, new_chars] =
     cudf::strings::detail::make_strings_children(gbk_decode_fn{child.data<uint8_t>(),
                                                                list_col.offsets_begin(),
                                                                input.null_mask(),
                                                                input.offset(),
-                                                               gbk_table,
                                                                flag_ptr},
                                                  num_rows,
                                                  stream,
