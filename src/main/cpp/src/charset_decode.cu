@@ -56,9 +56,11 @@ constexpr uint16_t UNICODE_REPLACEMENT = 0xFFFD;
 // failed first-init. The table is ~47 KB and lives in device global memory
 // (L2-cached), which suits the divergent lookup pattern better than
 // __constant__ (broadcast-cached, serialized on divergent accesses).
-__device__ const uint16_t gbk_to_unicode_device[GBK_TABLE_SIZE] = {
+__device__ const uint16_t gbk_to_unicode_device[] = {
 #include "gbk_to_unicode_table.inc"
 };
+static_assert(sizeof(gbk_to_unicode_device) / sizeof(gbk_to_unicode_device[0]) == GBK_TABLE_SIZE,
+              "GBK lookup table size must match GBK_TABLE_SIZE");
 
 namespace {
 
