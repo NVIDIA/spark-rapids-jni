@@ -230,15 +230,12 @@ decode_result decode_gbk(cudf::column_view const& input,
   // offsets_begin() accounts for the parent list offset on sliced columns.
   // The lookup table is referenced by name from the kernel; no host-side
   // pointer to gbk_to_unicode_device is taken or threaded through the functor.
-  auto [new_offsets, new_chars] =
-    cudf::strings::detail::make_strings_children(gbk_decode_fn{child.data<uint8_t>(),
-                                                               list_col.offsets_begin(),
-                                                               input.null_mask(),
-                                                               input.offset(),
-                                                               flag_ptr},
-                                                 num_rows,
-                                                 stream,
-                                                 mr);
+  auto [new_offsets, new_chars] = cudf::strings::detail::make_strings_children(
+    gbk_decode_fn{
+      child.data<uint8_t>(), list_col.offsets_begin(), input.null_mask(), input.offset(), flag_ptr},
+    num_rows,
+    stream,
+    mr);
 
   // In REPORT mode, skip building the output column when malformed bytes were detected: the
   // caller will discard it. This avoids the column / bitmask allocations on the error path.
