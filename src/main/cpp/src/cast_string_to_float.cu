@@ -56,8 +56,8 @@ __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
 // fits in uint64_t and `digits * 10^q` fits in 128 bits.
 struct scaled_uint128 {
   __uint128_t quotient128;
-  uint64_t    division_rem;
-  int         binary_scale;
+  uint64_t division_rem;
+  int binary_scale;
 };
 
 __device__ __inline__ scaled_uint128 scale_digits_times_pow10(uint64_t digits, int q)
@@ -140,13 +140,13 @@ __device__ __inline__ int locate_msb_uint128(__uint128_t value)
 // shifting right and incrementing the unbiased exponent.
 struct rounded_mantissa {
   uint64_t mantissa;
-  int      unbiased_exp;
+  int unbiased_exp;
 };
 
 __device__ __inline__ rounded_mantissa round_top_53_bits(__uint128_t quotient128,
-                                                         uint64_t    division_rem,
-                                                         int         msb_pos,
-                                                         int         binary_scale)
+                                                         uint64_t division_rem,
+                                                         int msb_pos,
+                                                         int binary_scale)
 {
   int const shift = msb_pos - 52;
 
@@ -177,9 +177,7 @@ __device__ __inline__ rounded_mantissa round_top_53_bits(__uint128_t quotient128
 //
 // Combines the normalized 53-bit mantissa, the unbiased exponent, and the sign
 // into the standard 1+11+52 layout, then bit-casts to double.
-__device__ __inline__ double assemble_ieee754_double(uint64_t mantissa,
-                                                     int      unbiased_exp,
-                                                     int      sign)
+__device__ __inline__ double assemble_ieee754_double(uint64_t mantissa, int unbiased_exp, int sign)
 {
   int const biased_exp = unbiased_exp + 1023;
 
@@ -222,12 +220,10 @@ __device__ __inline__ double assemble_ieee754_double(uint64_t mantissa,
  */
 __device__ __inline__ double correctly_rounded_uint64_times_pow10(uint64_t digits, int q, int sign)
 {
-  auto const scaled  = scale_digits_times_pow10(digits, q);
-  int const msb_pos  = locate_msb_uint128(scaled.quotient128);
-  auto const rounded = round_top_53_bits(scaled.quotient128,
-                                         scaled.division_rem,
-                                         msb_pos,
-                                         scaled.binary_scale);
+  auto const scaled = scale_digits_times_pow10(digits, q);
+  int const msb_pos = locate_msb_uint128(scaled.quotient128);
+  auto const rounded =
+    round_top_53_bits(scaled.quotient128, scaled.division_rem, msb_pos, scaled.binary_scale);
   return assemble_ieee754_double(rounded.mantissa, rounded.unbiased_exp, sign);
 }
 
@@ -269,7 +265,7 @@ __device__ __inline__ T default_double_path(uint64_t digits, int exp_ten, int si
     // Handle subnormal values. Ensure that both base and exponent are
     // normal values before computing their product.
     int const num_digits = static_cast<int>(log10(static_cast<double>(digits))) + 1;
-    digitsf = digitsf / exp10(static_cast<double>(num_digits - 1 + subnormal_shift));
+    digitsf              = digitsf / exp10(static_cast<double>(num_digits - 1 + subnormal_shift));
     exp_ten += num_digits - 1;  // adjust exponent
     auto const exponent = exp10(static_cast<double>(exp_ten + subnormal_shift));
     return static_cast<T>(digitsf * exponent);
@@ -406,8 +402,7 @@ class string_to_float {
       //    * exp10(exp_ten)` path loses up to 1 ULP (NVIDIA/spark-rapids#10773).
       //  - Default path for everything else: float outputs, or doubles outside
       //    the helper window (small digits or large |q|).
-      bool const helper_eligible = cuda::std::is_same_v<T, double> &&
-                                   (digits > (1ULL << 53)) &&
+      bool const helper_eligible = cuda::std::is_same_v<T, double> && (digits > (1ULL << 53)) &&
                                    (cuda::std::abs(exp_ten) <= 19);
       if (helper_eligible) {
         _out[_row] = static_cast<T>(correctly_rounded_uint64_times_pow10(digits, exp_ten, sign));
