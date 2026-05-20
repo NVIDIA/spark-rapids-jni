@@ -2185,16 +2185,52 @@ class spark_resource_adaptor_impl {
     wake_next_highest_priority_blocked(lock, is_for_cpu);
   }
 
+ private:
+  [[noreturn]] static void log_deallocate_failure_and_terminate(std::exception_ptr failure) noexcept
+  {
+    try {
+      auto const tid = static_cast<long>(pthread_self());
+      try {
+        if (failure) { std::rethrow_exception(failure); }
+        LOG_STATUS("ERROR",
+                   tid,
+                   -2,
+                   thread_state::UNKNOWN,
+                   "deallocate failed with unknown exception; terminating");
+      } catch (std::exception const& e) {
+        LOG_STATUS(
+          "ERROR", tid, -2, thread_state::UNKNOWN, "deallocate failed; terminating: {}", e.what());
+      } catch (...) {
+        LOG_STATUS("ERROR",
+                   tid,
+                   -2,
+                   thread_state::UNKNOWN,
+                   "deallocate failed with unknown exception; terminating");
+      }
+    } catch (...) {
+      // Logging is best-effort here. This function must not allow any exception to escape.
+    }
+    std::terminate();
+  }
+
+ public:
   void deallocate(cuda::stream_ref stream,
                   void* p,
                   std::size_t size,
                   std::size_t alignment = alignof(std::max_align_t)) noexcept
   {
-    resource.deallocate(stream, p, size, alignment);
-    // deallocate success
-    if (size > 0) {
-      std::unique_lock<std::mutex> lock(state_mutex);
-      dealloc_core(false, lock, size);
+    try {
+      resource.deallocate(stream, p, size, alignment);
+      // deallocate success
+      if (size > 0) {
+        std::unique_lock<std::mutex> lock(state_mutex);
+        dealloc_core(false, lock, size);
+      }
+    } catch (...) {
+      // This deallocator is part of the RMM/CCCL memory-resource contract and is called through
+      // noexcept wrappers such as cuda::mr::shared_resource. If an exception escaped, the wrapper
+      // would likely call std::terminate() anyway; doing it here makes that fatal path explicit.
+      log_deallocate_failure_and_terminate(std::current_exception());
     }
   }
 
@@ -2220,6 +2256,8 @@ class spark_resource_adaptor_impl {
 
   friend void get_property(spark_resource_adaptor_impl const&, cuda::mr::device_accessible) noexcept
   {
+    // Empty by design: CCCL/RMM finds this overload via ADL as a marker that allocations
+    // from this resource are device-accessible.
   }
 };
 
