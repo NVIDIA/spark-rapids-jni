@@ -22,6 +22,7 @@
 #include <jni_cccl_any_resource.hpp>
 #include <pthread.h>
 #include <spdlog/common.h>
+#include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -33,10 +34,13 @@
 #include <chrono>
 #include <exception>
 #include <format>
+#include <iostream>
 #include <map>
 #include <optional>
 #include <set>
 #include <sstream>
+#include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -2303,6 +2307,62 @@ inline spark_resource_adaptor get_spark_adaptor(jlong handle)
   return it->second;  // Returning by value, while under lock.
 }
 
+// Support for RmmSparkDeallocationFailureTest. The test runs this in a child JVM so the
+// intentional std::terminate() does not kill the JUnit process.
+class test_deallocate_noop_resource {
+ public:
+  void* allocate(cuda::stream_ref, std::size_t, std::size_t = alignof(std::max_align_t))
+  {
+    return nullptr;
+  }
+
+  void deallocate(cuda::stream_ref,
+                  void*,
+                  std::size_t,
+                  std::size_t = alignof(std::max_align_t)) noexcept
+  {
+  }
+
+  void* allocate_sync(std::size_t bytes, std::size_t alignment = alignof(std::max_align_t))
+  {
+    return allocate(cuda::stream_ref{cudaStream_t{nullptr}}, bytes, alignment);
+  }
+
+  void deallocate_sync(void* ptr,
+                       std::size_t bytes,
+                       std::size_t alignment = alignof(std::max_align_t)) noexcept
+  {
+    deallocate(cuda::stream_ref{cudaStream_t{nullptr}}, ptr, bytes, alignment);
+  }
+
+  bool operator==(test_deallocate_noop_resource const&) const noexcept { return true; }
+
+  bool operator!=(test_deallocate_noop_resource const&) const noexcept { return false; }
+
+  friend void get_property(test_deallocate_noop_resource const&,
+                           cuda::mr::device_accessible) noexcept
+  {
+  }
+};
+static_assert(cuda::mr::resource_with<test_deallocate_noop_resource, cuda::mr::device_accessible>);
+
+class throw_on_dealloc_log_sink : public spdlog::sinks::base_sink<std::mutex> {
+ protected:
+  void sink_it_(spdlog::details::log_msg const& msg) override
+  {
+    auto const payload = std::string(msg.payload.data(), msg.payload.size());
+    if (payload.rfind("DEALLOC", 0) == 0) {
+      throw std::runtime_error("injected deallocate failure");
+    }
+
+    spdlog::memory_buf_t formatted;
+    formatter_->format(msg, formatted);
+    std::cerr.write(formatted.data(), static_cast<std::streamsize>(formatted.size()));
+  }
+
+  void flush_() override { std::cerr.flush(); }
+};
+
 }  // namespace
 
 extern "C" {
@@ -2801,6 +2861,39 @@ JNIEXPORT void JNICALL
 Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_shutdownLoggerNative(JNIEnv* env, jclass)
 {
   JNI_TRY { shutdown_global_logger(); }
+  JNI_CATCH(env, );
+}
+
+/**
+ * Test utility for RmmSparkDeallocationFailureTest.
+ *
+ * This deliberately drives spark_resource_adaptor_impl::deallocate() into its fatal exception path.
+ * It installs a test logger that throws when the normal DEALLOC status is logged, constructs a
+ * spark_resource_adaptor_impl around a no-op upstream resource, registers the current thread as a
+ * task thread, then calls deallocate(). The injected logging exception is caught by deallocate()'s
+ * noexcept guard, which should log the deallocation failure and call std::terminate().
+ *
+ * This must only be called from a subprocess death-style test, because success means the process
+ * terminates.
+ */
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_RmmSparkDeallocationFailureTest_triggerDeallocationFailureForTesting(
+  JNIEnv* env, jclass)
+{
+  JNI_TRY
+  {
+    auto logger = std::make_shared<spdlog::logger>("SPARK_RMM_TEST",
+                                                   std::make_shared<throw_on_dealloc_log_sink>());
+    logger->set_error_handler([](std::string const& msg) { throw std::runtime_error(msg); });
+    set_global_logger(std::make_shared<spark_resource_adaptor_logger>(logger, true));
+
+    auto adaptor = cuda::mr::make_shared_resource<spark_resource_adaptor_impl>(
+      env, cuda::mr::any_resource<cuda::mr::device_accessible>{test_deallocate_noop_resource{}});
+
+    auto const tid = static_cast<long>(pthread_self());
+    adaptor->start_dedicated_task_thread(tid, 1);
+    adaptor->deallocate(cuda::stream_ref{cudaStream_t{nullptr}}, reinterpret_cast<void*>(0x1), 1);
+  }
   JNI_CATCH(env, );
 }
 }
