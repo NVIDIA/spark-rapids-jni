@@ -87,8 +87,10 @@ class OrcTimezoneInfo {
    * Get timezone info for the specified timezone ID.
    * Historical transitions are generated at runtime from public JVM APIs and cached per ID.
    *
-   * @param timezoneId timezone Id
+   * @param timezoneId timezone ID
    * @return timezone info
+   * @throws IllegalArgumentException if {@code timezoneId} is not a valid zone ID accepted
+   *     by {@link GpuTimeZoneDB#getZoneId(String)}. There is no silent fallback to GMT.
    */
   public static OrcTimezoneInfo get(String timezoneId) {
     return RUNTIME_TIMEZONE_INFOS.computeIfAbsent(
