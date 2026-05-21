@@ -156,8 +156,23 @@ struct tile_info {
     // we are not losing data we are just not as efficient as we could be with shared memory. This
     // may be a problem if the tile is computed without regard to variable width offset/length sizes
     // in that we overrun shared memory.
+    //
+    // This rounded-up size is used for the per-row stride inside the shared memory tile only —
+    // global writes use get_actual_row_size() so adjacent tiles do not race on the padding bytes.
     return cudf::util::round_up_unsafe(
       col_offsets[end_col] + col_sizes[end_col] - col_offsets[start_col], JCUDF_ROW_ALIGNMENT);
+  }
+
+  // Real, un-padded data width spanned by this tile. Used as the memcpy_async length when
+  // writing the shared tile out to global memory (and when reading it in for the from-rows
+  // direction). Writing only the actual bytes prevents the JCUDF_ROW_ALIGNMENT rounding in
+  // get_shared_row_size() from spilling into the next tile's output region — a race that can
+  // corrupt data non-deterministically when the cumulative size at the tile boundary is not
+  // an 8-byte multiple (e.g. an odd number of INT32 columns in the first tile).
+  __device__ inline size_type get_actual_row_size(size_type const* const col_offsets,
+                                                  size_type const* const col_sizes) const
+  {
+    return col_offsets[end_col] + col_sizes[end_col] - col_offsets[start_col];
   }
 
   __device__ inline size_type num_cols() const { return end_col - start_col + 1; }
@@ -603,6 +618,7 @@ __launch_bounds__(block_size) CUDF_KERNEL void copy_to_rows(const size_type num_
   auto const num_tile_cols          = tile.num_cols();
   auto const num_tile_rows          = tile.num_rows();
   auto const tile_row_size          = tile.get_shared_row_size(col_offsets, col_sizes);
+  auto const actual_row_size        = tile.get_actual_row_size(col_offsets, col_sizes);
   auto const starting_column_offset = col_offsets[tile.start_col];
 
   // to do the copy we need to do n column copies followed by m element copies OR we have to do m
@@ -658,8 +674,10 @@ __launch_bounds__(block_size) CUDF_KERNEL void copy_to_rows(const size_type num_
         }
         case 1: shared_data[shared_offset] = *input_src; break;
         default: {
+          // Wide fixed-width types (e.g. DECIMAL128). Both destination and source must be
+          // indexed by byte; the original loop wrote to the same byte col_size times.
           for (int i = 0; i < col_size; ++i) {
-            shared_data[shared_offset] = *input_src;
+            shared_data[shared_offset + i] = input_src[i];
           }
           break;
         }
@@ -680,7 +698,9 @@ __launch_bounds__(block_size) CUDF_KERNEL void copy_to_rows(const size_type num_
     auto const src = &shared_data[tile_row_size * copy_row];
     auto const dst = tile_output_buffer + row_offsets(copy_row + tile.start_row, row_batch_start) +
                      starting_column_offset;
-    cuda::memcpy_async(warp, dst, src, tile_row_size, tile_barrier);
+    // Use actual_row_size (un-padded) so the JCUDF_ROW_ALIGNMENT rounding inside the shared
+    // tile never reaches into the next tile's output region — see tile_info::get_actual_row_size.
+    cuda::memcpy_async(warp, dst, src, actual_row_size, tile_barrier);
   }
 
   // wait on the last copies to complete
@@ -802,7 +822,9 @@ __launch_bounds__(block_size) CUDF_KERNEL
  *
  * @tparam block_size number of threads in a block.
  * @tparam RowOffsetFunctor iterator for row offsets into the destination data
- * @param num_rows number of rows in this portion of the table
+ * @param num_rows absolute end-row bound (== batch_row_offset + per-batch row count); the
+ *                 inner loop's `row < num_rows` guard treats this as the exclusive upper
+ *                 bound on absolute row indices for this batch.
  * @param num_variable_columns number of columns of variable-width data
  * @param variable_input_data variable width data column pointers
  * @param variable_col_output_offsets output offset information for variable-width columns
@@ -831,7 +853,14 @@ __launch_bounds__(block_size) CUDF_KERNEL
   // memcpy of the string data.
   auto const my_block = cooperative_groups::this_thread_block();
   auto const warp     = cooperative_groups::tiled_partition<cudf::detail::warp_size>(my_block);
-  cuda::barrier<cuda::thread_scope_block> block_barrier;
+
+  // The barrier must be __shared__ (so all threads in the block share one instance), explicitly
+  // initialized, and waited on before the kernel exits — otherwise cuda::memcpy_async issued
+  // through it on Ampere+ may still be in-flight when the kernel returns, racing with whatever
+  // reads the output next.
+  __shared__ cuda::barrier<cuda::thread_scope_block> block_barrier;
+  if (my_block.thread_rank() == 0) { init(&block_barrier, my_block.size()); }
+  my_block.sync();
 
   auto const start_row =
     blockIdx.x * NUM_STRING_ROWS_PER_BLOCK_TO_ROWS + warp.meta_group_rank() + batch_row_offset;
@@ -858,6 +887,9 @@ __launch_bounds__(block_size) CUDF_KERNEL
       offset += string_length;
     }
   }
+
+  // Ensure all cp.async copies issued through the barrier are complete before the kernel exits.
+  block_barrier.arrive_and_wait();
 }
 /**
  * @brief copy data from row-based format to cudf columns
@@ -910,10 +942,11 @@ __launch_bounds__(block_size) CUDF_KERNEL
   group.sync();
 
   {
-    auto const fetch_tile           = tile_infos[blockIdx.x];
-    auto const fetch_tile_start_row = fetch_tile.start_row;
-    auto const starting_col_offset  = col_offsets[fetch_tile.start_col];
-    auto const fetch_tile_row_size  = fetch_tile.get_shared_row_size(col_offsets, col_sizes);
+    auto const fetch_tile            = tile_infos[blockIdx.x];
+    auto const fetch_tile_start_row  = fetch_tile.start_row;
+    auto const starting_col_offset   = col_offsets[fetch_tile.start_col];
+    auto const fetch_tile_row_size   = fetch_tile.get_shared_row_size(col_offsets, col_sizes);
+    auto const fetch_actual_row_size = fetch_tile.get_actual_row_size(col_offsets, col_sizes);
     auto const row_batch_start =
       fetch_tile.batch_number == 0 ? 0 : batch_row_boundaries[fetch_tile.batch_number];
 
@@ -924,8 +957,9 @@ __launch_bounds__(block_size) CUDF_KERNEL
       auto shared_offset = (absolute_row - fetch_tile_start_row) * fetch_tile_row_size;
       auto dst           = &shared[shared_offset];
       auto src = &input_data[row_offsets(absolute_row, row_batch_start) + starting_col_offset];
-      // copy the data
-      cuda::memcpy_async(warp, dst, src, fetch_tile_row_size, tile_barrier);
+      // Shared stride stays padded (8-aligned for fast access); only fetch the bytes that
+      // actually belong to this tile so we never reach past the tile's column range.
+      cuda::memcpy_async(warp, dst, src, fetch_actual_row_size, tile_barrier);
     }
   }
 
@@ -1123,7 +1157,12 @@ __launch_bounds__(block_size) CUDF_KERNEL
   // Traversing in row-major order to coalesce the offsets and size reads.
   auto my_block = cooperative_groups::this_thread_block();
   auto warp     = cooperative_groups::tiled_partition<cudf::detail::warp_size>(my_block);
-  cuda::barrier<cuda::thread_scope_block> block_barrier;
+
+  // The barrier must be __shared__, initialized, and waited on; see the matching comment in
+  // copy_strings_to_rows.
+  __shared__ cuda::barrier<cuda::thread_scope_block> block_barrier;
+  if (my_block.thread_rank() == 0) { init(&block_barrier, my_block.size()); }
+  my_block.sync();
 
   // workaround for not being able to take a reference to a constexpr host variable
   auto const ROWS_PER_BLOCK = NUM_STRING_ROWS_PER_BLOCK_FROM_ROWS;
@@ -1147,6 +1186,8 @@ __launch_bounds__(block_size) CUDF_KERNEL
       cuda::memcpy_async(warp, dst, src, str_len[row], block_barrier);
     }
   }
+
+  block_barrier.arrive_and_wait();
 }
 
 /**
@@ -1511,6 +1552,13 @@ batch_data build_batches(size_type num_rows,
     auto const lb =
       thrust::lower_bound(rmm::exec_policy(stream), search_start, search_end, MAX_BATCH_SIZE);
     size_type const batch_size = lb - search_start;
+
+    // If fewer than 32 rows already exceed MAX_BATCH_SIZE, round_down_safe(batch_size, 32)
+    // would yield zero, and last_row_end would never advance — producing an infinite loop.
+    // Surface this as an exception instead.
+    CUDF_EXPECTS(lb == search_end || cudf::util::round_down_safe(batch_size, 32) > 0,
+                 "Row too large: cumulative encoded size of fewer than 32 rows exceeds 2 GiB. "
+                 "Reduce per-row data volume.");
 
     size_type const row_end = lb == search_end
                                 ? batch_size + last_row_end
@@ -1935,9 +1983,13 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
         MAX_STRING_BLOCKS,
         cudf::util::div_rounding_up_unsafe(batch_num_rows, NUM_STRING_ROWS_PER_BLOCK_TO_ROWS)));
 
+      // The kernel computes start_row as (blockIdx.x * stride + warp_rank + batch_row_offset),
+      // i.e. an absolute row index. Pass the absolute end-row bound (batch_row_offset +
+      // batch_num_rows) so the inner loop guard `row < num_rows` works for every batch,
+      // including batches whose start lies past per-batch row_count.
       detail::copy_strings_to_rows<NUM_STRING_ROWS_PER_BLOCK_TO_ROWS>
         <<<string_blocks, NUM_STRING_ROWS_PER_BLOCK_TO_ROWS, 0, stream.value()>>>(
-          batch_num_rows,
+          batch_row_offset + batch_num_rows,
           variable_width_table.num_columns(),
           dev_variable_input_data.data(),
           dev_variable_col_output_offsets.data(),
@@ -1983,6 +2035,33 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
 
 }  // namespace detail
 
+namespace {
+
+// Only fixed-width and STRING columns are supported by the row_conversion kernels. Nested
+// types (LIST / STRUCT / MAP) and DURATION/INTERVAL types have no row-layout encoding and
+// would silently corrupt data if allowed through.
+inline bool is_supported_row_conversion_type(data_type t)
+{
+  return is_fixed_width(t) || t.id() == type_id::STRING;
+}
+
+inline void check_supported_columns(table_view const& tbl)
+{
+  for (auto const& c : tbl) {
+    CUDF_EXPECTS(is_supported_row_conversion_type(c.type()),
+                 "Unsupported column type for row conversion. Only fixed-width and STRING "
+                 "columns are accepted.");
+    // The row_conversion kernels assume column_view::offset() == 0 throughout. A non-zero
+    // offset would make data<int8_t>() return a byte-misaligned pointer (head + offset
+    // bytes instead of head + offset * sizeof(T)) and would also misalign the null_mask.
+    CUDF_EXPECTS(c.offset() == 0,
+                 "Sliced columns (column_view::offset() != 0) are not supported by row "
+                 "conversion. The caller must materialize a contiguous copy first.");
+  }
+}
+
+}  // namespace
+
 /**
  * @brief convert a cudf table to JCUDF row format
  *
@@ -1995,6 +2074,8 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
 {
+  check_supported_columns(tbl);
+
   auto const num_columns = tbl.num_columns();
   auto const num_rows    = tbl.num_rows();
 
@@ -2057,6 +2138,8 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
 std::vector<std::unique_ptr<column>> convert_to_rows_fixed_width_optimized(
   table_view const& tbl, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
+  check_supported_columns(tbl);
+
   auto const num_columns = tbl.num_columns();
 
   std::vector<data_type> schema;
@@ -2156,6 +2239,13 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
   auto const list_type = child.type().id();
   CUDF_EXPECTS(list_type == type_id::INT8 || list_type == type_id::UINT8,
                "Only a list of bytes is supported as input");
+  for (auto const& t : schema) {
+    CUDF_EXPECTS(is_supported_row_conversion_type(t),
+                 "Unsupported schema type for row conversion. Only fixed-width and STRING "
+                 "are accepted.");
+  }
+  CUDF_EXPECTS(input.parent().offset() == 0,
+               "Sliced row list (offset != 0) is not supported by row conversion.");
 
   // convert any strings in the schema to two int32 columns
   // This allows us to leverage the fixed-width copy code to fill in our offset and string length
@@ -2450,6 +2540,13 @@ std::unique_ptr<table> convert_from_rows_fixed_width_optimized(lists_column_view
   auto const list_type = child.type().id();
   CUDF_EXPECTS(list_type == type_id::INT8 || list_type == type_id::UINT8,
                "Only a list of bytes is supported as input");
+  for (auto const& t : schema) {
+    CUDF_EXPECTS(is_supported_row_conversion_type(t),
+                 "Unsupported schema type for row conversion. Only fixed-width and STRING "
+                 "are accepted.");
+  }
+  CUDF_EXPECTS(input.parent().offset() == 0,
+               "Sliced row list (offset != 0) is not supported by row conversion.");
 
   auto const num_columns = schema.size();
 
