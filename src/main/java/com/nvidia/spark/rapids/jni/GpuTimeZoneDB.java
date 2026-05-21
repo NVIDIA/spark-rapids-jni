@@ -543,7 +543,10 @@ public class GpuTimeZoneDB {
 
   /**
    * Only for testing purpose.
-   * Get all supported timezones for ORC timezone conversion.
+   * Get all supported timezones for ORC timezone conversion. The returned list
+   * is the same as {@link OrcTimezoneInfo#getAllTimezoneIds()}: it is already
+   * filtered to ids that {@link OrcTimezoneInfo#get(String)} can build, so
+   * callers do not need to pre-filter via {@link #isSupportedTimeZone(String)}.
    */
   static List<String> getOrcSupportedTimezones() {
     return OrcTimezoneInfo.getAllTimezoneIds();
