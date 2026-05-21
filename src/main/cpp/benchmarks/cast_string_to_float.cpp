@@ -193,8 +193,8 @@ void string_to_double_helper_on(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
   auto const host_strings = make_helper_triggering_strings(n_rows);
-  auto const stream     = cudf::get_default_stream();
-  auto const string_col = string_column_from_host(host_strings, stream);
+  auto const stream       = cudf::get_default_stream();
+  auto const string_col   = string_column_from_host(host_strings, stream);
 
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     auto rows = spark_rapids_jni::string_to_float(
