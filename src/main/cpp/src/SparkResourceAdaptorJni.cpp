@@ -2186,29 +2186,42 @@ class spark_resource_adaptor_impl {
   }
 
  private:
-  [[noreturn]] static void log_deallocate_failure_and_terminate(std::exception_ptr failure) noexcept
+  static void try_log_exception(long const tid, std::exception_ptr failure)
   {
     try {
-      auto const tid = static_cast<long>(pthread_self());
-      try {
-        if (failure) { std::rethrow_exception(failure); }
-        LOG_STATUS("ERROR",
-                   tid,
-                   -2,
-                   thread_state::UNKNOWN,
-                   "deallocate failed with unknown exception; terminating");
-      } catch (std::exception const& e) {
-        LOG_STATUS(
-          "ERROR", tid, -2, thread_state::UNKNOWN, "deallocate failed; terminating: {}", e.what());
-      } catch (...) {
-        LOG_STATUS("ERROR",
-                   tid,
-                   -2,
-                   thread_state::UNKNOWN,
-                   "deallocate failed with unknown exception; terminating");
-      }
+      std::rethrow_exception(failure);
+    } catch (std::exception const& e) {
+      // If the exception is a std::exception, we can log what() it is.
+      LOG_STATUS(
+        "ERROR", tid, -2, thread_state::UNKNOWN, "deallocate failed; terminating: {}", e.what());
     } catch (...) {
+      // If what's thrown is not a std::exception, log a generic message.
+      LOG_STATUS("ERROR",
+                 tid,
+                 -2,
+                 thread_state::UNKNOWN,
+                 "deallocate failed with unknown exception; terminating");
+    }
+  }
+
+  /**
+   * Best-effort logging for failures caught by deallocate()'s noexcept guard.
+   *
+   * The original deallocate failure is handled separately from the logging calls by
+   * try_log_exception() so that a logging exception cannot be mistaken for the exception thrown by
+   * deallocate(). Either way, this helper must not return or allow any exception to escape. The
+   * caller passes std::current_exception() from inside a catch block, so failure is expected to be
+   * non-null.
+   */
+  [[noreturn]] static void log_deallocation_failure_and_terminate(
+    std::exception_ptr failure) noexcept
+  {
+    try {
+      try_log_exception(static_cast<long>(pthread_self()), failure);
+    } catch (...) {
+      // At this point, logging the error itself threw.
       // Logging is best-effort here. This function must not allow any exception to escape.
+      // Just terminate.
     }
     std::terminate();
   }
@@ -2230,7 +2243,7 @@ class spark_resource_adaptor_impl {
       // This deallocator is part of the RMM/CCCL memory-resource contract and is called through
       // noexcept wrappers such as cuda::mr::shared_resource. If an exception escaped, the wrapper
       // would likely call std::terminate() anyway; doing it here makes that fatal path explicit.
-      log_deallocate_failure_and_terminate(std::current_exception());
+      log_deallocation_failure_and_terminate(std::current_exception());
     }
   }
 
