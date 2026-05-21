@@ -220,14 +220,32 @@ class OrcTimezoneInfo {
     long cursor = scanStartMs;
     int currentOffset = startOffset;
     while (cursor < scanEndMs) {
-      long probe = Math.min(cursor + HISTORICAL_TRANSITION_SCAN_STEP_MILLIS, scanEndMs);
-      int probeOffset = tz.getOffset(probe);
-      if (probeOffset == currentOffset) {
-        cursor = probe;
+      // Exponentially expand the probe step while the offset stays equal to
+      // currentOffset. This collapses long no-transition stretches (e.g. the
+      // year-0001-to-first-historical-transition gap, ~1880 years for typical
+      // IANA zones) from O(N) day probes to O(log N). Once the probe lands on
+      // a different offset, the [lo, hi] bracket contains a transition and we
+      // hand it to binarySearchTransition. The bracket may be wider than the
+      // base 24h step, so this assumes at most one offset transition lives in
+      // the expanded window — which holds for real IANA data; A->B->A pairs
+      // narrower than the base step are addressed separately by the step size.
+      long lo = cursor;
+      long step = HISTORICAL_TRANSITION_SCAN_STEP_MILLIS;
+      long hi = Math.min(lo + step, scanEndMs);
+      int hiOffset = tz.getOffset(hi);
+      while (hiOffset == currentOffset && hi < scanEndMs) {
+        lo = hi;
+        step = Math.min(step * 2L, scanEndMs - hi);
+        hi = lo + step;
+        hiOffset = tz.getOffset(hi);
+      }
+      if (hiOffset == currentOffset) {
+        // Reached scanEndMs without seeing any transition.
+        cursor = hi;
         continue;
       }
 
-      long exactTransition = binarySearchTransition(tz, cursor, probe);
+      long exactTransition = binarySearchTransition(tz, lo, hi);
       int offsetAfterTransition = tz.getOffset(exactTransition);
       transitions.add(exactTransition);
       offsets.add(offsetAfterTransition);
