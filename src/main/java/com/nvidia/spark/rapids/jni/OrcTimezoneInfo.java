@@ -140,7 +140,17 @@ class OrcTimezoneInfo {
   public static List<String> getAllTimezoneIds() {
     String[] ids = TimeZone.getAvailableIDs();
     Arrays.sort(ids);
-    return Arrays.asList(ids);
+    // Filter to ids that get(...) can actually build. TimeZone.getAvailableIDs()
+    // on some JDK builds includes POSIX-style names (e.g. "EST5EDT", "SystemV/AST4")
+    // that ZoneId.of(id, ZoneId.SHORT_IDS) rejects, which would make iterating this
+    // list and feeding entries to OrcTimezoneInfo.get(...) throw IllegalArgumentException.
+    List<String> result = new ArrayList<>(ids.length);
+    for (String id : ids) {
+      if (GpuTimeZoneDB.isSupportedTimeZone(id)) {
+        result.add(id);
+      }
+    }
+    return result;
   }
 
   private static int getInitialOffset(TimeZone tz) {
