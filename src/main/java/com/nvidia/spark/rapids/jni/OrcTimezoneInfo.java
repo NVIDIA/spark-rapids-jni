@@ -64,11 +64,14 @@ class OrcTimezoneInfo {
   // calendar with the 1582 cutover for date-field interpretations. In practice
   // this difference does not affect offset lookup (which is purely instant-based
   // for ZoneInfo), so the two calendars agree on the offset at this instant.
-  private static final long MIN_SUPPORTED_ORC_UTC_MILLIS = utcMillisForDate(1, 0, 1);
+  private static final long MIN_SUPPORTED_ORC_UTC_MILLIS = utcMillisForDate(1, 1, 1);
   private static final long HISTORICAL_TRANSITION_SCAN_STEP_MILLIS = 24L * 3600_000L;
 
+  // year, month, and day are all 1-indexed, matching LocalDate.of conventions
+  // (e.g. month=1 is January). This avoids the easy-to-misread mix of 0-based
+  // month and 1-based day at the call site.
   private static long utcMillisForDate(int year, int month, int day) {
-    return LocalDate.of(year, month + 1, day).toEpochDay() * 24L * 3600_000L;
+    return LocalDate.of(year, month, day).toEpochDay() * 24L * 3600_000L;
   }
 
   @Override
