@@ -21,6 +21,8 @@ import ai.rapids.cudf.*;
 import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -58,6 +60,23 @@ public class GpuTimeZoneDBTest {
       results[i] = (millis + finalDiffs) * microsPerMillis + (microseconds[i] % microsPerMillis);
     }
     return ColumnVector.timestampMicroSecondsFromLongs(results);
+  }
+
+  @Test
+  void testIsSupportedTimeZone() {
+    // Named zones with ZoneRules.
+    assertTrue(GpuTimeZoneDB.isSupportedTimeZone("UTC"));
+    assertTrue(GpuTimeZoneDB.isSupportedTimeZone("Asia/Shanghai"));
+
+    // Unknown id.
+    assertFalse(GpuTimeZoneDB.isSupportedTimeZone("Invalid/Zone"));
+
+    // Offset-style ids: "+05:30" must be accepted; malformed offsets must be
+    // rejected even when the parser throws DateTimeException rather than the
+    // narrower ZoneRulesException. This is the regression the widened catch in
+    // isSupportedTimeZone guards against.
+    assertTrue(GpuTimeZoneDB.isSupportedTimeZone("+05:30"));
+    assertFalse(GpuTimeZoneDB.isSupportedTimeZone("+25:00"));
   }
 
   @Test
