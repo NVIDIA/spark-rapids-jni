@@ -18,7 +18,10 @@ package com.nvidia.spark.rapids.jni;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -54,6 +57,28 @@ public class OrcTimezoneInfoTest {
     // There is no silent fallback to GMT.
     assertThrows(IllegalArgumentException.class,
         () -> OrcTimezoneInfo.get("Invalid/Zone"));
+  }
+
+  @Test
+  void testGetAllTimezoneIdsContract() {
+    List<String> ids = OrcTimezoneInfo.getAllTimezoneIds();
+
+    assertFalse(ids.isEmpty(), "expected at least one supported timezone id");
+    assertTrue(ids.contains("UTC"), "UTC must be present");
+    assertTrue(ids.contains("Asia/Shanghai"), "Asia/Shanghai must be present");
+
+    // Sorted ascending.
+    for (int i = 1; i < ids.size(); i++) {
+      assertTrue(ids.get(i - 1).compareTo(ids.get(i)) <= 0,
+          "list must be sorted: " + ids.get(i - 1) + " > " + ids.get(i));
+    }
+
+    // Every id must be one that OrcTimezoneInfo.get can build — i.e. the lister
+    // and the loader agree.
+    for (String id : ids) {
+      assertTrue(GpuTimeZoneDB.isSupportedTimeZone(id),
+          "getAllTimezoneIds returned an id that isSupportedTimeZone rejects: " + id);
+    }
   }
 
   @Test
