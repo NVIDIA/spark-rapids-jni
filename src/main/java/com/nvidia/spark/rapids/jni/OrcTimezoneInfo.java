@@ -137,13 +137,21 @@ class OrcTimezoneInfo {
         historicalTransitions.transitions, historicalTransitions.offsets);
   }
 
+  /**
+   * Returns the sorted list of timezone IDs that {@link #get(String)} can build —
+   * the intersection of {@link TimeZone#getAvailableIDs()} and
+   * {@link GpuTimeZoneDB#isSupportedTimeZone(String)}. POSIX-style entries (e.g.
+   * {@code "EST5EDT"}, {@code "SystemV/AST4"}) that some JDK builds expose but
+   * {@code ZoneId.of(id, ZoneId.SHORT_IDS)} rejects are filtered out.
+   *
+   * <p>The result is computed on every call; callers that need it repeatedly
+   * should cache it themselves.
+   *
+   * @return sorted list of ORC-supported timezone IDs
+   */
   public static List<String> getAllTimezoneIds() {
     String[] ids = TimeZone.getAvailableIDs();
     Arrays.sort(ids);
-    // Filter to ids that get(...) can actually build. TimeZone.getAvailableIDs()
-    // on some JDK builds includes POSIX-style names (e.g. "EST5EDT", "SystemV/AST4")
-    // that ZoneId.of(id, ZoneId.SHORT_IDS) rejects, which would make iterating this
-    // list and feeding entries to OrcTimezoneInfo.get(...) throw IllegalArgumentException.
     List<String> result = new ArrayList<>(ids.length);
     for (String id : ids) {
       if (GpuTimeZoneDB.isSupportedTimeZone(id)) {
