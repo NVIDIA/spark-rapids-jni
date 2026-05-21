@@ -42,14 +42,15 @@
 namespace {
 
 // Construct host strings that all satisfy the helper's caller-side gate:
-// `digits > 2^53 AND |exp_ten| <= 19`. Random uint64 in [2^53+1, UINT64_MAX]
-// gets printed via std::to_string, then an optional `e{q}` with
-// q in [-19, 19] is appended. By construction every row exercises the
-// correctly-rounded helper.
+// `digits > 2^53 AND |exp_ten| <= 19`. The mantissa is capped at 19 digits
+// (max 9999999999999999999) so the parser's `max_safe_digits == 19` truncation
+// is never triggered — otherwise a 20-digit uint64 would lose its trailing
+// digit, bump `exp_base` by 1, and push `exp_ten` to 20, missing the gate.
 std::vector<std::string> make_helper_triggering_strings(cudf::size_type n_rows)
 {
   std::mt19937_64 rng{0xC0FFEEULL};
-  std::uniform_int_distribution<uint64_t> digit_dist{(1ULL << 53) + 1, UINT64_MAX};
+  // Inclusive upper bound = 10^19 - 1 (the largest 19-digit value).
+  std::uniform_int_distribution<uint64_t> digit_dist{(1ULL << 53) + 1, 9999999999999999999ULL};
   std::uniform_int_distribution<int> q_dist{-19, 19};
 
   std::vector<std::string> out;
@@ -159,11 +160,15 @@ NVBENCH_BENCH(string_to_float)
 // every row and the default `digits * exp10(exp_ten)` path runs. The trigger
 // rate is asserted statically by `from_floats`'s contract (no host-side
 // re-parse needed). This is the regression-check baseline: cost on the FP64
-// path WITHOUT the new helper.
+// path WITHOUT the new helper. Input column is non-nullable to match
+// helper_on's column nullability and keep the comparison apples-to-apples
+// (the default `create_random_table` profile injects nulls that would early
+// out of the parser before the default path runs).
 void string_to_double_helper_off(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
-  auto const float_tbl  = create_random_table({cudf::type_id::FLOAT64}, row_count{n_rows});
+  data_profile const profile = data_profile_builder().no_validity();
+  auto const float_tbl  = create_random_table({cudf::type_id::FLOAT64}, row_count{n_rows}, profile);
   auto const float_col  = float_tbl->get_column(0);
   auto const string_col = cudf::strings::from_floats(float_col.view());
 
@@ -188,8 +193,8 @@ void string_to_double_helper_on(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
   auto const host_strings = make_helper_triggering_strings(n_rows);
-  auto const stream       = cudf::get_default_stream();
-  auto const string_col   = string_column_from_host(host_strings, stream);
+  auto const stream     = cudf::get_default_stream();
+  auto const string_col = string_column_from_host(host_strings, stream);
 
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     auto rows = spark_rapids_jni::string_to_float(

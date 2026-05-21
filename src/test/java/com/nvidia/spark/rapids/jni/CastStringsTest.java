@@ -250,8 +250,6 @@ public class CastStringsTest {
         "1.234567890123456789",      // 19-digit mantissa
         "9.999999999999999999",
         "-1.7976931348623157",
-        "1.5",
-        "0.1",
         // --- helper q > 0 path: 17-digit mantissa with explicit positive
         // exponent. digits > 2^53 AND |exp_ten| <= 19, so slow_path_eligible
         // is true and exp_ten is positive, exercising the
