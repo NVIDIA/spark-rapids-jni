@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
@@ -77,6 +78,23 @@ public class GpuTimeZoneDBTest {
     // isSupportedTimeZone guards against.
     assertTrue(GpuTimeZoneDB.isSupportedTimeZone("+05:30"));
     assertFalse(GpuTimeZoneDB.isSupportedTimeZone("+25:00"));
+  }
+
+  @Test
+  void testConvertOrcTimezonesRejectsInvalidId() {
+    // Invalid timezone IDs must surface an exception rather than silently
+    // falling back to GMT. The DST guard at the top of convertOrcTimezones
+    // calls ZoneId.of(...), so an unknown id will throw before the runtime
+    // build path or the GPU kernel ever runs. We assert the broad
+    // RuntimeException type so this stays a regression guard even if the
+    // exact wrapping (DateTimeException vs IllegalArgumentException vs
+    // IllegalStateException) is refactored later.
+    GpuTimeZoneDB.cacheDatabase();
+    try (ColumnVector input =
+        ColumnVector.timestampMicroSecondsFromLongs(new long[] {0L})) {
+      assertThrows(RuntimeException.class,
+          () -> GpuTimeZoneDB.convertOrcTimezones(input, "Invalid/Zone", "UTC"));
+    }
   }
 
   @Test
