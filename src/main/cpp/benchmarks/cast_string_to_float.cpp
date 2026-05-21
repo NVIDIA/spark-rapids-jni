@@ -16,24 +16,16 @@
 
 #include <benchmarks/common/generate_input.hpp>
 
-#include <cudf/column/column.hpp>
-#include <cudf/column/column_factories.hpp>
+#include <cudf_test/column_wrapper.hpp>
+
 #include <cudf/strings/convert/convert_floats.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/error.hpp>
-
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/device_buffer.hpp>
-#include <rmm/device_uvector.hpp>
 
 #include <cast_string.hpp>
 #include <nvbench/nvbench.cuh>
 
-#include <cassert>
 #include <cstdint>
-#include <cstring>
-#include <limits>
 #include <random>
 #include <string>
 #include <utility>
@@ -66,66 +58,6 @@ std::vector<std::string> make_helper_triggering_strings(cudf::size_type n_rows)
     out.push_back(std::move(s));
   }
   return out;
-}
-
-// Pack a host vector of strings into a single contiguous chars buffer plus
-// matching offsets. Used to upload to device for cudf::make_strings_column.
-struct packed_host_strings {
-  std::vector<char> chars;
-  std::vector<int32_t> offsets;
-};
-
-packed_host_strings pack_host_strings(std::vector<std::string> const& strings)
-{
-  packed_host_strings out;
-  out.offsets.reserve(strings.size() + 1);
-  out.offsets.push_back(0);
-  size_t total = 0;
-  for (auto const& s : strings) {
-    total += s.size();
-  }
-  out.chars.resize(total);
-  size_t pos = 0;
-  for (auto const& s : strings) {
-    std::memcpy(out.chars.data() + pos, s.data(), s.size());
-    pos += s.size();
-    // Guard the int32 cast — cudf strings columns currently use int32 offsets.
-    // If a future change bumps `num_rows` or string length past INT32_MAX,
-    // fail loudly here instead of silently truncating to a negative offset.
-    assert(pos <= static_cast<size_t>(std::numeric_limits<int32_t>::max()));
-    out.offsets.push_back(static_cast<int32_t>(pos));
-  }
-  return out;
-}
-
-// Build a non-nullable cudf STRING column from a host string vector without
-// pulling in cudf::cudftestutil (which isn't linked into benchmarks unless
-// BUILD_CUDF_TESTS=ON).
-std::unique_ptr<cudf::column> string_column_from_host(std::vector<std::string> const& strings,
-                                                      rmm::cuda_stream_view stream)
-{
-  auto const n = static_cast<cudf::size_type>(strings.size());
-  if (n == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
-  auto packed = pack_host_strings(strings);
-
-  auto const mr = cudf::get_current_device_resource_ref();
-  rmm::device_uvector<char> d_chars(packed.chars.size(), stream, mr);
-  rmm::device_uvector<int32_t> d_offsets(packed.offsets.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_chars.data(),
-                                packed.chars.data(),
-                                packed.chars.size(),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_offsets.data(),
-                                packed.offsets.data(),
-                                packed.offsets.size() * sizeof(int32_t),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
-  stream.synchronize();
-
-  auto offsets_col = std::make_unique<cudf::column>(std::move(d_offsets), rmm::device_buffer{}, 0);
-  return cudf::make_strings_column(
-    n, std::move(offsets_col), d_chars.release(), 0, rmm::device_buffer{});
 }
 
 }  // namespace
@@ -193,12 +125,13 @@ void string_to_double_helper_on(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
   auto const host_strings = make_helper_triggering_strings(n_rows);
-  auto const stream       = cudf::get_default_stream();
-  auto const string_col   = string_column_from_host(host_strings, stream);
+  cudf::test::strings_column_wrapper string_col(host_strings.begin(), host_strings.end());
+  cudf::strings_column_view const scv{static_cast<cudf::column_view>(string_col)};
+  auto const stream = cudf::get_default_stream();
 
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     auto rows = spark_rapids_jni::string_to_float(
-      cudf::data_type{cudf::type_id::FLOAT64}, string_col->view(), false, stream);
+      cudf::data_type{cudf::type_id::FLOAT64}, scv, false, stream);
   });
 }
 
