@@ -50,13 +50,13 @@ class OrcTimezoneInfo {
   }
 
   // in milliseconds
-  int rawOffset;
+  final int rawOffset;
 
   // in milliseconds
-  long[] transitions;
+  final long[] transitions;
 
   // in milliseconds
-  int[] offsets;
+  final int[] offsets;
 
   // Lower bound of the range ORC supports (year 0001-01-01 UTC). Computed via
   // java.time.LocalDate, which uses the proleptic Gregorian calendar, whereas
