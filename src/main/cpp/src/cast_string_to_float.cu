@@ -66,13 +66,7 @@ __device__ __inline__ scaled_uint128 scale_digits_times_pow10(uint64_t digits, i
   int const abs_q = cuda::std::abs(q);
   assert(abs_q <= 19);
 
-  // 10^abs_q for abs_q in [0, 19] — exact as uint64. `static constexpr` marks
-  // the table as a compile-time constant so the compiler is free to fold each
-  // load as an immediate, place it in the binary's read-only data, or keep it
-  // in registers — anywhere but re-initialized on the kernel's local stack on
-  // every invocation. (This is not CUDA `__constant__` memory; that requires a
-  // file-scope `__constant__` qualifier and is not applicable to a local
-  // table inside a `__device__` helper.)
+  // 10^abs_q for abs_q in [0, 19], exact as uint64_t.
   static constexpr uint64_t k_pow10[20] = {1ULL,
                                            10ULL,
                                            100ULL,
