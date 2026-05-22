@@ -241,7 +241,7 @@ class OrcTimezoneInfo {
       // IANA zones) from O(N) day probes to O(log N). Once the probe lands on
       // a different offset, the [lo, hi] bracket contains a transition and we
       // hand it to binarySearchTransition. The bracket may be wider than the
-      // base 24h step, so this assumes at most one offset transition lives in
+      // base 6h step, so this assumes at most one offset transition lives in
       // the expanded window — which holds for real IANA data; A->B->A pairs
       // narrower than the base step are addressed separately by the step size.
       long lo = cursor;
