@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * Copyright (c) 2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -197,6 +197,14 @@ class OrcTimezoneInfo {
 
       long beforeTransitionMs = transitionMs - 1;
       int offsetBeforeTransition = tz.getOffset(beforeTransitionMs);
+      // Invariant: between two consecutive entries returned by
+      // ZoneRules.getTransitions(), the wall offset is constant — no hidden
+      // paired round-trips (e.g. A->B->A) net to zero between entries. If
+      // that ever breaks (DST zones, future tzdata revisions), the guard
+      // below will not fire and both transitions in the pair will be
+      // silently dropped. The DST guard in
+      // GpuTimeZoneDB.convertOrcTimezones currently keeps this dormant;
+      // any follow-up that relaxes it must revisit this code.
       if (beforeTransitionMs >= scanCursor && offsetBeforeTransition != currentOffset) {
         currentOffset = collectTimeZoneTransitionsByScanning(
             tz, scanCursor, beforeTransitionMs, currentOffset, transitions, offsets);

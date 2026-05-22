@@ -43,6 +43,19 @@ public class OrcTimezoneInfoTest {
   }
 
   @Test
+  void testGetFixedOffsetNamedZone() {
+    // "UTC" is a named zone whose ZoneRules.isFixedOffset() is true. Cover
+    // it explicitly so a regression that treats "UTC" as a historical zone
+    // (non-null transitions) — or that silently maps it to GMT via
+    // TimeZone.getTimeZone — is caught. rawOffset must be 0.
+    OrcTimezoneInfo info = OrcTimezoneInfo.get("UTC");
+    assertNotNull(info);
+    assertEquals(0, info.rawOffset);
+    assertNull(info.transitions);
+    assertNull(info.offsets);
+  }
+
+  @Test
   void testGetCachesByKey() {
     // computeIfAbsent must return the same instance on the second call so
     // that other threads sharing RUNTIME_TIMEZONE_INFOS see a stable object.
@@ -67,10 +80,10 @@ public class OrcTimezoneInfoTest {
     assertTrue(ids.contains("UTC"), "UTC must be present");
     assertTrue(ids.contains("Asia/Shanghai"), "Asia/Shanghai must be present");
 
-    // Sorted ascending.
+    // Sorted ascending AND distinct (strict <, not <=, also catches duplicate ids).
     for (int i = 1; i < ids.size(); i++) {
-      assertTrue(ids.get(i - 1).compareTo(ids.get(i)) <= 0,
-          "list must be sorted: " + ids.get(i - 1) + " > " + ids.get(i));
+      assertTrue(ids.get(i - 1).compareTo(ids.get(i)) < 0,
+          "list must be sorted and distinct: " + ids.get(i - 1) + " >= " + ids.get(i));
     }
 
     // Every id must be one that OrcTimezoneInfo.get can build — i.e. the lister
@@ -85,6 +98,12 @@ public class OrcTimezoneInfoTest {
   void testGetHistoricalTransitionsZone() {
     // Asia/Shanghai is a non-DST named zone with real historical transitions.
     // Verify that the runtime build path populates both arrays consistently.
+    //
+    // Known coverage gap: zones whose ZoneRules.getTransitions() is empty
+    // but whose historical offset changed cannot exercise the scan-only
+    // path in collectTimeZoneTransitionsByScanning, because
+    // buildHistoricalTransitions returns EMPTY early for empty transition
+    // lists. Covering it would require a synthetic zone.
     OrcTimezoneInfo info = OrcTimezoneInfo.get("Asia/Shanghai");
     assertNotNull(info);
     assertNotNull(info.transitions, "Asia/Shanghai should have historical transitions");
