@@ -134,7 +134,14 @@ class OrcTimezoneInfo {
       int fixedOffsetMs = rules.getOffset(Instant.EPOCH).getTotalSeconds() * 1000;
       return new OrcTimezoneInfo(fixedOffsetMs, null, null);
     }
-    TimeZone tz = TimeZone.getTimeZone(timezoneId);
+    // Use the canonical ID from the resolved ZoneId (e.g. "Asia/Kolkata" for
+    // input "IST") so that TimeZone and ZoneRules always refer to the same
+    // zone, regardless of how the JVM's legacy TimeZone database maps
+    // 3-letter aliases. ZoneId.SHORT_IDS in getZoneId resolves "IST" to
+    // "Asia/Kolkata"; TimeZone.getTimeZone("IST") may map to a different
+    // zone on some JVM distributions, which would silently produce mixed
+    // offset data with no exception.
+    TimeZone tz = TimeZone.getTimeZone(zoneId.getId());
     List<ZoneOffsetTransition> transitionList = rules.getTransitions();
     HistoricalTransitions historicalTransitions = buildHistoricalTransitions(tz, transitionList);
     if (historicalTransitions.transitions == null) {
