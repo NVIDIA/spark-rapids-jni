@@ -2865,7 +2865,7 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_shutdownLoggerNative(JNIEn
 }
 
 /**
- * Test utility for RmmSparkDeallocationFailureTest.
+ * Test utility for RmmSparkDeallocationFailureTest.Child.
  *
  * This deliberately drives spark_resource_adaptor_impl::deallocate() into its fatal exception path.
  * It installs a test logger that throws when the normal DEALLOC status is logged, constructs a
@@ -2877,7 +2877,7 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_shutdownLoggerNative(JNIEn
  * terminates.
  */
 JNIEXPORT void JNICALL
-Java_com_nvidia_spark_rapids_jni_RmmSparkDeallocationFailureTest_triggerDeallocationFailureForTesting(
+Java_com_nvidia_spark_rapids_jni_RmmSparkDeallocationFailureTest_00024Child_triggerDeallocationFailureForTesting(
   JNIEnv* env, jclass)
 {
   JNI_TRY

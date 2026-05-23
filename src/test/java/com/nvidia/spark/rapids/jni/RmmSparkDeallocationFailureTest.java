@@ -34,19 +34,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Verifies the fatal native error handling path for SparkResourceAdaptor deallocation.
  *
  * The native test hook intentionally reaches a path that calls std::terminate(), so this test
- * cannot invoke it in the JUnit JVM. Instead, the test launches a child JVM running this class'
- * main method. The child loads the native library, invokes the hook, and is expected to terminate
- * after logging the deallocation failure. The parent JUnit test asserts that the child exited with
- * a nonzero status and that the expected failure log was emitted.
+ * cannot invoke it in the JUnit JVM. Instead, the test launches a child JVM running the nested
+ * Child class' main method. Only the child loads the native library, invokes the hook, and is
+ * expected to terminate after logging the deallocation failure. The parent JUnit test asserts that
+ * the child exited with a nonzero status and that the expected failure log was emitted.
  */
 public class RmmSparkDeallocationFailureTest {
   private static final String CHILD_ARG = "--trigger-deallocation-failure";
   private static final String EXPECTED_LOG =
       "deallocate failed; terminating: injected deallocate failure";
-
-  static {
-    NativeDepsLoader.loadNativeDeps();
-  }
 
   @Test
   public void testDeallocateFailureLogsAndTerminates() throws Exception {
@@ -63,13 +59,6 @@ public class RmmSparkDeallocationFailureTest {
     assertTrue(output.contains(EXPECTED_LOG), "expected log line missing; output:\n" + output);
   }
 
-  public static void main(String[] args) {
-    if (args.length != 1 || !CHILD_ARG.equals(args[0])) {
-      throw new IllegalArgumentException("unexpected child arguments");
-    }
-    triggerDeallocationFailureForTesting();
-  }
-
   private static List<String> childCommand() {
     List<String> command = new ArrayList<>();
     command.add(javaExecutable());
@@ -81,7 +70,7 @@ public class RmmSparkDeallocationFailureTest {
 
     command.add("-cp");
     command.add(testClassPath());
-    command.add(RmmSparkDeallocationFailureTest.class.getName());
+    command.add(Child.class.getName());
     command.add(CHILD_ARG);
     return command;
   }
@@ -108,5 +97,18 @@ public class RmmSparkDeallocationFailureTest {
     return output.toString("UTF-8");
   }
 
-  private static native void triggerDeallocationFailureForTesting();
+  public static class Child {
+    static {
+      NativeDepsLoader.loadNativeDeps();
+    }
+
+    public static void main(String[] args) {
+      if (args.length != 1 || !CHILD_ARG.equals(args[0])) {
+        throw new IllegalArgumentException("unexpected child arguments");
+      }
+      triggerDeallocationFailureForTesting();
+    }
+
+    private static native void triggerDeallocationFailureForTesting();
+  }
 }
