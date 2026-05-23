@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -77,7 +78,7 @@ public class RmmSparkDeallocationFailureTest {
   }
 
   private static String javaExecutable() {
-    return System.getProperty("java.home") + "/bin/java";
+    return Paths.get(System.getProperty("java.home"), "bin", "java").toString();
   }
 
   private static String testClassPath() {
