@@ -24,6 +24,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -40,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the child exited with a nonzero status and that the expected failure log was emitted.
  */
 public class RmmSparkDeallocationFailureTest {
-  private static final String CHILD_ARG = "--trigger-deallocation-failure";
+  private static final String[] CHILD_ARGS = {"--trigger-deallocation-failure"};
   private static final String EXPECTED_LOG =
       "deallocate failed; terminating: injected deallocate failure";
 
@@ -71,7 +72,7 @@ public class RmmSparkDeallocationFailureTest {
     command.add("-cp");
     command.add(testClassPath());
     command.add(Child.class.getName());
-    command.add(CHILD_ARG);
+    command.addAll(Arrays.asList(CHILD_ARGS));
     return command;
   }
 
@@ -81,10 +82,10 @@ public class RmmSparkDeallocationFailureTest {
 
   private static String testClassPath() {
     String classPath = System.getProperty("surefire.test.class.path");
-    if (classPath == null || classPath.isEmpty()) {
-      classPath = System.getProperty("java.class.path");
+    if (classPath != null && !classPath.isEmpty()) {
+      return classPath;
     }
-    return classPath;
+    return System.getProperty("java.class.path");
   }
 
   private static String readFully(InputStream stream) throws IOException {
@@ -103,7 +104,7 @@ public class RmmSparkDeallocationFailureTest {
     }
 
     public static void main(String[] args) {
-      if (args.length != 1 || !CHILD_ARG.equals(args[0])) {
+      if (!Arrays.equals(CHILD_ARGS, args)) {
         throw new IllegalArgumentException("unexpected child arguments");
       }
       triggerDeallocationFailureForTesting();
