@@ -63,8 +63,8 @@ std::vector<std::string> make_helper_triggering_strings(cudf::size_type n_rows)
 }  // namespace
 
 // FP32 cast — the correctly-rounded helper does not run on this code path
-// (the `if constexpr (is_same_v<T, double>)` gate skips it for float). Kept
-// as the original FP32 baseline.
+// (the `cuda::std::is_same_v<T, double>` term in the `helper_eligible` gate
+// skips it for float). Kept as the original FP32 baseline.
 void string_to_float(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
@@ -88,14 +88,14 @@ NVBENCH_BENCH(string_to_float)
 // produced by `cudf::strings::from_floats`, which caps significant digits at
 // 10 via `nine_digits = 10^9` in `dissect_value` (cudf
 // `convert_floats.cu:134`), so the parsed mantissa is at most ~10^10 — well
-// below 2^53 (~9.007e15). The caller's `use_high_precision_path` is `false` for
-// every row and the default `digits * exp10(exp_ten)` path runs. The trigger
-// rate is asserted statically by `from_floats`'s contract (no host-side
-// re-parse needed). This is the regression-check baseline: cost on the FP64
-// path WITHOUT the new helper. Input column is non-nullable to match
-// helper_on's column nullability and keep the comparison apples-to-apples
-// (the default `create_random_table` profile injects nulls that would early
-// out of the parser before the default path runs).
+// below 2^53 (~9.007e15). The caller's `helper_eligible` predicate is `false`
+// for every row and `default_double_path<T>` runs. The trigger rate is
+// asserted statically by `from_floats`'s contract (no host-side re-parse
+// needed). This is the regression-check baseline: cost on the FP64 path
+// WITHOUT the new helper. Input column is non-nullable to match helper_on's
+// column nullability and keep the comparison apples-to-apples (the default
+// `create_random_table` profile injects nulls that would early out of the
+// parser before the default path runs).
 void string_to_double_helper_off(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
@@ -119,7 +119,7 @@ NVBENCH_BENCH(string_to_double_helper_off)
 // FP64 cast where the correctly-rounded helper IS entered for every row.
 // Strings are hand-built on the host so the parsed mantissa is always
 // `> 2^53` and the explicit exponent is always in `[-19, 19]`, guaranteeing
-// the caller's `use_high_precision_path` predicate is `true` for every row.
+// the caller's `helper_eligible` predicate is `true` for every row.
 // This measures the worst case: every row pays the int128 helper cost.
 void string_to_double_helper_on(nvbench::state& state)
 {

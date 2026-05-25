@@ -251,7 +251,7 @@ public class CastStringsTest {
         "9.999999999999999999",
         "-1.7976931348623157",
         // --- helper q > 0 path: 17-digit mantissa with explicit positive
-        // exponent. digits > 2^53 AND |exp_ten| <= 19, so slow_path_eligible
+        // exponent. digits > 2^53 AND |exp_ten| <= 19, so helper_eligible
         // is true and exp_ten is positive, exercising the
         // `quotient128 = digits * 10^q` branch inside the helper.
         "9007199254740993e10",
