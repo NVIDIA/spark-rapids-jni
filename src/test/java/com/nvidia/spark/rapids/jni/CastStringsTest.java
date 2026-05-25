@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import org.junit.jupiter.api.Assertions;
 
@@ -212,6 +213,140 @@ public class CastStringsTest {
         }
       } finally {
         result.forEach(ColumnVector::close);
+      }
+    }
+  }
+
+  // Regression test for https://github.com/NVIDIA/spark-rapids/issues/10773.
+  // Inputs whose decimal mantissa exceeds 2^53 used to lose 1 ULP because the
+  // kernel cast the uint64 digits to double *before* applying the exp10 factor.
+  // After the correctly-rounded fallback was added, the GPU result must match
+  // Java's Double.parseDouble (which falls back to BigDecimal for these).
+  //
+  // Coverage groups (helper-triggered unless noted):
+  //  - happy path: 17- to 19-digit mantissas across normal magnitudes (q <= 0)
+  //  - positive-exponent (q > 0) path with digits > 2^53
+  //  - the 2^53 trigger boundary (exactly at, one above)
+  //  - mantissa rounding that rolls into the exponent
+  //  - overflow to +/-infinity past Double.MAX_VALUE (caller's legacy path)
+  //  - subnormal magnitudes (caller's legacy path)
+  //  - signs
+  //  - |q| > 19 fallback to the legacy path
+  @Test
+  void castToDoubleHighPrecisionTest() {
+    // Helper-window inputs: digits > 2^53 AND |q| <= 19, plus the boundary
+    // case where the mantissa rounding rolls into the exponent. These take
+    // the new correctly-rounded fallback path and MUST match Double.parseDouble
+    // bit-for-bit. A 1-ULP regression here means the helper is broken and
+    // NVIDIA/spark-rapids#10773 has regressed.
+    String[] helperInputs = new String[] {
+        // --- happy path: helper, q <= 0 ---
+        "1.7976931348623157",        // the literal that broke RapidsJsonSuite
+        "9.9999999999999999",
+        "1.0000000000000001",
+        "1.0000000000000002",
+        "3.1415926535897932",
+        "2.7182818284590452",
+        "2.2250738585072014",        // Double.MIN_NORMAL mantissa (no e-308 here)
+        "1.234567890123456789",      // 19-digit mantissa
+        "9.999999999999999999",
+        "-1.7976931348623157",
+        // --- helper q > 0 path: 17-digit mantissa with explicit positive
+        // exponent. digits > 2^53 AND |exp_ten| <= 19, so helper_eligible
+        // is true and exp_ten is positive, exercising the
+        // `quotient128 = digits * 10^q` branch inside the helper.
+        "9007199254740993e10",
+        "12345678901234567e7",
+        "-9007199254740993e15",
+        // --- helper |q| = 19 boundary: exact upper edge of the eligibility
+        // window (`cuda::std::abs(exp_ten) <= 19`). Tests both signs so a
+        // mutation from `<= 19` to `< 19` in the gate trips this case.
+        "9007199254740993e19",
+        "9007199254740993e-19",
+        // --- 2^53 + 1 trigger boundary: first input the helper handles ---
+        "9007199254740993",
+        // digits = 2^53 + 1 with q < 0 and >16 sig figs
+        "9.007199254740993",
+        // --- tie-to-even rounds UP via the (mantissa & 1ULL) arm:
+        // round_bit=1, sticky=0, mantissa odd → `mantissa & 1ULL` adds 1.
+        // 9007199254740995 (2^53 + 3): shift=1, mantissa=4503599627370497
+        // (odd), round_bit=1, sticky=0 → rounds to 9007199254740996.0,
+        // matching Double.parseDouble's correctly-rounded result. Without
+        // this case the `mantissa & 1ULL` arm of the round-up condition is
+        // dead under the existing inputs.
+        "9007199254740995",
+        // --- mantissa rounding rolls into the exponent ---
+        // After rounding, the 53-bit mantissa hits 2^53 and the helper
+        // increments unbiased_exp.
+        "9999999999999999.5"         // rounds to 1e16
+    };
+    // Legacy-path inputs: take the pre-existing `static_cast<double>(digits)
+    // * exp10(exp_ten)` path. This path is NOT correctly-rounded in general --
+    // GPU's exp10 may differ from Java's BigDecimal-based parser by up to a
+    // few ULP, and codegen across SM archs is sensitive enough that an input
+    // that lands bit-exact on one GPU can be 1-ULP off on another. Examples
+    // observed in CI: "9.99e25" returns 4995803332451764961 on Blossom CUDA12
+    // /CUDA13 GPUs (vs Java's 4995803332451764962). Assert a 1-ULP tolerance
+    // instead of bit-exact so the regression test still trips real breakage
+    // (helper window) without false-positiving on the documented legacy
+    // imprecision.
+    String[] legacyInputs = new String[] {
+        // digits = 2^53 exactly: helper NOT triggered (need strictly greater).
+        // 2^53 is exactly representable as a double, so the legacy path
+        // returns the correct value.
+        "9007199254740992",
+        // --- overflow to +/-infinity past Double.MAX_VALUE ---
+        "1.8e308",                   // > Double.MAX_VALUE
+        "-1.8e308",                  // negative infinity
+        // --- subnormal magnitudes ---
+        "5e-324",                    // Double.MIN_VALUE (smallest subnormal)
+        "1.5e-310",                  // mid-subnormal range
+        // --- |q| > 19 fallback to legacy ---
+        "1e20",
+        "1e-100",
+        "9.99e25",
+        "12345678901234567e21",      // q = +21, large magnitude
+        "12345678901234567e-23",     // q = -23, tiny magnitude
+        "99999999999999999e30"       // q = +30, near overflow-to-infinity
+    };
+
+    // Helper window: bit-exact match required.
+    try (ColumnVector in = ColumnVector.fromStrings(helperInputs);
+         ColumnVector got = CastStrings.toFloat(in, false, DType.FLOAT64);
+         HostColumnVector hostGot = got.copyToHost()) {
+      for (int i = 0; i < helperInputs.length; i++) {
+        double expected = Double.parseDouble(helperInputs[i]);
+        double actual = hostGot.getDouble(i);
+        assertEquals(Double.doubleToLongBits(expected),
+                     Double.doubleToLongBits(actual),
+                     "helper row " + i + " input=" + helperInputs[i] +
+                     " expected=" + expected + " actual=" + actual);
+      }
+    }
+
+    // Legacy path: allow 1-ULP slack. Infinities and zero subnormals are still
+    // compared bit-exact via Double.doubleToLongBits since their ULP is
+    // ill-defined.
+    try (ColumnVector in = ColumnVector.fromStrings(legacyInputs);
+         ColumnVector got = CastStrings.toFloat(in, false, DType.FLOAT64);
+         HostColumnVector hostGot = got.copyToHost()) {
+      for (int i = 0; i < legacyInputs.length; i++) {
+        double expected = Double.parseDouble(legacyInputs[i]);
+        double actual = hostGot.getDouble(i);
+        if (Double.isInfinite(expected) || expected == 0.0) {
+          assertEquals(Double.doubleToLongBits(expected),
+                       Double.doubleToLongBits(actual),
+                       "legacy row " + i + " input=" + legacyInputs[i] +
+                       " expected=" + expected + " actual=" + actual);
+        } else {
+          long expectedBits = Double.doubleToLongBits(expected);
+          long actualBits = Double.doubleToLongBits(actual);
+          long ulpDiff = Math.abs(expectedBits - actualBits);
+          assertTrue(ulpDiff <= 1,
+                     "legacy row " + i + " input=" + legacyInputs[i] +
+                     " expected=" + expected + " actual=" + actual +
+                     " ulpDiff=" + ulpDiff);
+        }
       }
     }
   }
