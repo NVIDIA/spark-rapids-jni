@@ -591,6 +591,46 @@ TEST_F(ColumnToRowTests, RejectSlicedColumn)
   EXPECT_THROW(spark_rapids_jni::convert_to_rows(in), cudf::logic_error);
 }
 
+TEST_F(ColumnToRowTests, RejectStringColumnInFixedWidthOptimized)
+{
+  cudf::test::strings_column_wrapper col({"a", "bb", "ccc"});
+  cudf::table_view in({col});
+  EXPECT_THROW(spark_rapids_jni::convert_to_rows_fixed_width_optimized(in), cudf::logic_error);
+}
+
+TEST_F(RowToColumnTests, RejectUnsupportedSchema)
+{
+  cudf::test::fixed_width_column_wrapper<int32_t> col({1, 2, 3});
+  cudf::table_view in({col});
+  auto rows = spark_rapids_jni::convert_to_rows(in);
+  ASSERT_EQ(rows.size(), 1u);
+
+  std::vector<cudf::data_type> list_schema{cudf::data_type{cudf::type_id::LIST}};
+  EXPECT_THROW(spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*rows[0]), list_schema),
+               cudf::logic_error);
+
+  std::vector<cudf::data_type> string_schema{cudf::data_type{cudf::type_id::STRING}};
+  EXPECT_THROW(spark_rapids_jni::convert_from_rows_fixed_width_optimized(
+                 cudf::lists_column_view(*rows[0]), string_schema),
+               cudf::logic_error);
+}
+
+TEST_F(RowToColumnTests, RejectSlicedRowList)
+{
+  cudf::test::fixed_width_column_wrapper<int32_t> col({1, 2, 3});
+  cudf::table_view in({col});
+  auto rows = spark_rapids_jni::convert_to_rows(in);
+  ASSERT_EQ(rows.size(), 1u);
+  auto sliced = cudf::slice(rows[0]->view(), {1, 3})[0];
+  std::vector<cudf::data_type> schema{cudf::data_type{cudf::type_id::INT32}};
+
+  EXPECT_THROW(spark_rapids_jni::convert_from_rows(cudf::lists_column_view(sliced), schema),
+               cudf::logic_error);
+  EXPECT_THROW(spark_rapids_jni::convert_from_rows_fixed_width_optimized(
+                 cudf::lists_column_view(sliced), schema),
+               cudf::logic_error);
+}
+
 // Regression repro for spark-rapids-jni#4587. Disabled by default because it requires ~2.5 GB
 // of free GPU memory to build the input; enable manually with --gtest_also_run_disabled_tests.
 //

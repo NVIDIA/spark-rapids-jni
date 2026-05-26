@@ -1542,25 +1542,27 @@ batch_data build_batches(size_type num_rows,
     auto offset_row_sizes = cuda::make_transform_iterator(
       cumulative_row_sizes.begin(),
       cuda::proclaim_return_type<uint64_t>(
-        [last_row_end, cumulative_row_sizes = cumulative_row_sizes.data()] __device__(auto i) {
-          return i - cumulative_row_sizes[last_row_end];
+        [last_row_end,
+         cumulative_row_sizes = cumulative_row_sizes.data()] __device__(auto cumulative_size) {
+          auto const previous_batch_size =
+            last_row_end == 0 ? uint64_t{0} : cumulative_row_sizes[last_row_end - 1];
+          return cumulative_size - previous_batch_size;
         }));
     auto search_start = offset_row_sizes + last_row_end;
     auto search_end   = offset_row_sizes + num_rows;
 
-    // find the next MAX_BATCH_SIZE boundary
-    auto const lb =
-      thrust::lower_bound(rmm::exec_policy(stream), search_start, search_end, MAX_BATCH_SIZE);
-    size_type const batch_size = lb - search_start;
+    // find the first row that would exceed MAX_BATCH_SIZE
+    auto const ub =
+      thrust::upper_bound(rmm::exec_policy(stream), search_start, search_end, MAX_BATCH_SIZE);
+    size_type const batch_size = ub - search_start;
 
-    // If fewer than 32 rows already exceed MAX_BATCH_SIZE, round_down_safe(batch_size, 32)
-    // would yield zero, and last_row_end would never advance — producing an infinite loop.
-    // Surface this as an exception instead.
-    CUDF_EXPECTS(lb == search_end || cudf::util::round_down_safe(batch_size, 32) > 0,
-                 "Row too large: cumulative encoded size of fewer than 32 rows exceeds 2 GiB. "
+    // If fewer than 32 rows fit before exceeding MAX_BATCH_SIZE, round_down_safe(batch_size, 32)
+    // would yield zero, and last_row_end would never advance. Surface this as an exception instead.
+    CUDF_EXPECTS(ub == search_end || cudf::util::round_down_safe(batch_size, 32) > 0,
+                 "Row too large: fewer than 32 rows fit in the 2 GiB row batch limit. "
                  "Reduce per-row data volume.");
 
-    size_type const row_end = lb == search_end
+    size_type const row_end = ub == search_end
                                 ? batch_size + last_row_end
                                 : last_row_end + cudf::util::round_down_safe(batch_size, 32);
 
@@ -2037,10 +2039,10 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
 
 namespace {
 
-// The general row_conversion kernels accept fixed-width and STRING columns. Nested types
-// (LIST / STRUCT / MAP) and DURATION/INTERVAL types have no row-layout encoding and would
-// silently corrupt data if allowed through. The "_fixed_width_optimized" variants reject
-// STRING outright, so callers that pass `fixed_width_only = true` get a single up-front
+// The general row_conversion kernels accept fixed-width columns (including chrono/fixed-point)
+// and STRING columns. Other compound layouts (LIST / STRUCT / MAP) have no row-layout encoding
+// here and would silently corrupt data if allowed through. The "_fixed_width_optimized" variants
+// reject STRING outright, so callers that pass `fixed_width_only = true` get a single up-front
 // error instead of the deeper "Only fixed width types are currently supported" later on.
 inline bool is_supported_row_conversion_type(data_type t, bool fixed_width_only)
 {
