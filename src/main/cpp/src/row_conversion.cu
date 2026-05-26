@@ -2037,20 +2037,27 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
 
 namespace {
 
-// Only fixed-width and STRING columns are supported by the row_conversion kernels. Nested
-// types (LIST / STRUCT / MAP) and DURATION/INTERVAL types have no row-layout encoding and
-// would silently corrupt data if allowed through.
-inline bool is_supported_row_conversion_type(data_type t)
+// The general row_conversion kernels accept fixed-width and STRING columns. Nested types
+// (LIST / STRUCT / MAP) and DURATION/INTERVAL types have no row-layout encoding and would
+// silently corrupt data if allowed through. The "_fixed_width_optimized" variants reject
+// STRING outright, so callers that pass `fixed_width_only = true` get a single up-front
+// error instead of the deeper "Only fixed width types are currently supported" later on.
+inline bool is_supported_row_conversion_type(data_type t, bool fixed_width_only)
 {
+  if (fixed_width_only) return is_fixed_width(t);
   return is_fixed_width(t) || t.id() == type_id::STRING;
 }
 
-inline void check_supported_columns(table_view const& tbl)
+inline void check_supported_columns(table_view const& tbl, bool fixed_width_only)
 {
+  char const* const type_msg =
+    fixed_width_only
+      ? "Unsupported column type for row conversion. The fixed-width-optimized path only "
+        "accepts fixed-width columns."
+      : "Unsupported column type for row conversion. Only fixed-width and STRING columns "
+        "are accepted.";
   for (auto const& c : tbl) {
-    CUDF_EXPECTS(is_supported_row_conversion_type(c.type()),
-                 "Unsupported column type for row conversion. Only fixed-width and STRING "
-                 "columns are accepted.");
+    CUDF_EXPECTS(is_supported_row_conversion_type(c.type(), fixed_width_only), type_msg);
     // The row_conversion kernels assume column_view::offset() == 0 throughout. A non-zero
     // offset would make data<int8_t>() return a byte-misaligned pointer (head + offset
     // bytes instead of head + offset * sizeof(T)) and would also misalign the null_mask.
@@ -2074,7 +2081,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
 {
-  check_supported_columns(tbl);
+  check_supported_columns(tbl, /*fixed_width_only=*/false);
 
   auto const num_columns = tbl.num_columns();
   auto const num_rows    = tbl.num_rows();
@@ -2138,7 +2145,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
 std::vector<std::unique_ptr<column>> convert_to_rows_fixed_width_optimized(
   table_view const& tbl, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
-  check_supported_columns(tbl);
+  check_supported_columns(tbl, /*fixed_width_only=*/true);
 
   auto const num_columns = tbl.num_columns();
 
@@ -2240,7 +2247,7 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
   CUDF_EXPECTS(list_type == type_id::INT8 || list_type == type_id::UINT8,
                "Only a list of bytes is supported as input");
   for (auto const& t : schema) {
-    CUDF_EXPECTS(is_supported_row_conversion_type(t),
+    CUDF_EXPECTS(is_supported_row_conversion_type(t, /*fixed_width_only=*/false),
                  "Unsupported schema type for row conversion. Only fixed-width and STRING "
                  "are accepted.");
   }
@@ -2541,9 +2548,9 @@ std::unique_ptr<table> convert_from_rows_fixed_width_optimized(lists_column_view
   CUDF_EXPECTS(list_type == type_id::INT8 || list_type == type_id::UINT8,
                "Only a list of bytes is supported as input");
   for (auto const& t : schema) {
-    CUDF_EXPECTS(is_supported_row_conversion_type(t),
-                 "Unsupported schema type for row conversion. Only fixed-width and STRING "
-                 "are accepted.");
+    CUDF_EXPECTS(is_supported_row_conversion_type(t, /*fixed_width_only=*/true),
+                 "Unsupported schema type for row conversion. The fixed-width-optimized "
+                 "path only accepts fixed-width columns.");
   }
   CUDF_EXPECTS(input.parent().offset() == 0,
                "Sliced row list (offset != 0) is not supported by row conversion.");
