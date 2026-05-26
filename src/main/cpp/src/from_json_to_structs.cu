@@ -48,6 +48,8 @@
 #include <thrust/transform.h>
 #include <thrust/uninitialized_fill.h>
 
+#include <unordered_set>
+
 namespace spark_rapids_jni {
 
 namespace detail {
@@ -838,9 +840,15 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
       .dtypes(schema)
       .prune_columns(schema.child_types.size() != 0);
 
-  auto const parsed_table_with_meta = cudf::io::read_json(opts_builder.build());
-  auto const& parsed_meta           = parsed_table_with_meta.metadata;
-  auto parsed_columns               = parsed_table_with_meta.tbl->release();
+  auto parsed_result      = cudf::io::read_json_with_diagnostics(opts_builder.build());
+  auto const& parsed_meta = parsed_result.data.metadata;
+  auto parsed_columns     = parsed_result.data.tbl->release();
+
+  // Spark's parent-NULL policy needs O(1) per-column lookup against the diagnostic list, so
+  // hoist the vector into a set once before the per-column loop.
+  std::unordered_set<std::string> const mismatched_columns(
+    parsed_result.diagnostics.top_level_columns_with_schema_mismatch.begin(),
+    parsed_result.diagnostics.top_level_columns_with_schema_mismatch.end());
 
   CUDF_EXPECTS(parsed_columns.size() == schema.child_types.size(),
                "Numbers of output columns is different from schema size.");
@@ -856,13 +864,13 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
     auto const& [col_name, col_schema] = schema_with_precision.child_types[i];
     CUDF_EXPECTS(parsed_meta.schema_info[i].name == col_name, "Mismatched column name.");
 
-    // Apply Spark's parent-NULL policy: JacksonParser.convertObject with isRoot=false
-    // propagates nested conversion errors up and nulls the depth-1 ancestor. cuDF reports
-    // schema-category mismatches via the per-top-level `had_schema_mismatch` diagnostic on
-    // `column_name_info`; replicate the policy here so it doesn't leak into cuDF's public API.
-    // We null the parsed column BEFORE `convert_data_type` so the conversion path naturally
-    // propagates nulls through descendants and Spark consumers see every field NULL.
-    if (parsed_meta.schema_info[i].had_schema_mismatch.value_or(false)) {
+    // Apply Spark's parent-NULL policy: JacksonParser.convertObject with isRoot=false propagates
+    // nested conversion errors up and nulls the depth-1 ancestor. cuDF reports schema-category
+    // mismatches via the side-channel `json_reader_diagnostics` returned by
+    // `read_json_with_diagnostics`; replicate the policy here so it doesn't leak into cuDF's
+    // public ABI. We null the parsed column BEFORE `convert_data_type` so the conversion path
+    // naturally propagates nulls through descendants and Spark consumers see every field NULL.
+    if (mismatched_columns.contains(col_name)) {
       auto const num_rows = parsed_columns[i]->size();
       auto all_null_mask = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
       parsed_columns[i]->set_null_mask(std::move(all_null_mask), num_rows);
