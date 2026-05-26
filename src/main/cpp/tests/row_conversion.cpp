@@ -503,11 +503,17 @@ TEST_F(ColumnToRowTests, PivotLikeLayout)
 // fixed-width column wider than 8 bytes (DECIMAL128 in practice) was silently corrupted.
 TEST_F(ColumnToRowTests, Decimal128RoundTrip)
 {
+  // Include a value with non-zero bytes spread across all 16 positions so a regression that
+  // copies the same byte 16 times (the original bug) is detected anywhere in the word, not
+  // only in the low bytes. Also include a null to cover the validity-bitmap path.
+  auto const wide = (static_cast<__int128_t>(0x0102030405060708LL) << 64) |
+                    static_cast<__int128_t>(0x090A0B0C0D0E0F10LL);
   std::vector<__int128_t> vals{static_cast<__int128_t>(12345),
                                static_cast<__int128_t>(-67890),
-                               static_cast<__int128_t>(999999999999LL)};
+                               static_cast<__int128_t>(999999999999LL),
+                               wide};
   cudf::test::fixed_point_column_wrapper<__int128_t> col(
-    vals.begin(), vals.end(), numeric::scale_type{-2});
+    vals.begin(), vals.end(), {true, false, true, true}, numeric::scale_type{-2});
   cudf::table_view in({col});
   std::vector<cudf::data_type> schema{cudf::data_type{cudf::type_id::DECIMAL128, -2}};
 
@@ -534,7 +540,7 @@ TEST_F(ColumnToRowTests, TileBoundaryWideInt32RoundTrip)
   constexpr int num_cols = 500;
   constexpr int num_rows = 64;
 
-  auto r = spark_rapids_jni::util::make_counting_transform_iterator(
+  auto data_iter = spark_rapids_jni::util::make_counting_transform_iterator(
     0, [](auto i) -> int32_t { return static_cast<int32_t>(i * 2654435761u); });
 
   std::vector<cudf::test::fixed_width_column_wrapper<int32_t>> cols;
@@ -544,7 +550,7 @@ TEST_F(ColumnToRowTests, TileBoundaryWideInt32RoundTrip)
   std::vector<cudf::data_type> schema;
   schema.reserve(num_cols);
   for (int c = 0; c < num_cols; ++c) {
-    cols.emplace_back(r + c * num_rows, r + c * num_rows + num_rows);
+    cols.emplace_back(data_iter + c * num_rows, data_iter + c * num_rows + num_rows);
     views.emplace_back(cols.back());
     schema.push_back(cudf::data_type{cudf::type_id::INT32});
   }
@@ -589,6 +595,14 @@ TEST_F(ColumnToRowTests, RejectSlicedColumn)
   auto sliced = cudf::slice(static_cast<cudf::column_view>(source), {2, 6})[0];
   cudf::table_view in({sliced});
   EXPECT_THROW(spark_rapids_jni::convert_to_rows(in), cudf::logic_error);
+}
+
+TEST_F(ColumnToRowTests, RejectSlicedColumnFixedWidthOptimized)
+{
+  cudf::test::fixed_width_column_wrapper<int32_t> source({10, 11, 12, 13, 14, 15, 16, 17});
+  auto sliced = cudf::slice(static_cast<cudf::column_view>(source), {2, 6})[0];
+  cudf::table_view in({sliced});
+  EXPECT_THROW(spark_rapids_jni::convert_to_rows_fixed_width_optimized(in), cudf::logic_error);
 }
 
 TEST_F(ColumnToRowTests, RejectStringColumnInFixedWidthOptimized)
