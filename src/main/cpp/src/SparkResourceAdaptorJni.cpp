@@ -2321,6 +2321,8 @@ class test_deallocate_noop_resource {
                   std::size_t,
                   std::size_t = alignof(std::max_align_t)) noexcept
   {
+    // Empty by design: this test resource is used with a fake pointer, and the test needs the
+    // enclosing spark_resource_adaptor_impl::deallocate() path to continue past the upstream free.
   }
 
   void* allocate_sync(std::size_t bytes, std::size_t alignment = alignof(std::max_align_t))
@@ -2342,6 +2344,8 @@ class test_deallocate_noop_resource {
   friend void get_property(test_deallocate_noop_resource const&,
                            cuda::mr::device_accessible) noexcept
   {
+    // Empty by design: CCCL/RMM finds this overload via ADL as a marker that allocations from this
+    // test resource satisfy the device_accessible property.
   }
 };
 static_assert(cuda::mr::resource_with<test_deallocate_noop_resource, cuda::mr::device_accessible>);
