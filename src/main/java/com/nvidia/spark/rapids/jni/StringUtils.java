@@ -20,6 +20,7 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.Cuda;
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.NativeDepsLoader;
 import java.lang.management.ManagementFactory;
 import java.util.Arrays;
 import java.util.Objects;
