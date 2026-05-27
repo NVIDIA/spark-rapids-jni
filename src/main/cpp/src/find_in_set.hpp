@@ -29,7 +29,7 @@ namespace spark_rapids_jni {
 std::unique_ptr<cudf::column> find_in_set(
   cudf::strings_column_view const& sets,
   std::string const& word,
-  rmm::cuda_stream_view stream     = cudf::get_default_stream(),
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni

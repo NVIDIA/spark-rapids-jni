@@ -46,9 +46,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_findInSet(J
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(sets);
     cudf::jni::native_jstring native_word(env, word);
-    return cudf::jni::release_as_jlong(
-      spark_rapids_jni::find_in_set(cudf::strings_column_view{*input},
-                                    std::string(native_word.get(), native_word.size_bytes())));
+    return cudf::jni::release_as_jlong(spark_rapids_jni::find_in_set(
+      cudf::strings_column_view{*input}, std::string(native_word.get(), native_word.size_bytes())));
   }
   JNI_CATCH(env, 0);
 }

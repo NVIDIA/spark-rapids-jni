@@ -42,7 +42,7 @@ __device__ bool token_matches(cudf::string_view set,
   if (token_size != word_size) { return false; }
   if (word_size == 0) { return true; }
 
-  auto const* token = set.data() + token_start;
+  auto const* token     = set.data() + token_start;
   auto const* word_data = word.data();
   for (cudf::size_type idx = 0; idx < word_size; ++idx) {
     if (token[idx] != word_data[idx]) { return false; }
@@ -52,8 +52,8 @@ __device__ bool token_matches(cudf::string_view set,
 
 __device__ cudf::size_type find_token_position(cudf::string_view set, cudf::string_view word)
 {
-  auto const* set_data      = set.data();
-  auto const set_size       = set.size_bytes();
+  auto const* set_data        = set.data();
+  auto const set_size         = set.size_bytes();
   cudf::size_type token_pos   = 1;
   cudf::size_type token_start = 0;
 
@@ -79,7 +79,7 @@ std::unique_ptr<cudf::column> find_in_set(cudf::strings_column_view const& sets,
   auto const row_count = sets.size();
   if (row_count == 0) { return cudf::make_empty_column(cudf::type_id::INT32); }
 
-  auto results = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT32},
+  auto results         = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT32},
                                            row_count,
                                            cudf::copy_bitmask(sets.parent(), stream, mr),
                                            sets.null_count(),
@@ -93,7 +93,7 @@ std::unique_ptr<cudf::column> find_in_set(cudf::strings_column_view const& sets,
     return results;
   }
 
-  auto word_scalar = cudf::make_string_scalar(word, stream);
+  auto word_scalar               = cudf::make_string_scalar(word, stream);
   auto const& word_string_scalar = static_cast<cudf::string_scalar const&>(*word_scalar);
   auto const d_word = cudf::string_view(word_string_scalar.data(), word_string_scalar.size());
 
