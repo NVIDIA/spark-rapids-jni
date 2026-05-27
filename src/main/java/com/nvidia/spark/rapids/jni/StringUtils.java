@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,18 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.Cuda;
+import ai.rapids.cudf.DType;
 import java.lang.management.ManagementFactory;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class StringUtils {
+  static {
+    NativeDepsLoader.loadNativeDeps();
+  }
 
   // Stores the sequence ID of calling generate UUIDs.
   private static AtomicLong sequence = new AtomicLong(0);
@@ -88,5 +94,23 @@ public class StringUtils {
     return new ColumnVector(randomUUIDs(rowCount, seed));
   }
 
+  /**
+   * Return the 1-based position of {@code word} in each comma-delimited row of {@code sets}.
+   * Missing words produce 0, and null rows remain null.
+   *
+   * @param sets String column containing comma-delimited tokens
+   * @param word Literal token to search for
+   * @return INT32 ColumnVector containing Spark find_in_set-compatible positions
+   */
+  public static ColumnVector findInSet(ColumnView sets, String word) {
+    Objects.requireNonNull(sets, "sets");
+    Objects.requireNonNull(word, "word");
+    if (!sets.getType().equals(DType.STRING)) {
+      throw new IllegalArgumentException("sets must be a string column");
+    }
+    return new ColumnVector(findInSet(sets.getNativeView(), word));
+  }
+
   private static native long randomUUIDs(int rowCount, long seed);
+  private static native long findInSet(long sets, String word);
 }
