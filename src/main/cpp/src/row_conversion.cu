@@ -675,8 +675,6 @@ __launch_bounds__(block_size) CUDF_KERNEL void copy_to_rows(const size_type num_
         }
         case 1: shared_data[shared_offset] = *input_src; break;
         default: {
-          // Wide fixed-width types (e.g. DECIMAL128). Both destination and source must be
-          // indexed by byte; the original loop wrote to the same byte col_size times.
           for (int i = 0; i < col_size; ++i) {
             shared_data[shared_offset + i] = input_src[i];
           }
