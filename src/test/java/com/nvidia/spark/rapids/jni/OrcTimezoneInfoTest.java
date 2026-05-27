@@ -18,7 +18,10 @@ package com.nvidia.spark.rapids.jni;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.ZoneId;
+import java.time.zone.ZoneRules;
 import java.util.List;
+import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -115,5 +118,78 @@ public class OrcTimezoneInfoTest {
       assertTrue(info.transitions[i] > info.transitions[i - 1],
           "transitions must be strictly increasing");
     }
+  }
+
+  // ---- DST rule extraction (Part 2 — not wired into production yet) ----
+
+  @Test
+  void testExtractDstRuleNorthernHemisphere() {
+    // America/New_York: DST starts 2nd Sunday of March, ends 1st Sunday of November.
+    // dstSavings is +1h (3_600_000 ms). startMonth=2 (March, 0-based),
+    // endMonth=10 (November, 0-based). DOW_GE_DOM_MODE = 2.
+    OrcTimezoneInfo.DstRule rule = extractDstRuleFor("America/New_York");
+    assertNotNull(rule, "America/New_York must have a DST rule");
+    assertEquals(3_600_000, rule.dstSavings);
+    assertEquals(2, rule.startMonth);
+    assertEquals(10, rule.endMonth);
+    assertEquals(2, rule.startMode);
+    assertEquals(2, rule.endMode);
+    // Day-of-week 1 == Sunday in Calendar's 1=Sun..7=Sat convention.
+    assertEquals(1, rule.startDayOfWeek);
+    assertEquals(1, rule.endDayOfWeek);
+    // Second Sunday in March: base day 8 ("Sun >= 8"). First Sunday in November: base day 1.
+    assertEquals(8, rule.startDay);
+    assertEquals(1, rule.endDay);
+  }
+
+  @Test
+  void testExtractDstRuleEuropeLondon() {
+    // Europe/London: DST starts last Sunday of March, ends last Sunday of October.
+    // Encoded as DOW_GE_DOM with base day = monthLength - 6.
+    OrcTimezoneInfo.DstRule rule = extractDstRuleFor("Europe/London");
+    assertNotNull(rule, "Europe/London must have a DST rule");
+    assertEquals(3_600_000, rule.dstSavings);
+    assertEquals(2, rule.startMonth);
+    assertEquals(9, rule.endMonth);
+    assertEquals(1, rule.startDayOfWeek);
+    assertEquals(1, rule.endDayOfWeek);
+    // Last Sunday of March (31-day month): base 25. Last Sunday of October (31-day): base 25.
+    assertEquals(25, rule.startDay);
+    assertEquals(25, rule.endDay);
+  }
+
+  @Test
+  void testExtractDstRuleSouthernHemisphere() {
+    // Australia/Sydney: DST starts 1st Sunday of October, ends 1st Sunday of April.
+    // Southern hemisphere — start month numerically > end month.
+    OrcTimezoneInfo.DstRule rule = extractDstRuleFor("Australia/Sydney");
+    assertNotNull(rule, "Australia/Sydney must have a DST rule");
+    assertEquals(3_600_000, rule.dstSavings);
+    assertEquals(9, rule.startMonth);
+    assertEquals(3, rule.endMonth);
+    assertTrue(rule.startMonth > rule.endMonth,
+        "southern hemisphere: start month should follow end month within the calendar year");
+  }
+
+  @Test
+  void testExtractDstRuleNoDstReturnsNull() {
+    // Asia/Shanghai had DST historically (1940s, 1986-1991) but no current rule.
+    // tz.useDaylightTime() must be false → extractDstRule returns null.
+    assertNull(extractDstRuleFor("Asia/Shanghai"));
+  }
+
+  @Test
+  void testExtractDstRuleFixedOffsetReturnsNull() {
+    // Fixed-offset zones never observe DST.
+    assertNull(extractDstRuleFor("UTC"));
+    assertNull(extractDstRuleFor("+05:30"));
+  }
+
+  /** Resolve a zone id through the same SHORT_IDS pipeline production uses. */
+  private static OrcTimezoneInfo.DstRule extractDstRuleFor(String timezoneId) {
+    ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
+    ZoneRules rules = zoneId.getRules();
+    TimeZone tz = TimeZone.getTimeZone(zoneId.getId());
+    return OrcTimezoneInfo.extractDstRule(timezoneId, tz, rules);
   }
 }

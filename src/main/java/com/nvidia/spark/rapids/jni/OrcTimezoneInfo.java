@@ -19,8 +19,11 @@ package com.nvidia.spark.rapids.jni;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -73,6 +76,48 @@ class OrcTimezoneInfo {
   // current IANA tzdata (the closest pairs are DST start/end, ~hours apart on
   // separate days), so paired transitions cannot hide in a single window.
   private static final long HISTORICAL_TRANSITION_SCAN_STEP_MILLIS = 6L * 3600_000L;
+
+  // Reference years used to cross-check the extracted DST rule against
+  // java.util.TimeZone.getOffset. A near-future anchor (2060) catches
+  // divergence within the typical application lifetime; the far-future
+  // anchors exercise the recurring-rule fallback well past any historical
+  // transition entry in tzdata.
+  private static final int[] DST_RULE_VALIDATION_YEARS = {2060, 2400, 9997};
+
+  /**
+   * Recurring DST rule for a single zone, encoded in the same shape that
+   * {@link java.util.SimpleTimeZone} stores internally and that the GPU side
+   * consumes. {@code month} is 0-based (Calendar.JANUARY=0), {@code dayOfWeek}
+   * follows Calendar's 1=Sun..7=Sat convention, and {@code dstSavings} /
+   * {@code time} are in milliseconds.
+   *
+   * <p>The {@code *Mode} fields encode how {@code *Day}/{@code *DayOfWeek}
+   * combine:
+   * <ul>
+   *   <li>0 (DOM): exact day of month; {@code dayOfWeek} ignored</li>
+   *   <li>1 (DOW_IN_MONTH): nth {@code dayOfWeek} in month
+   *       ({@code day} negative = from end)</li>
+   *   <li>2 (DOW_GE_DOM): first {@code dayOfWeek} on or after {@code day}</li>
+   *   <li>3 (DOW_LE_DOM): last {@code dayOfWeek} on or before {@code day}</li>
+   * </ul>
+   *
+   * <p>{@code *TimeMode}: 0=WALL, 1=STANDARD, 2=UTC.
+   */
+  static final class DstRule {
+    int dstSavings;
+    int startMonth;
+    int startDay;
+    int startDayOfWeek;
+    int startTime;
+    int startTimeMode;
+    int startMode;
+    int endMonth;
+    int endDay;
+    int endDayOfWeek;
+    int endTime;
+    int endTimeMode;
+    int endMode;
+  }
 
   // year, month, and day are all 1-indexed, matching LocalDate.of conventions
   // (e.g. month=1 is January). This avoids the easy-to-misread mix of 0-based
@@ -288,6 +333,364 @@ class OrcTimezoneInfo {
       }
     }
     return hi;
+  }
+
+  // ---------------------------------------------------------------------------
+  // DST rule extraction (used by the GPU DST path; not wired into
+  // buildRuntimeOrcTimezoneInfo yet — see Part 2 of the ORC-timezone work).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Extract the recurring DST rule for a zone, or {@code null} if the zone has
+   * no DST. The probing path is tried first because it captures what
+   * {@link java.util.TimeZone#getOffset(long)} actually returns (which is the
+   * source of truth the GPU side must match for ORC byte-compatibility);
+   * {@link ZoneRules#getTransitionRules()} is used as a fallback for zones
+   * whose recurring rule cannot be recovered from hourly probes.
+   */
+  static DstRule extractDstRule(String timezoneId, TimeZone tz, ZoneRules rules) {
+    if (!tz.useDaylightTime()) {
+      return null;
+    }
+    DstRule rule = extractDstRuleByProbing(tz);
+    if (rule != null) {
+      return rule;
+    }
+    rule = extractDstRuleFromZoneRules(timezoneId, tz, rules);
+    if (rule != null) {
+      return rule;
+    }
+    throw new IllegalStateException("Failed to extract ORC DST rule for timezone: " + timezoneId);
+  }
+
+  // ---- Path A: from ZoneRules.getTransitionRules() ----
+
+  private static DstRule extractDstRuleFromZoneRules(String timezoneId, TimeZone tz,
+      ZoneRules rules) {
+    List<ZoneOffsetTransitionRule> transitionRules = rules.getTransitionRules();
+    if (transitionRules.isEmpty()) {
+      return null;
+    }
+    if (transitionRules.size() != 2) {
+      throw new IllegalStateException("Unsupported ORC DST rule count for timezone: " + timezoneId);
+    }
+
+    ZoneOffsetTransitionRule startTransitionRule = null;
+    ZoneOffsetTransitionRule endTransitionRule = null;
+    for (ZoneOffsetTransitionRule transitionRule : transitionRules) {
+      int deltaMillis = (transitionRule.getOffsetAfter().getTotalSeconds()
+          - transitionRule.getOffsetBefore().getTotalSeconds()) * 1000;
+      if (deltaMillis > 0) {
+        startTransitionRule = transitionRule;
+      } else if (deltaMillis < 0) {
+        endTransitionRule = transitionRule;
+      } else {
+        throw new IllegalStateException("Unsupported zero-delta ORC DST rule for timezone: "
+            + timezoneId);
+      }
+    }
+    if (startTransitionRule == null || endTransitionRule == null) {
+      throw new IllegalStateException("Failed to identify ORC DST start/end rules for timezone: "
+          + timezoneId);
+    }
+
+    int dstSavings = (startTransitionRule.getOffsetAfter().getTotalSeconds()
+        - startTransitionRule.getOffsetBefore().getTotalSeconds()) * 1000;
+    int endDeltaMillis = (endTransitionRule.getOffsetBefore().getTotalSeconds()
+        - endTransitionRule.getOffsetAfter().getTotalSeconds()) * 1000;
+    if (dstSavings != endDeltaMillis) {
+      throw new IllegalStateException("Mismatched ORC DST savings for timezone: " + timezoneId);
+    }
+
+    DstRule rule = new DstRule();
+    rule.dstSavings = dstSavings;
+    fillDstRuleFromTransitionRule(timezoneId, rule, startTransitionRule, true);
+    fillDstRuleFromTransitionRule(timezoneId, rule, endTransitionRule, false);
+
+    if (!verifyDstRuleAcrossReferenceYears(tz, rule)) {
+      throw new IllegalStateException("ZoneRules ORC DST rule verification failed for timezone: "
+          + timezoneId);
+    }
+    return rule;
+  }
+
+  private static void fillDstRuleFromTransitionRule(String timezoneId, DstRule rule,
+      ZoneOffsetTransitionRule transitionRule, boolean isStartRule) {
+    // We only accept rules shaped as "first <dayOfWeek> on or after <dayOfMonthIndicator>",
+    // i.e. ZoneRules' positive-day-indicator form. A negative indicator would mean
+    // "last <dayOfWeek> on or before day" (DOW_LE_DOM_MODE, mode=3); we reject those
+    // here so that downstream code can assume DOW_GE_DOM_MODE (mode=2) unconditionally.
+    if (transitionRule.getDayOfWeek() == null
+        || transitionRule.getDayOfMonthIndicator() <= 0) {
+      throw new IllegalStateException("Unsupported ORC DST transition rule shape for timezone: "
+          + timezoneId);
+    }
+
+    int month = transitionRule.getMonth().getValue() - 1;
+    int day = transitionRule.getDayOfMonthIndicator();
+    int dayOfWeek = toCalendarDayOfWeek(transitionRule.getDayOfWeek().getValue());
+    int time = getTransitionRuleTimeMillis(transitionRule);
+    int timeMode = getTransitionRuleTimeMode(transitionRule);
+    // SimpleTimeZone DOW_GE_DOM_MODE, guaranteed by the precondition above.
+    int mode = 2;
+
+    if (isStartRule) {
+      rule.startMonth = month;
+      rule.startDay = day;
+      rule.startDayOfWeek = dayOfWeek;
+      rule.startTime = time;
+      rule.startTimeMode = timeMode;
+      rule.startMode = mode;
+    } else {
+      rule.endMonth = month;
+      rule.endDay = day;
+      rule.endDayOfWeek = dayOfWeek;
+      rule.endTime = time;
+      rule.endTimeMode = timeMode;
+      rule.endMode = mode;
+    }
+  }
+
+  private static int getTransitionRuleTimeMillis(ZoneOffsetTransitionRule transitionRule) {
+    int secondOfDay = transitionRule.isMidnightEndOfDay()
+        ? 24 * 3600
+        : transitionRule.getLocalTime().toSecondOfDay();
+    return secondOfDay * 1000;
+  }
+
+  private static int getTransitionRuleTimeMode(ZoneOffsetTransitionRule transitionRule) {
+    ZoneOffsetTransitionRule.TimeDefinition timeDef = transitionRule.getTimeDefinition();
+    if (ZoneOffsetTransitionRule.TimeDefinition.UTC == timeDef) {
+      return 2;
+    } else if (ZoneOffsetTransitionRule.TimeDefinition.STANDARD == timeDef) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+  private static int toCalendarDayOfWeek(int javaTimeDayOfWeek) {
+    // java.time DayOfWeek: 1=Mon..7=Sun  ->  Calendar: 1=Sun..7=Sat
+    return (javaTimeDayOfWeek % 7) + 1;
+  }
+
+  // ---- Path B: probe tz.getOffset() and recover the recurring rule ----
+
+  private static DstRule extractDstRuleByProbing(TimeZone tz) {
+    for (int refYear : DST_RULE_VALIDATION_YEARS) {
+      DstRule rule = extractDstRuleByProbing(tz, refYear);
+      if (rule != null && verifyDstRuleAcrossReferenceYears(tz, rule)) {
+        return rule;
+      }
+    }
+    return null;
+  }
+
+  private static DstRule extractDstRuleByProbing(TimeZone tz, int refYear) {
+    long janFirst = utcMillisForDate(refYear, 1, 1);
+    long nextJanFirst = utcMillisForDate(refYear + 1, 1, 1);
+
+    long dstOnTransition = -1;
+    long dstOffTransition = -1;
+    int prevOffset = tz.getOffset(janFirst - 1);
+    long step = 3600_000L; // 1 hour
+
+    for (long ms = janFirst; ms < nextJanFirst; ms += step) {
+      int curOffset = tz.getOffset(ms);
+      if (curOffset != prevOffset) {
+        long exactMs = binarySearchTransition(tz, ms - step, ms);
+        if (curOffset > prevOffset) {
+          // More than one DST-on transition in the same year would mean this
+          // year doesn't fit a SimpleTimeZone-style two-transition rule; let
+          // the caller fall back to extractDstRuleFromZoneRules.
+          if (dstOnTransition >= 0) return null;
+          dstOnTransition = exactMs;
+        } else {
+          if (dstOffTransition >= 0) return null;
+          dstOffTransition = exactMs;
+        }
+        prevOffset = curOffset;
+      }
+    }
+
+    if (dstOnTransition < 0 || dstOffTransition < 0) {
+      return null;
+    }
+
+    DstRule rule = new DstRule();
+    rule.dstSavings = tz.getDSTSavings();
+
+    int[] startFields = decodeTransition(dstOnTransition, tz.getRawOffset());
+    rule.startMonth = startFields[0];
+    rule.startDay = startFields[1];
+    rule.startDayOfWeek = startFields[2];
+    rule.startTime = startFields[3];
+    rule.startTimeMode = 1; // decodeTransition converts to standard local time
+    rule.startMode = startFields[4];
+
+    int[] endFields = decodeTransition(dstOffTransition, tz.getRawOffset());
+    rule.endMonth = endFields[0];
+    rule.endDay = endFields[1];
+    rule.endDayOfWeek = endFields[2];
+    rule.endTime = endFields[3];
+    rule.endTimeMode = 1;
+    rule.endMode = endFields[4];
+
+    return rule;
+  }
+
+  /**
+   * Decode a UTC transition instant into
+   * {@code [month(0-11), baseDay, dayOfWeek(1-7), timeMs, mode]}.
+   *
+   * <p>Recurring weekday rules are encoded as DOW_GE_DOM (mode=2). The base
+   * day is the earliest possible day of the matching occurrence in the month:
+   * 1st=1, 2nd=8, 3rd=15, 4th=22, last={@code monthLength - 6}. This mirrors
+   * encodings like "Sun >= 8" for the second Sunday in March and "Sun >= 25"
+   * for the last Sunday in October.
+   */
+  private static int[] decodeTransition(long utcMs, int rawOffsetMs) {
+    long localMs = utcMs + rawOffsetMs;
+    LocalDateTime ldt = LocalDateTime.ofInstant(Instant.ofEpochMilli(localMs), ZoneOffset.UTC);
+
+    int month = ldt.getMonthValue() - 1; // 0-based for Calendar compat
+    int dayOfMonth = ldt.getDayOfMonth();
+    int dayOfWeek = toCalendarDayOfWeek(ldt.getDayOfWeek().getValue());
+    int timeInDay = ldt.getHour() * 3600_000
+        + ldt.getMinute() * 60_000
+        + ldt.getSecond() * 1000
+        + ldt.getNano() / 1_000_000;
+
+    int monthLength = ldt.toLocalDate().lengthOfMonth();
+    int dayOfWeekInMonth = (dayOfMonth - 1) / 7 + 1;
+    boolean isLastOccurrence = dayOfMonth + 7 > monthLength;
+    int baseDayOfMonth = isLastOccurrence
+        ? monthLength - 6
+        : 1 + (dayOfWeekInMonth - 1) * 7;
+
+    return new int[]{month, baseDayOfMonth, dayOfWeek, timeInDay, 2};
+  }
+
+  // ---- Verification: ensure the extracted rule matches tz.getOffset ----
+
+  private static boolean verifyDstRuleAcrossReferenceYears(TimeZone tz, DstRule rule) {
+    for (int refYear : DST_RULE_VALIDATION_YEARS) {
+      if (!verifyDstRule(tz, rule, refYear)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Verify the extracted rule matches {@code tz.getOffset} around transition
+   * boundaries and at monthly sample points for {@code refYear ± 1} (3 years).
+   * DST mismatches only manifest near transitions, so dense sampling at
+   * boundaries plus monthly spot checks reduces a naive full-year scan from
+   * ~52K probes to ~200 per reference year.
+   */
+  private static boolean verifyDstRule(TimeZone tz, DstRule rule, int refYear) {
+    int rawOffsetMs = tz.getRawOffset();
+    for (int y = refYear - 1; y <= refYear + 1; y++) {
+      long dstStart = computeTransitionUtcMillis(y, rule.startMonth, rule.startDay,
+          rule.startDayOfWeek, rule.startTime, rule.startTimeMode, rule.startMode,
+          rawOffsetMs, rule.dstSavings, true);
+      long dstEnd = computeTransitionUtcMillis(y, rule.endMonth, rule.endDay,
+          rule.endDayOfWeek, rule.endTime, rule.endTimeMode, rule.endMode,
+          rawOffsetMs, rule.dstSavings, false);
+
+      long[] boundaries = {dstStart, dstEnd};
+      for (long boundary : boundaries) {
+        long from = boundary - 12 * 3600_000L;
+        long to = boundary + 12 * 3600_000L;
+        for (long ms = from; ms <= to; ms += 3600_000L) {
+          if (tz.getOffset(ms) != computeDstOffset(ms, rawOffsetMs, rule)) {
+            return false;
+          }
+        }
+      }
+
+      for (int m = 1; m <= 12; m++) {
+        long ms = utcMillisForDate(y, m, 1) + 12 * 3600_000L;
+        if (tz.getOffset(ms) != computeDstOffset(ms, rawOffsetMs, rule)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  private static int computeDstOffset(long utcMs, int rawOffsetMs, DstRule rule) {
+    int year = LocalDate.ofEpochDay(Math.floorDiv(utcMs + rawOffsetMs, 86_400_000L)).getYear();
+    long dstStart = computeTransitionUtcMillis(year, rule.startMonth, rule.startDay,
+        rule.startDayOfWeek, rule.startTime, rule.startTimeMode, rule.startMode,
+        rawOffsetMs, rule.dstSavings, true);
+    long dstEnd = computeTransitionUtcMillis(year, rule.endMonth, rule.endDay,
+        rule.endDayOfWeek, rule.endTime, rule.endTimeMode, rule.endMode,
+        rawOffsetMs, rule.dstSavings, false);
+
+    boolean inDst = dstStart < dstEnd
+        ? (utcMs >= dstStart && utcMs < dstEnd)
+        : (utcMs >= dstStart || utcMs < dstEnd);
+    return inDst ? rawOffsetMs + rule.dstSavings : rawOffsetMs;
+  }
+
+  private static long computeTransitionUtcMillis(int year, int ruleMonth, int ruleDay,
+      int ruleDayOfWeek, int ruleTime, int ruleTimeMode, int ruleMode, int rawOffsetMs,
+      int dstSavingsMs, boolean isStartRule) {
+    int actualDay = computeRuleDay(ruleMode, ruleDay, ruleDayOfWeek, year, ruleMonth);
+    long utcMs = utcMillisForDate(year, ruleMonth + 1, actualDay) + ruleTime;
+    if (ruleTimeMode == 0) {
+      // WALL time: subtract raw offset and (for end transitions) also DST savings.
+      utcMs -= rawOffsetMs;
+      if (!isStartRule) {
+        utcMs -= dstSavingsMs;
+      }
+    } else if (ruleTimeMode == 1) {
+      // STANDARD time: subtract raw offset.
+      utcMs -= rawOffsetMs;
+    }
+    // UTC mode (2) is already in UTC.
+    return utcMs;
+  }
+
+  private static int computeRuleDay(int ruleMode, int ruleDay, int ruleDayOfWeek, int year,
+      int month) {
+    LocalDate firstOfMonth = LocalDate.of(year, month + 1, 1);
+    int monthLength = firstOfMonth.lengthOfMonth();
+    int firstDayOfWeek = toCalendarDayOfWeek(firstOfMonth.getDayOfWeek().getValue());
+
+    switch (ruleMode) {
+      case 1: {
+        if (ruleDay > 0) {
+          int diff = ruleDayOfWeek - firstDayOfWeek;
+          if (diff < 0) diff += 7;
+          return 1 + diff + (ruleDay - 1) * 7;
+        } else {
+          int lastDayOfWeek = toCalendarDayOfWeek(
+              LocalDate.of(year, month + 1, monthLength).getDayOfWeek().getValue());
+          int diff = lastDayOfWeek - ruleDayOfWeek;
+          if (diff < 0) diff += 7;
+          return monthLength - diff + (ruleDay + 1) * 7;
+        }
+      }
+      case 2: {
+        int targetDayOfWeek = toCalendarDayOfWeek(
+            LocalDate.of(year, month + 1, ruleDay).getDayOfWeek().getValue());
+        int diff = ruleDayOfWeek - targetDayOfWeek;
+        if (diff < 0) diff += 7;
+        return ruleDay + diff;
+      }
+      case 3: {
+        int targetDayOfWeek = toCalendarDayOfWeek(
+            LocalDate.of(year, month + 1, ruleDay).getDayOfWeek().getValue());
+        int diff = targetDayOfWeek - ruleDayOfWeek;
+        if (diff < 0) diff += 7;
+        return ruleDay - diff;
+      }
+      default:
+        return ruleDay;
+    }
   }
 
   private static long[] toLongArray(List<Long> values) {
