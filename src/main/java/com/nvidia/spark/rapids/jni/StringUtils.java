@@ -112,6 +112,32 @@ public class StringUtils {
     return new ColumnVector(findInSet(sets.getNativeView(), word));
   }
 
+  /**
+   * Return the 1-based position of {@code word} in each comma-delimited row of {@code sets}.
+   * This variant dictionary-encodes repeated {@code sets} values and only scans up to
+   * {@code maxDistinctSets} distinct set strings. Missing words produce 0, null rows remain null,
+   * and a null return value means the distinct set count exceeded {@code maxDistinctSets}.
+   *
+   * @param sets String column containing comma-delimited tokens
+   * @param word Literal token to search for
+   * @param maxDistinctSets Maximum number of distinct set strings to scan
+   * @return INT32 ColumnVector containing Spark find_in_set-compatible positions, or null if the
+   * distinct set count exceeds maxDistinctSets
+   */
+  public static ColumnVector findInSetRepeated(ColumnView sets, String word, int maxDistinctSets) {
+    Objects.requireNonNull(sets, "sets");
+    Objects.requireNonNull(word, "word");
+    if (!sets.getType().equals(DType.STRING)) {
+      throw new IllegalArgumentException("sets must be a string column");
+    }
+    if (maxDistinctSets < 0) {
+      throw new IllegalArgumentException("maxDistinctSets must be non-negative");
+    }
+    long result = findInSetRepeated(sets.getNativeView(), word, maxDistinctSets);
+    return result == 0 ? null : new ColumnVector(result);
+  }
+
   private static native long randomUUIDs(int rowCount, long seed);
   private static native long findInSet(long sets, String word);
+  private static native long findInSetRepeated(long sets, String word, int maxDistinctSets);
 }

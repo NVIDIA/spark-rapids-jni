@@ -51,4 +51,24 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_findInSet(J
   }
   JNI_CATCH(env, 0);
 }
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_findInSetRepeated(
+  JNIEnv* env, jclass, jlong sets, jstring word, jint max_distinct_sets)
+{
+  JNI_NULL_CHECK(env, sets, "sets column is null", 0);
+  JNI_NULL_CHECK(env, word, "word is null", 0);
+
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    auto const input = reinterpret_cast<cudf::column_view const*>(sets);
+    cudf::jni::native_jstring native_word(env, word);
+    auto result = spark_rapids_jni::find_in_set_repeated(
+      cudf::strings_column_view{*input},
+      std::string(native_word.get(), native_word.size_bytes()),
+      max_distinct_sets);
+    return result ? cudf::jni::release_as_jlong(std::move(result)) : 0;
+  }
+  JNI_CATCH(env, 0);
+}
 }

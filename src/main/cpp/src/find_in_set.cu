@@ -19,6 +19,9 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/copying.hpp>
+#include <cudf/dictionary/dictionary_column_view.hpp>
+#include <cudf/dictionary/encode.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
@@ -110,6 +113,75 @@ std::unique_ptr<cudf::column> find_in_set(cudf::strings_column_view const& sets,
                     });
   results->set_null_count(sets.null_count());
   return results;
+}
+
+std::unique_ptr<cudf::column> find_in_set_repeated(cudf::strings_column_view const& sets,
+                                                   std::string const& word,
+                                                   cudf::size_type max_distinct_sets,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::device_async_resource_ref mr)
+{
+  SRJ_FUNC_RANGE();
+
+  auto const row_count = sets.size();
+  if (row_count == 0) { return cudf::make_empty_column(cudf::type_id::INT32); }
+
+  auto make_zero_or_null_result = [&]() {
+    auto results = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT32},
+                                             row_count,
+                                             cudf::copy_bitmask(sets.parent(), stream, mr),
+                                             sets.null_count(),
+                                             stream,
+                                             mr);
+    thrust::fill_n(rmm::exec_policy(stream),
+                   results->mutable_view().data<cudf::size_type>(),
+                   row_count,
+                   cudf::size_type{0});
+    results->set_null_count(sets.null_count());
+    return results;
+  };
+
+  if (word.find(',') != std::string::npos) { return make_zero_or_null_result(); }
+
+  auto dictionary = cudf::dictionary::encode(
+    sets.parent(), cudf::data_type{cudf::type_id::INT32}, stream, mr);
+  auto const dictionary_view = cudf::dictionary_column_view{dictionary->view()};
+  auto const keys_size       = dictionary_view.keys_size();
+  if (keys_size > max_distinct_sets) { return nullptr; }
+  if (keys_size == 0) { return make_zero_or_null_result(); }
+
+  auto key_positions =
+    find_in_set(cudf::strings_column_view{dictionary_view.keys()}, word, stream, mr);
+
+  auto gather_map = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT32},
+                                              row_count,
+                                              cudf::mask_state::UNALLOCATED,
+                                              stream,
+                                              mr);
+  auto const d_gather_map = gather_map->mutable_view().data<cudf::size_type>();
+  auto const d_dictionary =
+    cudf::column_device_view::create(dictionary_view.parent(), stream);
+  auto const d_indices =
+    cudf::column_device_view::create(dictionary_view.indices(), stream);
+
+  thrust::transform(rmm::exec_policy(stream),
+                    thrust::make_counting_iterator<cudf::size_type>(0),
+                    thrust::make_counting_iterator<cudf::size_type>(row_count),
+                    d_gather_map,
+                    [d_dictionary = *d_dictionary, d_indices = *d_indices] __device__(
+                      cudf::size_type idx) {
+                      return d_dictionary.is_null(idx) ? cudf::size_type{0}
+                                                       : d_indices.element<cudf::size_type>(idx);
+                    });
+
+  auto gathered_table = cudf::gather(cudf::table_view{{key_positions->view()}},
+                                     gather_map->view(),
+                                     cudf::out_of_bounds_policy::DONT_CHECK,
+                                     stream,
+                                     mr);
+  auto result         = std::move(gathered_table->release()[0]);
+  result->set_null_mask(cudf::copy_bitmask(sets.parent(), stream, mr), sets.null_count());
+  return result;
 }
 
 }  // namespace spark_rapids_jni

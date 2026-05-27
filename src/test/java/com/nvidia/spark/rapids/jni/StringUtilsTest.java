@@ -127,4 +127,33 @@ public class StringUtilsTest {
       assertColumnsAreEqual(expectedComma, actualComma);
     }
   }
+
+  @Test
+  void testFindInSetRepeated() {
+    try (
+        ColumnVector sets = ColumnVector.fromStrings(
+            "a,b,c",
+            "x,b",
+            "a,b,c",
+            null,
+            "b",
+            "",
+            ",");
+        ColumnVector expectedB = ColumnVector.fromBoxedInts(
+            2, 2, 2, null, 1, 0, 0);
+        ColumnVector expectedEmpty = ColumnVector.fromBoxedInts(
+            0, 0, 0, null, 0, 1, 1);
+        ColumnVector expectedComma = ColumnVector.fromBoxedInts(
+            0, 0, 0, null, 0, 0, 0);
+        ColumnVector actualB = StringUtils.findInSetRepeated(sets, "b", 5);
+        ColumnVector actualEmpty = StringUtils.findInSetRepeated(sets, "", 5);
+        ColumnVector actualComma = StringUtils.findInSetRepeated(sets, "a,b", 5)) {
+      assertColumnsAreEqual(expectedB, actualB);
+      assertColumnsAreEqual(expectedEmpty, actualEmpty);
+      assertColumnsAreEqual(expectedComma, actualComma);
+      try (ColumnVector tooManyDistinct = StringUtils.findInSetRepeated(sets, "b", 4)) {
+        assertNull(tooManyDistinct);
+      }
+    }
+  }
 }
