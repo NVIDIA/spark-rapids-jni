@@ -292,3 +292,20 @@ TEST_F(TimeZoneTest, ConvertFromUTCMicroseconds)
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
 }
+
+// Regression for the negative-microsecond floor-division bug: when a negative timestamp lies in
+// the last sub-second window before a gap transition (here -908870400s, offset 28800 → 32400),
+// truncation toward zero would snap to the transition itself and pick the post-transition offset.
+TEST_F(TimeZoneTest, ConvertFromUTCMicrosecondsSubSecondBeforeGap)
+{
+  auto const ts_col   = micros_col{-908870400000001L, -908870400000000L};
+  auto const expected = micros_col{-908841600000001L, -908838000000000L};
+  auto const actual =
+    spark_rapids_jni::convert_utc_timestamp_to_timezone(ts_col,
+                                                        *transitions,
+                                                        1,
+                                                        cudf::get_default_stream(),
+                                                        rmm::mr::get_current_device_resource_ref());
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
+}

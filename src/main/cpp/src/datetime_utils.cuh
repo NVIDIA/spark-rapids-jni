@@ -536,8 +536,14 @@ __device__ static timestamp_type convert_timestamp(
   auto const tz_instants  = fixed_transitions.child().child(1);
   auto const utc_offsets  = fixed_transitions.child().child(2);
 
-  auto const epoch_seconds = static_cast<int64_t>(
-    cuda::std::chrono::duration_cast<cudf::duration_s>(timestamp.time_since_epoch()).count());
+  // Floor-divide the raw count to seconds. `duration_cast` truncates toward zero, which for
+  // negative timestamps with a non-zero sub-second component rounds up by one second. If such a
+  // timestamp lies in the last sub-second window before a DST gap transition, the rounded value
+  // snaps onto the transition instant itself, and the binary search below returns the
+  // post-transition offset (off by one DST step, typically 1 hour).
+  constexpr int64_t sub_seconds_per_second = duration_type::period::den;
+  auto const epoch_seconds =
+    integer_utils::floor_div(timestamp.time_since_epoch().count(), sub_seconds_per_second);
   auto const tz_transitions = cudf::list_device_view{fixed_transitions, tz_index};
   auto const list_size      = tz_transitions.size();
 
