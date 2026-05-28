@@ -505,6 +505,148 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
 }
 
 // ============================================================================
+// Nested message scanning kernels
+// ============================================================================
+
+/**
+ * Scan one nested message per parent row to locate its direct singleton child fields.
+ * Repeated children are intentionally left to a separate count/scan path (3b.5/3b.6);
+ * this kernel only records last-one-wins locations for non-repeated descendants.
+ */
+CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
+                                                   cudf::size_type message_data_size,
+                                                   cudf::size_type const* parent_row_offsets,
+                                                   cudf::size_type parent_base_offset,
+                                                   field_location const* parent_locations,
+                                                   int num_parent_rows,
+                                                   field_descriptor const* field_descs,
+                                                   int num_fields,
+                                                   field_location* output_locations,
+                                                   int* error_flag,
+                                                   bool* row_has_invalid_data,
+                                                   int32_t const* top_row_indices)
+{
+  auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (row >= num_parent_rows) return;
+
+  auto mark_row_error = [&]() {
+    if (row_has_invalid_data != nullptr) {
+      auto const top_row =
+        top_row_indices != nullptr ? top_row_indices[row] : static_cast<int32_t>(row);
+      row_has_invalid_data[top_row] = true;
+    }
+  };
+
+  for (int f = 0; f < num_fields; f++) {
+    output_locations[flat_index(
+      static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {-1, 0};
+  }
+
+  auto const& parent_loc = parent_locations[row];
+  if (parent_loc.offset < 0) return;
+
+  auto parent_row_start    = parent_row_offsets[row] - parent_base_offset;
+  int64_t nested_start_off = static_cast<int64_t>(parent_row_start) + parent_loc.offset;
+  int64_t nested_end_off   = nested_start_off + parent_loc.length;
+  if (nested_start_off < 0 || nested_end_off > message_data_size) {
+    set_error_once(error_flag, ERR_BOUNDS);
+    mark_row_error();
+    return;
+  }
+  uint8_t const* nested_start = message_data + nested_start_off;
+  uint8_t const* nested_end   = nested_start + parent_loc.length;
+
+  uint8_t const* cur = nested_start;
+
+  while (cur < nested_end) {
+    proto_tag tag;
+    if (!decode_tag(cur, nested_end, tag, error_flag)) {
+      mark_row_error();
+      return;
+    }
+    int fn = tag.field_number;
+    int wt = tag.wire_type;
+
+    for (int f = 0; f < num_fields; f++) {
+      if (field_descs[f].field_number == fn) {
+        if (field_descs[f].is_repeated) {
+          // Handled by the dedicated nested repeated count/scan path (3b.5/3b.6).
+          break;
+        }
+        if (wt != field_descs[f].expected_wire_type) {
+          set_error_once(error_flag, ERR_WIRE_TYPE);
+          mark_row_error();
+          return;
+        }
+
+        int data_offset = static_cast<int>(cur - nested_start);
+
+        if (wt == wire_type_value(proto_wire_type::LEN)) {
+          uint64_t len;
+          int len_bytes;
+          if (!read_varint(cur, nested_end, len, len_bytes)) {
+            set_error_once(error_flag, ERR_VARINT);
+            mark_row_error();
+            return;
+          }
+          if (len > static_cast<uint64_t>(nested_end - cur - len_bytes) ||
+              len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max())) {
+            set_error_once(error_flag, ERR_OVERFLOW);
+            mark_row_error();
+            return;
+          }
+          int32_t data_location;
+          if (!checked_add_int32(data_offset, len_bytes, data_location)) {
+            set_error_once(error_flag, ERR_OVERFLOW);
+            mark_row_error();
+            return;
+          }
+          output_locations[flat_index(
+            static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
+            data_location, static_cast<int32_t>(len)};
+        } else {
+          int field_size = get_wire_type_size(wt, cur, nested_end);
+          if (field_size < 0) {
+            set_error_once(error_flag, ERR_FIELD_SIZE);
+            mark_row_error();
+            return;
+          }
+          output_locations[flat_index(
+            static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
+            data_offset, field_size};
+        }
+        break;
+      }
+    }
+
+    uint8_t const* next;
+    if (!skip_field(cur, nested_end, wt, next)) {
+      set_error_once(error_flag, ERR_SKIP);
+      mark_row_error();
+      return;
+    }
+    cur = next;
+  }
+}
+
+/**
+ * Pull one field's per-row locations out of the 2D nested-locations array. Replaces a
+ * D2H + CPU loop + H2D pattern previously used to extract a parent-location vector per
+ * nested struct field.
+ */
+CUDF_KERNEL void extract_strided_locations_kernel(field_location const* nested_locations,
+                                                  int field_idx,
+                                                  int num_fields,
+                                                  field_location* parent_locs,
+                                                  int num_rows)
+{
+  int row = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row >= num_rows) return;
+  parent_locs[row] = nested_locations[flat_index(
+    static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(field_idx))];
+}
+
+// ============================================================================
 // Kernel to check required fields after scan pass
 // ============================================================================
 
@@ -746,6 +888,51 @@ void launch_scan_all_repeated_occurrences(cudf::column_device_view const& d_in,
   auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
   scan_all_repeated_occurrences_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
     d_in, scan_descs, num_scan_fields, error_flag, fn_to_desc_idx, fn_to_desc_size);
+}
+
+void launch_extract_strided_locations(field_location const* nested_locations,
+                                      int field_idx,
+                                      int num_fields,
+                                      field_location* parent_locs,
+                                      int num_rows,
+                                      rmm::cuda_stream_view stream)
+{
+  if (num_rows == 0) return;
+  auto const blocks = static_cast<int>((num_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  extract_strided_locations_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    nested_locations, field_idx, num_fields, parent_locs, num_rows);
+}
+
+void launch_scan_nested_message_fields(uint8_t const* message_data,
+                                       cudf::size_type message_data_size,
+                                       cudf::size_type const* parent_row_offsets,
+                                       cudf::size_type parent_base_offset,
+                                       field_location const* parent_locations,
+                                       int num_parent_rows,
+                                       field_descriptor const* field_descs,
+                                       int num_fields,
+                                       field_location* output_locations,
+                                       int* error_flag,
+                                       bool* row_has_invalid_data,
+                                       int32_t const* top_row_indices,
+                                       rmm::cuda_stream_view stream)
+{
+  if (num_parent_rows == 0) return;
+  auto const blocks =
+    static_cast<int>((num_parent_rows + THREADS_PER_BLOCK - 1u) / THREADS_PER_BLOCK);
+  scan_nested_message_fields_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream.value()>>>(
+    message_data,
+    message_data_size,
+    parent_row_offsets,
+    parent_base_offset,
+    parent_locations,
+    num_parent_rows,
+    field_descs,
+    num_fields,
+    output_locations,
+    error_flag,
+    row_has_invalid_data,
+    top_row_indices);
 }
 
 void launch_validate_enum_values(int32_t const* values,

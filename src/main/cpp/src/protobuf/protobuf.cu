@@ -376,6 +376,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   auto const& default_ints      = context.default_ints;
   auto const& default_floats    = context.default_floats;
   auto const& default_bools     = context.default_bools;
+  auto const& default_strings   = context.default_strings;
   auto const& enum_valid_values = context.enum_valid_values;
   auto const& enum_names        = context.enum_names;
   bool fail_on_errors           = context.fail_on_errors;
@@ -426,7 +427,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // Extract shared input data pointers (used by scalar, repeated, and nested sections)
   cudf::lists_column_view const in_list_view(binary_input);
   auto const* message_data = reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
-  auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
+  auto const message_data_size = static_cast<cudf::size_type>(in_list_view.child().size());
+  auto const* list_offsets     = in_list_view.offsets().data<cudf::size_type>();
 
   // Stage list_offsets[0] through pinned host memory so the D2H stays truly async (pageable
   // destinations turn small cudaMemcpyAsync calls into synchronous bounce-buffer copies).
@@ -1240,6 +1242,48 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                     std::to_string(static_cast<int>(element_type.id())));
       }
     }  // for (ri)
+  }
+
+  // Process nested struct fields (3b.2). Only scalar numeric/bool children decode for real;
+  // other child shapes are filled with typed null columns by build_nested_struct_column.
+  if (num_nested > 0) {
+    for (int ni = 0; ni < num_nested; ni++) {
+      int parent_schema_idx    = nested_field_indices[ni];
+      auto child_field_indices = find_child_field_indices(schema, num_fields, parent_schema_idx);
+
+      if (child_field_indices.empty()) {
+        column_map[parent_schema_idx] = make_null_column(
+          cudf::data_type{schema[parent_schema_idx].output_type}, num_rows, stream, mr);
+        continue;
+      }
+
+      rmm::device_uvector<field_location> d_parent_locs(num_rows, stream, scratch_mr);
+      launch_extract_strided_locations(
+        d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
+
+      column_map[parent_schema_idx] = build_nested_struct_column(message_data,
+                                                                 message_data_size,
+                                                                 list_offsets,
+                                                                 base_offset,
+                                                                 d_parent_locs,
+                                                                 child_field_indices,
+                                                                 schema,
+                                                                 num_fields,
+                                                                 default_ints,
+                                                                 default_floats,
+                                                                 default_bools,
+                                                                 default_strings,
+                                                                 enum_valid_values,
+                                                                 enum_names,
+                                                                 d_row_force_null,
+                                                                 d_error,
+                                                                 num_rows,
+                                                                 stream,
+                                                                 mr,
+                                                                 nullptr,
+                                                                 0,
+                                                                 track_permissive_null_rows);
+    }
   }
 
   // Assemble top_level_children in schema order (not processing order)

@@ -3160,6 +3160,161 @@ public class ProtobufTest {
   }
 
   @Test
+  void testNestedMessageInt32Child() {
+    // message Inner { int32 x = 1; }
+    // message Outer { Inner inner = 1; }
+    Byte[] innerMessage = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
+    Byte[] row = concat(
+        box(tag(1, WT_LEN)),
+        box(encodeVarint(innerMessage.length)),
+        innerMessage);
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1},
+             new int[]{-1, 0},
+             new int[]{0, 1},
+             new int[]{WT_LEN, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new long[]{0, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             new int[][]{null, null},
+             false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      try (ColumnVector expectedX = ColumnVector.fromBoxedInts(42);
+           ColumnVector expectedInner = ColumnVector.makeStruct(expectedX);
+           ColumnVector expectedOuter = ColumnVector.makeStruct(expectedInner)) {
+        AssertUtils.assertStructColumnsAreEqual(expectedOuter, result);
+      }
+    }
+  }
+
+  @Test
+  void testNestedMessageMultipleScalarChildren() {
+    // message Inner { int32 a = 1; int64 b = 2; bool c = 3; float d = 4; }
+    // message Outer { Inner inner = 1; }
+    Byte[] inner0 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(123456789012L)),
+        box(tag(3, WT_VARINT)), box(encodeVarint(1)),
+        box(tag(4, WT_32BIT)), box(encodeFloat(3.5f)));
+    Byte[] row0 = concat(box(tag(1, WT_LEN)), box(encodeVarint(inner0.length)), inner0);
+
+    Byte[] inner1 = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(-1)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(0)),
+        box(tag(3, WT_VARINT)), box(encodeVarint(0)),
+        box(tag(4, WT_32BIT)), box(encodeFloat(-0.25f)));
+    Byte[] row1 = concat(box(tag(1, WT_LEN)), box(encodeVarint(inner1.length)), inner1);
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1, 2, 3, 4},
+             new int[]{-1, 0, 0, 0, 0},
+             new int[]{0, 1, 1, 1, 1},
+             new int[]{WT_LEN, WT_VARINT, WT_VARINT, WT_VARINT, WT_32BIT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(),
+                       DType.INT32.getTypeId().getNativeId(),
+                       DType.INT64.getTypeId().getNativeId(),
+                       DType.BOOL8.getTypeId().getNativeId(),
+                       DType.FLOAT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
+                       Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false, false, false, false},
+             new boolean[]{false, false, false, false, false},
+             new boolean[]{false, false, false, false, false},
+             new long[]{0, 0, 0, 0, 0},
+             new double[]{0, 0, 0, 0, 0},
+             new boolean[]{false, false, false, false, false},
+             new byte[][]{null, null, null, null, null},
+             new int[][]{null, null, null, null, null},
+             false)) {
+        assertNotNull(result);
+        try (ColumnVector expA = ColumnVector.fromBoxedInts(7, -1);
+             ColumnVector expB = ColumnVector.fromBoxedLongs(123456789012L, 0L);
+             ColumnVector expC = ColumnVector.fromBoxedBooleans(true, false);
+             ColumnVector expD = ColumnVector.fromBoxedFloats(3.5f, -0.25f);
+             ColumnVector expInner = ColumnVector.makeStruct(expA, expB, expC, expD);
+             ColumnVector expOuter = ColumnVector.makeStruct(expInner)) {
+          AssertUtils.assertStructColumnsAreEqual(expOuter, result);
+        }
+    }
+  }
+
+  @Test
+  void testNestedMessageAbsentParentIsNull() {
+    // Outer message present, but the nested Inner field is missing from the wire.
+    Byte[] row = new Byte[]{};
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1},
+             new int[]{-1, 0},
+             new int[]{0, 1},
+             new int[]{WT_LEN, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new long[]{0, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             new int[][]{null, null},
+             false);
+         ColumnVector inner = result.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostInner = inner.copyToHost()) {
+      assertNotNull(result);
+      assertTrue(hostInner.isNull(0), "Inner struct should be null when parent field absent");
+    }
+  }
+
+  @Test
+  void testZeroLengthNestedMessage() {
+    // Outer carries the nested tag but with length 0 (Inner is empty).
+    Byte[] row = concat(box(tag(1, WT_LEN)), box(encodeVarint(0)));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = decodeRaw(
+             input.getColumn(0),
+             new int[]{1, 1},
+             new int[]{-1, 0},
+             new int[]{0, 1},
+             new int[]{WT_LEN, WT_VARINT},
+             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
+             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new boolean[]{false, false},
+             new long[]{0, 0},
+             new double[]{0.0, 0.0},
+             new boolean[]{false, false},
+             new byte[][]{null, null},
+             new int[][]{null, null},
+             false);
+         ColumnVector inner = result.getChildColumnView(0).copyToColumnVector();
+         ColumnVector innerX = inner.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostInner = inner.copyToHost();
+         HostColumnVector hostX = innerX.copyToHost()) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      assertFalse(hostInner.isNull(0), "Inner struct should be present (length=0 nested)");
+      assertTrue(hostX.isNull(0), "Inner x should be null since the field is absent");
+    }
+  }
+
+  @Test
   void testZeroRowNestedSchemaShape() {
     // 0 rows with nested schema — verify correct type hierarchy
     int intType = DType.INT32.getTypeId().getNativeId();

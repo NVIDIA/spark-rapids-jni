@@ -416,6 +416,27 @@ void launch_scan_all_repeated_occurrences(cudf::column_device_view const& d_in,
                                           int num_rows,
                                           rmm::cuda_stream_view stream);
 
+void launch_extract_strided_locations(field_location const* nested_locations,
+                                      int field_idx,
+                                      int num_fields,
+                                      field_location* parent_locs,
+                                      int num_rows,
+                                      rmm::cuda_stream_view stream);
+
+void launch_scan_nested_message_fields(uint8_t const* message_data,
+                                       cudf::size_type message_data_size,
+                                       cudf::size_type const* parent_row_offsets,
+                                       cudf::size_type parent_base_offset,
+                                       field_location const* parent_locations,
+                                       int num_parent_rows,
+                                       field_descriptor const* field_descs,
+                                       int num_fields,
+                                       field_location* output_locations,
+                                       int* error_flag,
+                                       bool* row_has_invalid_data,
+                                       int32_t const* top_row_indices,
+                                       rmm::cuda_stream_view stream);
+
 // ============================================================================
 // Host-side template helpers that launch CUDA kernels
 // ============================================================================
