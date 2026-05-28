@@ -107,6 +107,9 @@ ConfigureTest(UTILITIES
 ConfigureTest(PARSE_URI
     parse_uri.cpp)
 
+ConfigureTest(PROTOBUF_HELPERS
+    protobuf_helpers.cu)
+
 ConfigureTest(LIST_SLICE
     list_slice.cpp)
 

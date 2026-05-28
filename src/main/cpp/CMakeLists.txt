@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.0 FATAL_ERROR)
 
 # CUDF_DIR is set from the environment variable, allowing to specify
 # a custom cudf repository other than `thirdparty/cudf`.
@@ -44,7 +44,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 26.06.00
+  VERSION 26.08.00
   LANGUAGES CXX CUDA
 )
 
@@ -268,6 +268,7 @@ add_library(
   src/map_zip_with_utils.cu
   src/multiply.cu
   src/number_converter.cu
+  src/parse_timestamp_with_format.cu
   src/parse_uri.cu
   src/protobuf/protobuf.cu
   src/protobuf/protobuf_builders.cu
