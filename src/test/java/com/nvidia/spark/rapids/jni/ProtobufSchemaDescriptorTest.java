@@ -338,4 +338,86 @@ public class ProtobufSchemaDescriptorTest {
     assertNotSame(original.enumNames[0], roundTrip.enumNames[0]);
     assertNotSame(original.enumNames[0][0], roundTrip.enumNames[0][0]);
   }
+
+  @Test
+  void testBackCompatConstructorMarksAllFieldsAsOutput() {
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptor(
+        new int[]{1, 2},
+        new int[]{-1, -1},
+        new int[]{0, 0},
+        new int[]{Protobuf.WT_VARINT, Protobuf.WT_LEN},
+        new int[]{ai.rapids.cudf.DType.INT32.getTypeId().getNativeId(),
+                  ai.rapids.cudf.DType.STRING.getTypeId().getNativeId()},
+        new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new long[]{0, 0},
+        new double[]{0.0, 0.0},
+        new boolean[]{false, false},
+        new byte[][]{null, null},
+        new int[][]{null, null},
+        new byte[][][]{null, null});
+    assertEquals(2, schema.isOutput.length);
+    for (boolean flag : schema.isOutput) {
+      assertEquals(true, flag);
+    }
+  }
+
+  @Test
+  void testNestedFieldMustShareOutputFlagWithParent() {
+    int structType = ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId();
+    int intType = ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
+    // Parent struct hidden, child visible -> illegal.
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1, 1},
+            new int[]{-1, 0},
+            new int[]{0, 1},
+            new int[]{Protobuf.WT_LEN, Protobuf.WT_VARINT},
+            new int[]{structType, intType},
+            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+            new boolean[]{false, false},
+            new boolean[]{false, false},
+            new boolean[]{false, false},
+            new boolean[]{false, true},     // hidden parent, visible child
+            new long[]{0, 0},
+            new double[]{0.0, 0.0},
+            new boolean[]{false, false},
+            new byte[][]{null, null},
+            new int[][]{null, null},
+            new byte[][][]{null, null}));
+  }
+
+  @Test
+  void testHiddenFieldRoundTripsThroughSerialization() throws Exception {
+    int intType = ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
+    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptor(
+        new int[]{1, 2},
+        new int[]{-1, -1},
+        new int[]{0, 0},
+        new int[]{Protobuf.WT_VARINT, Protobuf.WT_VARINT},
+        new int[]{intType, intType},
+        new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new boolean[]{true, false},  // second field hidden
+        new long[]{0, 0},
+        new double[]{0.0, 0.0},
+        new boolean[]{false, false},
+        new byte[][]{null, null},
+        new int[][]{null, null},
+        new byte[][][]{null, null});
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+      oos.writeObject(original);
+    }
+    ProtobufSchemaDescriptor roundTrip;
+    try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()))) {
+      roundTrip = (ProtobufSchemaDescriptor) ois.readObject();
+    }
+    assertArrayEquals(original.isOutput, roundTrip.isOutput);
+  }
 }

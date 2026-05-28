@@ -3478,4 +3478,75 @@ public class ProtobufTest {
       });
     }
   }
+
+  @Test
+  void testHiddenFieldDoesNotAppearInOutput() {
+    // message Msg { int32 a = 1; int32 b = 2; } — both present in the wire, b is hidden.
+    int intType = DType.INT32.getTypeId().getNativeId();
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(11)));
+
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptor(
+        new int[]{1, 2},
+        new int[]{-1, -1},
+        new int[]{0, 0},
+        new int[]{Protobuf.WT_VARINT, Protobuf.WT_VARINT},
+        new int[]{intType, intType},
+        new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new boolean[]{true, false},  // hide b
+        new long[]{0, 0},
+        new double[]{0.0, 0.0},
+        new boolean[]{false, false},
+        new byte[][]{null, null},
+        new int[][]{null, null},
+        new byte[][][]{null, null});
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0), schema, true)) {
+      assertEquals(DType.STRUCT, result.getType());
+      assertEquals(1, result.getNumChildren());
+      try (ColumnVector childA = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector expectedA = ColumnVector.fromBoxedInts(7)) {
+        AssertUtils.assertColumnsAreEqual(expectedA, childA);
+      }
+    }
+  }
+
+  @Test
+  void testHiddenRequiredFieldStillValidates() {
+    // message Msg { int32 a = 1; int32 b = 2 [required]; } — b is hidden but required;
+    // wire data omits b. In failfast mode the missing required field must still throw.
+    int intType = DType.INT32.getTypeId().getNativeId();
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(5)));
+
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptor(
+        new int[]{1, 2},
+        new int[]{-1, -1},
+        new int[]{0, 0},
+        new int[]{Protobuf.WT_VARINT, Protobuf.WT_VARINT},
+        new int[]{intType, intType},
+        new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+        new boolean[]{false, false},
+        new boolean[]{false, true},  // b is required
+        new boolean[]{false, false},
+        new boolean[]{true, false},  // b is hidden
+        new long[]{0, 0},
+        new double[]{0.0, 0.0},
+        new boolean[]{false, false},
+        new byte[][]{null, null},
+        new int[][]{null, null},
+        new byte[][][]{null, null});
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(RuntimeException.class, () -> {
+        try (ColumnVector ignored = Protobuf.decodeToStruct(input.getColumn(0), schema, true)) {
+          // unreachable: required b is missing, must throw even though hidden
+        }
+      });
+    }
+  }
 }
