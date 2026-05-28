@@ -545,8 +545,10 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
   auto const& parent_loc = parent_locations[row];
   if (parent_loc.offset < 0) return;
 
-  auto parent_row_start    = parent_row_offsets[row] - parent_base_offset;
-  int64_t nested_start_off = static_cast<int64_t>(parent_row_start) + parent_loc.offset;
+  // Do the subtraction in int64 to keep the bounds-check honest even if a future caller
+  // ever passes a sliced LIST where parent_base_offset > parent_row_offsets[row].
+  int64_t parent_row_start = static_cast<int64_t>(parent_row_offsets[row]) - parent_base_offset;
+  int64_t nested_start_off = parent_row_start + parent_loc.offset;
   int64_t nested_end_off   = nested_start_off + parent_loc.length;
   if (nested_start_off < 0 || nested_end_off > message_data_size) {
     set_error_once(error_flag, ERR_BOUNDS);
@@ -593,6 +595,8 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
           return;
         }
 
+        // Safe int32 cast: cur stays in [nested_start, nested_end] and nested message length
+        // (parent_loc.length) is bounded by INT_MAX at write time in count_repeated_fields_kernel.
         int data_offset = static_cast<int>(cur - nested_start);
 
         if (wt == wire_type_value(proto_wire_type::LEN)) {

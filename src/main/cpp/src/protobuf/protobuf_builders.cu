@@ -451,47 +451,6 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
 // Nested struct column builder
 // ============================================================================
 
-namespace {
-// Schema-aware all-null builder used to fill child slots that subsequent PRs decode for real.
-// Kept local to this TU because the corresponding orchestrator helper is also file-local.
-std::unique_ptr<cudf::column> build_null_column_with_schema(
-  std::vector<nested_field_descriptor> const& schema,
-  int schema_idx,
-  int num_fields,
-  cudf::size_type num_rows,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  auto const& field = schema[schema_idx];
-  auto const dtype  = cudf::data_type{field.output_type};
-
-  if (field.is_repeated) {
-    std::unique_ptr<cudf::column> empty_child;
-    if (dtype.id() == cudf::type_id::STRUCT) {
-      empty_child =
-        make_empty_struct_column_with_schema(schema, schema_idx, num_fields, stream, mr);
-    } else {
-      empty_child = make_empty_column_safe(dtype, stream, mr);
-    }
-    return make_null_list_column_with_child(std::move(empty_child), num_rows, stream, mr);
-  }
-
-  if (dtype.id() == cudf::type_id::STRUCT) {
-    auto child_indices = find_child_field_indices(schema, num_fields, schema_idx);
-    std::vector<std::unique_ptr<cudf::column>> children;
-    for (auto const child_idx : child_indices) {
-      children.push_back(
-        build_null_column_with_schema(schema, child_idx, num_fields, num_rows, stream, mr));
-    }
-    auto null_mask = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
-    return cudf::make_structs_column(
-      num_rows, std::move(children), num_rows, std::move(null_mask), stream, mr);
-  }
-
-  return make_null_column(dtype, num_rows, stream, mr);
-}
-}  // namespace
-
 /**
  * Build a STRUCT column for a nested protobuf message.
  *
@@ -576,6 +535,9 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   auto const child_location_count = static_cast<size_t>(num_rows) * num_child_fields;
   rmm::device_uvector<field_location> d_child_locations(
     child_location_count > 0 ? child_location_count : 1, stream, scratch_mr);
+  // Scan over every child descriptor (including repeated ones) so STRICT-mode wire-type
+  // validation still runs on repeated occurrences. Repeated child slots in d_child_locations
+  // are not consumed; 3b.5 / 3b.6 produce them via dedicated count/scan kernels.
   launch_scan_nested_message_fields(message_data,
                                     message_data_size,
                                     list_offsets,
@@ -601,15 +563,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     // Repeated children inside nested messages land in 3b.5 / 3b.6; emit a typed null LIST
     // so the struct schema is still well-formed.
     if (is_repeated) {
-      std::unique_ptr<cudf::column> child_null;
-      if (dt.id() == cudf::type_id::STRUCT) {
-        child_null =
-          make_empty_struct_column_with_schema(schema, child_schema_idx, num_fields, stream, mr);
-      } else {
-        child_null = make_empty_column_safe(dt, stream, mr);
-      }
       struct_children.push_back(
-        make_null_list_column_with_child(std::move(child_null), num_rows, stream, mr));
+        make_null_column_with_schema(schema, child_schema_idx, num_fields, num_rows, stream, mr));
       continue;
     }
 
@@ -653,8 +608,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
       }
       default:
         // STRING / LIST<UINT8> (bytes) / recursive STRUCT children land in 3b.3 / 3b.4.
-        struct_children.push_back(build_null_column_with_schema(
-          schema, child_schema_idx, num_fields, num_rows, stream, mr));
+        struct_children.push_back(
+          make_null_column_with_schema(schema, child_schema_idx, num_fields, num_rows, stream, mr));
         break;
     }
   }

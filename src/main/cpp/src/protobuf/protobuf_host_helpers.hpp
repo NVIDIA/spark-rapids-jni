@@ -183,6 +183,17 @@ std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr);
 
+// Schema-aware all-null builder: recurses into STRUCT children and wraps repeated fields
+// in a null-list, mirroring the shape `make_empty_struct_column_with_schema` would produce
+// but with `num_rows` all-null rows.
+std::unique_ptr<cudf::column> make_null_column_with_schema(
+  std::vector<nested_field_descriptor> const& schema,
+  int schema_idx,
+  int num_fields,
+  cudf::size_type num_rows,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
+
 std::unique_ptr<cudf::column> make_null_list_column_with_child(
   std::unique_ptr<cudf::column> child_col,
   cudf::size_type num_rows,

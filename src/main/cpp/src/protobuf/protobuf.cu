@@ -138,6 +138,29 @@ void propagate_nulls_to_descendants(cudf::column& col,
   }
 }
 
+// Per-field bookkeeping for the three-phase top-level repeated pipeline:
+// `offsets` is the prefix-sum row offsets (size num_rows+1) computed in Phase A; it both
+// seeds the Phase B scan kernel's per-row write index and flows directly into the output
+// LIST column built in Phase C, so it must be allocated against the caller's `mr`.
+// `occurrences` stores the (offset,length,row_idx) tuples produced by Phase B for Phase C
+// builders to consume.
+struct repeated_field_work {
+  int schema_idx;
+  int32_t total_count{0};
+  rmm::device_uvector<int32_t> offsets;
+  std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
+
+  repeated_field_work(int si,
+                      cudf::size_type n,
+                      rmm::cuda_stream_view s,
+                      rmm::device_async_resource_ref m)
+    : schema_idx(si), offsets(static_cast<size_t>(n) + 1, s, m)
+  {
+  }
+};
+
+}  // namespace
+
 std::unique_ptr<cudf::column> make_null_column_with_schema(
   std::vector<nested_field_descriptor> const& schema,
   int schema_idx,
@@ -147,7 +170,7 @@ std::unique_ptr<cudf::column> make_null_column_with_schema(
   rmm::device_async_resource_ref mr)
 {
   auto const& field = schema[schema_idx];
-  auto const dtype  = cudf::data_type{schema[schema_idx].output_type};
+  auto const dtype  = cudf::data_type{field.output_type};
 
   if (field.is_repeated) {
     std::unique_ptr<cudf::column> empty_child;
@@ -174,29 +197,6 @@ std::unique_ptr<cudf::column> make_null_column_with_schema(
 
   return make_null_column(dtype, num_rows, stream, mr);
 }
-
-// Per-field bookkeeping for the three-phase top-level repeated pipeline:
-// `offsets` is the prefix-sum row offsets (size num_rows+1) computed in Phase A; it both
-// seeds the Phase B scan kernel's per-row write index and flows directly into the output
-// LIST column built in Phase C, so it must be allocated against the caller's `mr`.
-// `occurrences` stores the (offset,length,row_idx) tuples produced by Phase B for Phase C
-// builders to consume.
-struct repeated_field_work {
-  int schema_idx;
-  int32_t total_count{0};
-  rmm::device_uvector<int32_t> offsets;
-  std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
-
-  repeated_field_work(int si,
-                      cudf::size_type n,
-                      rmm::cuda_stream_view s,
-                      rmm::device_async_resource_ref m)
-    : schema_idx(si), offsets(static_cast<size_t>(n) + 1, s, m)
-  {
-  }
-};
-
-}  // namespace
 
 bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_type const& type)
 {
