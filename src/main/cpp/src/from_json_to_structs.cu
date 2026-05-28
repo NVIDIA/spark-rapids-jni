@@ -866,10 +866,17 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
 
     // Apply Spark's parent-NULL policy: JacksonParser.convertObject with isRoot=false propagates
     // nested conversion errors up and nulls the depth-1 ancestor. cuDF reports schema-category
-    // mismatches via the side-channel `json_reader_diagnostics` returned by
-    // `read_json_with_diagnostics`; replicate the policy here so it doesn't leak into cuDF's
-    // public ABI. We null the parsed column BEFORE `convert_data_type` so the conversion path
-    // naturally propagates nulls through descendants and Spark consumers see every field NULL.
+    // mismatches via `json_reader_diagnostics.top_level_columns_with_schema_mismatch` from
+    // `read_json_with_diagnostics`; keep the policy on this side so the diagnostic stays out
+    // of cuDF's public ABI. Setting the column's null mask to ALL_NULL here marks the depth-1
+    // ancestor invalid in the validity buffer; downstream Spark consumers then see every
+    // descendant field as NULL because Spark's expression evaluator returns NULL when reading
+    // fields off a null parent struct (not because cuDF rewrites the child columns).
+    //
+    // Granularity caveat: the cuDF diagnostic is column-level, not row-level, so we null ALL
+    // rows of `col_name` even when only some rows in that column actually had the mismatch.
+    // This over-nulls mixed-row batches relative to Spark's per-row depth-1 nulling. Per-row
+    // diagnostics from cuDF would let us null only the affected rows; tracked in #4645.
     if (mismatched_columns.contains(col_name)) {
       auto const num_rows = parsed_columns[i]->size();
       auto all_null_mask = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
