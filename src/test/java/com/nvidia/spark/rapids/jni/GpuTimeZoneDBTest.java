@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,13 +49,18 @@ public class GpuTimeZoneDBTest {
     TimeZone writeTz = TimeZone.getTimeZone(writeTzId);
     TimeZone readerTz = TimeZone.getTimeZone(readerTzId);
     for (int i = 0; i < microseconds.length; ++i) {
-      long millis = microseconds[i] / microsPerMillis;
+      // Floor-divide µs to ms (and floor-mod for the sub-ms remainder) so reconstruction round-trips
+      // for negative timestamps with a non-zero sub-millisecond component. Truncation toward zero
+      // would round such an input up by one ms; at a DST gap transition that lands on the
+      // post-transition offset, producing a 1-hour off-by-one. Must match the GPU kernel's
+      // floor-divide in convert_timestamp_between_timezones.
+      long millis = Math.floorDiv(microseconds[i], microsPerMillis);
       long writerOffset = writeTz.getOffset(millis);
       long readerOffset = readerTz.getOffset(millis);
       long adjustedMillis = millis + writerOffset - readerOffset;
       long adjustedReader = readerTz.getOffset(adjustedMillis);
       long finalDiffs = writerOffset - adjustedReader;
-      results[i] = (millis + finalDiffs) * microsPerMillis + (microseconds[i] % microsPerMillis);
+      results[i] = (millis + finalDiffs) * microsPerMillis + Math.floorMod(microseconds[i], microsPerMillis);
     }
     return ColumnVector.timestampMicroSecondsFromLongs(results);
   }
