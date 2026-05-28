@@ -570,7 +570,21 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
     for (int f = 0; f < num_fields; f++) {
       if (field_descs[f].field_number == fn) {
         if (field_descs[f].is_repeated) {
-          // Handled by the dedicated nested repeated count/scan path (3b.5/3b.6).
+          // Values are handled by the dedicated nested repeated count/scan path (3b.5/3b.6),
+          // but schema-matching fields still need strict/permissive parse validation here.
+          auto validate_action = []([[maybe_unused]] int32_t off, [[maybe_unused]] int32_t len) {
+            return true;
+          };
+          if (!walk_repeated_element(cur,
+                                     nested_end,
+                                     nested_start,
+                                     wt,
+                                     field_descs[f].expected_wire_type,
+                                     error_flag,
+                                     validate_action)) {
+            mark_row_error();
+            return;
+          }
           break;
         }
         if (wt != field_descs[f].expected_wire_type) {

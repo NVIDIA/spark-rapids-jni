@@ -561,16 +561,21 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     h_child_field_descs[i].is_repeated        = schema[child_idx].is_repeated;
   }
 
-  auto const scratch_mr = cudf::get_current_device_resource_ref();
-  rmm::device_uvector<field_descriptor> d_child_field_descs(num_child_fields, stream, scratch_mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_child_field_descs.data(),
-                                h_child_field_descs.data(),
-                                num_child_fields * sizeof(field_descriptor),
-                                cudaMemcpyHostToDevice,
-                                stream.value()));
+  auto const scratch_mr          = cudf::get_current_device_resource_ref();
+  auto const child_desc_capacity = num_child_fields > 0 ? num_child_fields : 1;
+  rmm::device_uvector<field_descriptor> d_child_field_descs(
+    child_desc_capacity, stream, scratch_mr);
+  if (num_child_fields > 0) {
+    CUDF_CUDA_TRY(cudaMemcpyAsync(d_child_field_descs.data(),
+                                  h_child_field_descs.data(),
+                                  num_child_fields * sizeof(field_descriptor),
+                                  cudaMemcpyHostToDevice,
+                                  stream.value()));
+  }
 
+  auto const child_location_count = static_cast<size_t>(num_rows) * num_child_fields;
   rmm::device_uvector<field_location> d_child_locations(
-    static_cast<size_t>(num_rows) * num_child_fields, stream, scratch_mr);
+    child_location_count > 0 ? child_location_count : 1, stream, scratch_mr);
   launch_scan_nested_message_fields(message_data,
                                     message_data_size,
                                     list_offsets,
@@ -648,8 +653,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
       }
       default:
         // STRING / LIST<UINT8> (bytes) / recursive STRUCT children land in 3b.3 / 3b.4.
-        struct_children.push_back(
-          build_null_column_with_schema(schema, child_schema_idx, num_fields, num_rows, stream, mr));
+        struct_children.push_back(build_null_column_with_schema(
+          schema, child_schema_idx, num_fields, num_rows, stream, mr));
         break;
     }
   }
