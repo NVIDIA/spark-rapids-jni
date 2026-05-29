@@ -291,8 +291,9 @@ void validate_decode_context(protobuf_decode_context const& context)
                    "protobuf decode context: parent must be STRUCT at field " + std::to_string(i),
                    std::invalid_argument);
       if (!context.output_fields.empty()) {
-        // A hidden STRUCT cannot have visible descendants — otherwise the orchestrator would
-        // have to materialize the parent column anyway. Forbid the mismatch up front.
+        // A field and its parent must share the same output flag: a hidden STRUCT cannot have
+        // visible descendants (the parent would have to be materialized anyway), and a visible
+        // STRUCT cannot have hidden children. Forbid the mismatch up front.
         CUDF_EXPECTS(
           context.output_fields[i] == context.output_fields[field.parent_idx],
           "protobuf decode context: child output flag mismatch at field " + std::to_string(i),
