@@ -140,6 +140,14 @@ public class OrcTimezoneInfoTest {
     // Second Sunday in March: base day 8 ("Sun >= 8"). First Sunday in November: base day 1.
     assertEquals(8, rule.startDay);
     assertEquals(1, rule.endDay);
+    // Probing path encodes both transitions as STANDARD time (timeMode=1) at
+    // the wall-clock instants 02:00 (DST start) and 01:00 (DST end). Lock
+    // these so a regression that flips timeMode to WALL would shift the
+    // computed UTC transitions by dstSavings and fail verifyDstRule silently.
+    assertEquals(1, rule.startTimeMode, "DST start should be STANDARD time mode");
+    assertEquals(1, rule.endTimeMode, "DST end should be STANDARD time mode");
+    assertEquals(2 * 3_600_000, rule.startTime, "DST start at 02:00 standard");
+    assertEquals(1 * 3_600_000, rule.endTime, "DST end at 01:00 standard");
   }
 
   @Test
@@ -185,11 +193,26 @@ public class OrcTimezoneInfoTest {
     assertNull(extractDstRuleFor("+05:30"));
   }
 
-  /** Resolve a zone id through the same SHORT_IDS pipeline production uses. */
+  /**
+   * Resolve a zone id through the same SHORT_IDS pipeline production uses.
+   *
+   * <p>For fixed-offset ids like {@code "+05:30"}, {@code TimeZone.getTimeZone}
+   * silently returns GMT (rawOffset=0) rather than a TimeZone with the actual
+   * offset, because {@code java.util.TimeZone} does not recognise the
+   * offset-format id. Mirror production's {@code rules.isFixedOffset()} guard
+   * here so the test does not silently feed a GMT TimeZone into
+   * {@code extractDstRule}; production's
+   * {@link OrcTimezoneInfo#extractDstRule} now short-circuits on
+   * {@code rules.isFixedOffset()} too, but the test helper keeps its own
+   * pre-call guard so a future caller pattern that drops the production guard
+   * cannot silently re-introduce the trap.
+   */
   private static OrcTimezoneInfo.DstRule extractDstRuleFor(String timezoneId) {
     ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
     ZoneRules rules = zoneId.getRules();
-    TimeZone tz = TimeZone.getTimeZone(zoneId.getId());
+    TimeZone tz = rules.isFixedOffset()
+        ? TimeZone.getTimeZone("UTC")
+        : TimeZone.getTimeZone(zoneId.getId());
     return OrcTimezoneInfo.extractDstRule(timezoneId, tz, rules);
   }
 }

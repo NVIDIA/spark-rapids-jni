@@ -347,9 +347,21 @@ class OrcTimezoneInfo {
    * source of truth the GPU side must match for ORC byte-compatibility);
    * {@link ZoneRules#getTransitionRules()} is used as a fallback for zones
    * whose recurring rule cannot be recovered from hourly probes.
+   *
+   * @throws IllegalStateException if the zone reports DST but neither
+   *     extraction path produces a usable rule — for example, an unsupported
+   *     {@link ZoneRules#getTransitionRules()} count (not 0 and not 2), a
+   *     transition rule shape outside DOW_GE_DOM, mismatched start vs. end
+   *     DST savings, zero-delta savings, or cross-year verification mismatch
+   *     against {@code tz.getOffset} on the anchor years
+   *     {@code 2060, 2400, 9997}.
    */
   static DstRule extractDstRule(String timezoneId, TimeZone tz, ZoneRules rules) {
-    if (!tz.useDaylightTime()) {
+    // Fixed-offset zones (e.g. "+05:30") have no DST. Guard explicitly because
+    // TimeZone.getTimeZone(zoneId) silently returns GMT for such ids on most
+    // JVMs, which would leave `tz` describing a different zone than `rules`.
+    // Mirrors the guard in buildRuntimeOrcTimezoneInfo.
+    if (rules.isFixedOffset() || !tz.useDaylightTime()) {
       return null;
     }
     DstRule rule = extractDstRuleByProbing(tz);
@@ -675,11 +687,19 @@ class OrcTimezoneInfo {
         }
       }
       case 2: {
+        // Per ZoneOffsetTransitionRule.getDayOfMonthIndicator(), the indicator
+        // may exceed monthLength (e.g. Feb 29 in a non-leap year, treated as
+        // Mar 1). Clamp the anchor before LocalDate.of so it never throws, and
+        // clamp the result so a DOW_GE_DOM rule whose computed day overflows
+        // the month produces a valid in-month day rather than escaping with a
+        // DateTimeException from utcMillisForDate. This mirrors SimpleTimeZone's
+        // documented within-month clamp for DOW_GE_DOM.
+        int anchorDay = Math.min(ruleDay, monthLength);
         int targetDayOfWeek = toCalendarDayOfWeek(
-            LocalDate.of(year, month + 1, ruleDay).getDayOfWeek().getValue());
+            LocalDate.of(year, month + 1, anchorDay).getDayOfWeek().getValue());
         int diff = ruleDayOfWeek - targetDayOfWeek;
         if (diff < 0) diff += 7;
-        return ruleDay + diff;
+        return Math.min(anchorDay + diff, monthLength);
       }
       case 3: {
         int targetDayOfWeek = toCalendarDayOfWeek(
