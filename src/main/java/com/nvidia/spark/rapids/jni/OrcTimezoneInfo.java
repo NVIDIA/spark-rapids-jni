@@ -104,6 +104,18 @@ class OrcTimezoneInfo {
    * <p>{@code *TimeMode}: 0=WALL, 1=STANDARD, 2=UTC.
    */
   static final class DstRule {
+    // Day-rule modes for {start,end}Mode — matches SimpleTimeZone's internal
+    // encoding so the GPU side can consume the values directly.
+    static final int MODE_DOM          = 0;
+    static final int MODE_DOW_IN_MONTH = 1;
+    static final int MODE_DOW_GE_DOM   = 2;
+    static final int MODE_DOW_LE_DOM   = 3;
+
+    // Time-of-day basis for {start,end}TimeMode.
+    static final int TIME_MODE_WALL     = 0;
+    static final int TIME_MODE_STANDARD = 1;
+    static final int TIME_MODE_UTC      = 2;
+
     int dstSavings;
     int startMonth;
     int startDay;
@@ -443,8 +455,8 @@ class OrcTimezoneInfo {
     int dayOfWeek = toCalendarDayOfWeek(transitionRule.getDayOfWeek().getValue());
     int time = getTransitionRuleTimeMillis(transitionRule);
     int timeMode = getTransitionRuleTimeMode(transitionRule);
-    // SimpleTimeZone DOW_GE_DOM_MODE, guaranteed by the precondition above.
-    int mode = 2;
+    // Guaranteed by the precondition above (DayOfMonthIndicator > 0).
+    int mode = DstRule.MODE_DOW_GE_DOM;
 
     if (isStartRule) {
       rule.startMonth = month;
@@ -473,11 +485,11 @@ class OrcTimezoneInfo {
   private static int getTransitionRuleTimeMode(ZoneOffsetTransitionRule transitionRule) {
     ZoneOffsetTransitionRule.TimeDefinition timeDef = transitionRule.getTimeDefinition();
     if (ZoneOffsetTransitionRule.TimeDefinition.UTC == timeDef) {
-      return 2;
+      return DstRule.TIME_MODE_UTC;
     } else if (ZoneOffsetTransitionRule.TimeDefinition.STANDARD == timeDef) {
-      return 1;
+      return DstRule.TIME_MODE_STANDARD;
     } else {
-      return 0;
+      return DstRule.TIME_MODE_WALL;
     }
   }
 
@@ -537,7 +549,8 @@ class OrcTimezoneInfo {
     rule.startDay = startFields[1];
     rule.startDayOfWeek = startFields[2];
     rule.startTime = startFields[3];
-    rule.startTimeMode = 1; // decodeTransition converts to standard local time
+    // decodeTransition converts to standard local time.
+    rule.startTimeMode = DstRule.TIME_MODE_STANDARD;
     rule.startMode = startFields[4];
 
     int[] endFields = decodeTransition(dstOffTransition, tz.getRawOffset());
@@ -545,7 +558,7 @@ class OrcTimezoneInfo {
     rule.endDay = endFields[1];
     rule.endDayOfWeek = endFields[2];
     rule.endTime = endFields[3];
-    rule.endTimeMode = 1;
+    rule.endTimeMode = DstRule.TIME_MODE_STANDARD;
     rule.endMode = endFields[4];
 
     return rule;
@@ -580,7 +593,7 @@ class OrcTimezoneInfo {
         ? monthLength - 6
         : 1 + (dayOfWeekInMonth - 1) * 7;
 
-    return new int[]{month, baseDayOfMonth, dayOfWeek, timeInDay, 2};
+    return new int[]{month, baseDayOfMonth, dayOfWeek, timeInDay, DstRule.MODE_DOW_GE_DOM};
   }
 
   // ---- Verification: ensure the extracted rule matches tz.getOffset ----
@@ -652,17 +665,16 @@ class OrcTimezoneInfo {
       int dstSavingsMs, boolean isStartRule) {
     int actualDay = computeRuleDay(ruleMode, ruleDay, ruleDayOfWeek, year, ruleMonth);
     long utcMs = utcMillisForDate(year, ruleMonth + 1, actualDay) + ruleTime;
-    if (ruleTimeMode == 0) {
+    if (ruleTimeMode == DstRule.TIME_MODE_WALL) {
       // WALL time: subtract raw offset and (for end transitions) also DST savings.
       utcMs -= rawOffsetMs;
       if (!isStartRule) {
         utcMs -= dstSavingsMs;
       }
-    } else if (ruleTimeMode == 1) {
-      // STANDARD time: subtract raw offset.
+    } else if (ruleTimeMode == DstRule.TIME_MODE_STANDARD) {
       utcMs -= rawOffsetMs;
     }
-    // UTC mode (2) is already in UTC.
+    // TIME_MODE_UTC is already in UTC.
     return utcMs;
   }
 
@@ -673,7 +685,7 @@ class OrcTimezoneInfo {
     int firstDayOfWeek = toCalendarDayOfWeek(firstOfMonth.getDayOfWeek().getValue());
 
     switch (ruleMode) {
-      case 1: {
+      case DstRule.MODE_DOW_IN_MONTH: {
         if (ruleDay > 0) {
           int diff = ruleDayOfWeek - firstDayOfWeek;
           if (diff < 0) diff += 7;
@@ -686,7 +698,7 @@ class OrcTimezoneInfo {
           return monthLength - diff + (ruleDay + 1) * 7;
         }
       }
-      case 2: {
+      case DstRule.MODE_DOW_GE_DOM: {
         // Per ZoneOffsetTransitionRule.getDayOfMonthIndicator(), the indicator
         // may exceed monthLength (e.g. Feb 29 in a non-leap year, treated as
         // Mar 1). Clamp the anchor before LocalDate.of so it never throws, and
@@ -701,13 +713,14 @@ class OrcTimezoneInfo {
         if (diff < 0) diff += 7;
         return Math.min(anchorDay + diff, monthLength);
       }
-      case 3: {
+      case DstRule.MODE_DOW_LE_DOM: {
         int targetDayOfWeek = toCalendarDayOfWeek(
             LocalDate.of(year, month + 1, ruleDay).getDayOfWeek().getValue());
         int diff = targetDayOfWeek - ruleDayOfWeek;
         if (diff < 0) diff += 7;
         return ruleDay - diff;
       }
+      case DstRule.MODE_DOM:
       default:
         return ruleDay;
     }
