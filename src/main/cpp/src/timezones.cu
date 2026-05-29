@@ -314,8 +314,14 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
 {
   constexpr int64_t MICROS_PER_MILLI = 1000L;
 
-  int64_t const epoch_millis = static_cast<int64_t>(
-    cuda::std::chrono::duration_cast<cudf::duration_ms>(ts.time_since_epoch()).count());
+  // Floor-divide µs to ms. `duration_cast` truncates toward zero, so a negative timestamp with a
+  // non-zero sub-millisecond component would round up by one ms; at a DST gap whose recorded
+  // instant is exactly that ms, get_transition_index would then return the post-transition offset
+  // (1-hour off-by-one). Same shape of bug as the µs→s path in
+  // datetime_utils.cuh::convert_timestamp. GpuTimeZoneDBTest.convertOrcTimezonesOnCPU uses
+  // Math.floorDiv/floorMod to match.
+  int64_t const epoch_millis = spark_rapids_jni::integer_utils::floor_div(
+    static_cast<int64_t>(ts.time_since_epoch().count()), MICROS_PER_MILLI);
 
   int32_t writer_offset_millis = get_transition_index(writer_trans_begin,
                                                       writer_trans_end,
