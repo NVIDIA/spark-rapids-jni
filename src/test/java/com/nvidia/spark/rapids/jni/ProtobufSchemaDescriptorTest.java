@@ -26,6 +26,7 @@ import java.io.ObjectOutputStream;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -419,5 +420,49 @@ public class ProtobufSchemaDescriptorTest {
       roundTrip = (ProtobufSchemaDescriptor) ois.readObject();
     }
     assertArrayEquals(original.isOutput, roundTrip.isOutput);
+  }
+
+  @Test
+  void testLegacyStreamWithoutIsOutputBackfillsAllOutput() throws Exception {
+    int intType = ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
+    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptor(
+        new int[]{1, 2},
+        new int[]{-1, -1},
+        new int[]{0, 0},
+        new int[]{Protobuf.WT_VARINT, Protobuf.WT_VARINT},
+        new int[]{intType, intType},
+        new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new boolean[]{true, true},
+        new long[]{0, 0},
+        new double[]{0.0, 0.0},
+        new boolean[]{false, false},
+        new byte[][]{null, null},
+        new int[][]{null, null},
+        new byte[][][]{null, null});
+
+    // Simulate a stream written before isOutput existed: such a stream deserializes the field as
+    // null. The constructor forbids a null isOutput, so null it out via reflection before
+    // serializing; the resulting blob deserializes with isOutput == null and must hit the
+    // readObject() backfill rather than failing validation.
+    java.lang.reflect.Field f = ProtobufSchemaDescriptor.class.getDeclaredField("isOutput");
+    f.setAccessible(true);
+    f.set(original, null);
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+      oos.writeObject(original);
+    }
+    ProtobufSchemaDescriptor roundTrip;
+    try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()))) {
+      roundTrip = (ProtobufSchemaDescriptor) ois.readObject();
+    }
+    assertNotNull(roundTrip.isOutput);
+    assertEquals(2, roundTrip.isOutput.length);
+    for (boolean flag : roundTrip.isOutput) {
+      assertEquals(true, flag);
+    }
   }
 }

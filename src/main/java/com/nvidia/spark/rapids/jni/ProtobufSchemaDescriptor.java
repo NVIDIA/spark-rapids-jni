@@ -57,7 +57,9 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   final boolean[] isRepeated;
   final boolean[] isRequired;
   final boolean[] hasDefaultValue;
-  final boolean[] isOutput;
+  // Not final: instances serialized before isOutput existed deserialize it as null, and
+  // readObject() backfills it via allOutput() for backward compatibility.
+  boolean[] isOutput;
   final long[] defaultInts;
   final double[] defaultFloats;
   final boolean[] defaultBools;
@@ -148,6 +150,13 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     // receive caller-owned array aliases here. Re-run validate() so deserialization cannot bypass
     // the constructor's schema invariants.
     in.defaultReadObject();
+    // Backward compatibility: streams written before isOutput existed carry no such field, so
+    // defaultReadObject() leaves it null. Treat a legacy descriptor as "all fields output",
+    // mirroring the back-compat constructor. A fully malformed stream (no fieldNumbers) still
+    // fails the non-null check in validate() below.
+    if (isOutput == null && fieldNumbers != null) {
+      isOutput = allOutput(fieldNumbers.length);
+    }
     try {
       validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
           encodings, isRepeated, isRequired, hasDefaultValue, isOutput, defaultInts,
