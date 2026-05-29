@@ -516,7 +516,8 @@ class OrcTimezoneInfo {
 
     long dstOnTransition = -1;
     long dstOffTransition = -1;
-    int prevOffset = tz.getOffset(janFirst - 1);
+    int initialOffset = tz.getOffset(janFirst - 1);
+    int prevOffset = initialOffset;
     long step = 3600_000L; // 1 hour
 
     for (long ms = janFirst; ms < nextJanFirst; ms += step) {
@@ -534,6 +535,16 @@ class OrcTimezoneInfo {
           dstOffTransition = exactMs;
         }
         prevOffset = curOffset;
+      }
+      // SimpleTimeZone-style zones have exactly two transitions per year.
+      // Once both are recorded and the running offset is back to the year-
+      // start standard offset, the remainder of the year is a no-op tail
+      // (~1-3 months for typical northern-hemisphere zones). Any later
+      // change would correctly trigger the "more than one DST-on/off"
+      // early-return above, so the only thing this break can skip is
+      // wasted probes -- ~720-2200 calls per year on common DST zones.
+      if (dstOnTransition >= 0 && dstOffTransition >= 0 && prevOffset == initialOffset) {
+        break;
       }
     }
 
