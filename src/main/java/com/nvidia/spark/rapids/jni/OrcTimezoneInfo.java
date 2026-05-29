@@ -657,7 +657,18 @@ class OrcTimezoneInfo {
   }
 
   private static int computeDstOffset(long utcMs, int rawOffsetMs, DstRule rule) {
-    int year = LocalDate.ofEpochDay(Math.floorDiv(utcMs + rawOffsetMs, 86_400_000L)).getYear();
+    // Derive the wall-clock year. Adding only rawOffsetMs places utcMs into
+    // standard-time local time, which can fall in year Y-1 while the actual
+    // wall-clock year is Y for a southern-hemisphere zone with DST active in
+    // late Dec / early Jan -- computeTransitionUtcMillis would then resolve
+    // boundaries against Y-1 and the cross-year branch below would compare
+    // against the wrong window. Adding dstSavings as well lands the local
+    // guess inside DST when DST is active, which is the regime where the
+    // year-boundary mis-classification matters; for non-DST instants the
+    // extra dstSavings keeps us in the correct year too (DST savings are
+    // hours, not days).
+    long localGuessMs = utcMs + rawOffsetMs + (long) rule.dstSavings;
+    int year = LocalDate.ofEpochDay(Math.floorDiv(localGuessMs, 86_400_000L)).getYear();
     long dstStart = computeTransitionUtcMillis(year, rule.startMonth, rule.startDay,
         rule.startDayOfWeek, rule.startTime, rule.startTimeMode, rule.startMode,
         rawOffsetMs, rule.dstSavings, true);
