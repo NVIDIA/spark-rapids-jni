@@ -597,6 +597,8 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
 
         // Safe int32 cast: cur stays in [nested_start, nested_end] and nested message length
         // (parent_loc.length) is bounded by INT_MAX at write time in count_repeated_fields_kernel.
+        // read_varint / get_wire_type_size below take cur by value and do NOT advance it, so cur
+        // still points at the field payload and the trailing skip_field advances past it.
         int data_offset = static_cast<int>(cur - nested_start);
 
         if (wt == wire_type_value(proto_wire_type::LEN)) {
