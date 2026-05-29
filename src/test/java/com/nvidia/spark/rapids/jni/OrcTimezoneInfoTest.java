@@ -127,7 +127,7 @@ public class OrcTimezoneInfoTest {
     // America/New_York: DST starts 2nd Sunday of March, ends 1st Sunday of November.
     // dstSavings is +1h (3_600_000 ms). startMonth=2 (March, 0-based),
     // endMonth=10 (November, 0-based). DOW_GE_DOM_MODE = 2.
-    OrcTimezoneInfo.DstRule rule = extractDstRuleFor("America/New_York");
+    OrcDstRuleExtractor.DstRule rule = extractDstRuleFor("America/New_York");
     assertNotNull(rule, "America/New_York must have a DST rule");
     assertEquals(3_600_000, rule.dstSavings);
     assertEquals(2, rule.startMonth);
@@ -154,7 +154,7 @@ public class OrcTimezoneInfoTest {
   void testExtractDstRuleEuropeLondon() {
     // Europe/London: DST starts last Sunday of March, ends last Sunday of October.
     // Encoded as DOW_GE_DOM with base day = monthLength - 6.
-    OrcTimezoneInfo.DstRule rule = extractDstRuleFor("Europe/London");
+    OrcDstRuleExtractor.DstRule rule = extractDstRuleFor("Europe/London");
     assertNotNull(rule, "Europe/London must have a DST rule");
     assertEquals(3_600_000, rule.dstSavings);
     assertEquals(2, rule.startMonth);
@@ -170,7 +170,7 @@ public class OrcTimezoneInfoTest {
   void testExtractDstRuleSouthernHemisphere() {
     // Australia/Sydney: DST starts 1st Sunday of October, ends 1st Sunday of April.
     // Southern hemisphere — start month numerically > end month.
-    OrcTimezoneInfo.DstRule rule = extractDstRuleFor("Australia/Sydney");
+    OrcDstRuleExtractor.DstRule rule = extractDstRuleFor("Australia/Sydney");
     assertNotNull(rule, "Australia/Sydney must have a DST rule");
     assertEquals(3_600_000, rule.dstSavings);
     assertEquals(9, rule.startMonth);
@@ -207,12 +207,12 @@ public class OrcTimezoneInfoTest {
    * pre-call guard so a future caller pattern that drops the production guard
    * cannot silently re-introduce the trap.
    */
-  private static OrcTimezoneInfo.DstRule extractDstRuleFor(String timezoneId) {
+  private static OrcDstRuleExtractor.DstRule extractDstRuleFor(String timezoneId) {
     ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
     ZoneRules rules = zoneId.getRules();
     TimeZone tz = rules.isFixedOffset()
         ? TimeZone.getTimeZone("UTC")
         : TimeZone.getTimeZone(zoneId.getId());
-    return OrcTimezoneInfo.extractDstRule(timezoneId, tz, rules);
+    return OrcDstRuleExtractor.extractDstRule(timezoneId, tz, rules);
   }
 }
