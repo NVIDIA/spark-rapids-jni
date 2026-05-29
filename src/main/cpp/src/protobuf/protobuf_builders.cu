@@ -487,23 +487,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                "Nested protobuf struct depth exceeds supported decode recursion limit");
 
   if (num_rows == 0) {
-    std::vector<std::unique_ptr<cudf::column>> empty_children;
-    for (int child_schema_idx : child_field_indices) {
-      auto child_type = cudf::data_type{schema[child_schema_idx].output_type};
-      std::unique_ptr<cudf::column> child_col;
-      if (child_type.id() == cudf::type_id::STRUCT) {
-        child_col =
-          make_empty_struct_column_with_schema(schema, child_schema_idx, num_fields, stream, mr);
-      } else {
-        child_col = make_empty_column_safe(child_type, stream, mr);
-      }
-      if (schema[child_schema_idx].is_repeated) {
-        child_col = make_empty_list_column(std::move(child_col), stream, mr);
-      }
-      empty_children.push_back(std::move(child_col));
-    }
-    return cudf::make_structs_column(
-      0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
+    return make_empty_struct_column_from_children(
+      schema, child_field_indices, num_fields, stream, mr);
   }
 
   auto const threads   = THREADS_PER_BLOCK;
