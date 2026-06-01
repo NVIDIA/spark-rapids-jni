@@ -76,7 +76,6 @@ pipeline {
         ART_CREDS = credentials("urm_creds")
         ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME}"
 
-        PVC = credentials("pvc")
         CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
     }
 
@@ -120,7 +119,6 @@ pipeline {
                     label "docker-${BUILD_TAG}"
                     cloud "${common.CLOUD_NAME}"
                     yaml pod.getDockerBuildYAML()
-                    workspaceVolume persistentVolumeClaimWorkspaceVolume(claimName: "${PVC}", readOnly: false)
                     customWorkspace "${CUSTOM_WORKSPACE}"
                 }
             }
