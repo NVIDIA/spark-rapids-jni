@@ -38,14 +38,20 @@
 #include <string>
 #include <vector>
 
+// This kernel mirrors the formatters Spark uses for to_timestamp / unix_timestamp /
+// ParseToTimestamp: java.text.SimpleDateFormat for LEGACY, and java.time.DateTimeFormatter with a
+// STRICT resolver for CORRECTED. It is NOT a drop-in for the CSV/JSON read path, which uses
+// commons-lang3 FastDateFormat and has different whitespace rules — do not reuse it there.
 namespace spark_rapids_jni {
 
 namespace {
 
 // ---- Low-level string-parsing primitives. ------------------------------------------------------
 
-// Whitespace test consistent with Spark UTF8String.trimAll for char input.
-__device__ bool is_whitespace(unsigned char c) { return c <= 32 || c == 127; }
+// LEGACY parses via java.text.SimpleDateFormat, which skips only ' ' and '\t' before fields — it
+// does not trimAll. So the outer trim must match: a leading control byte like '\r'/'\f'/'\v'
+// rejects on CPU and must not be treated as whitespace here.
+__device__ bool is_whitespace(unsigned char c) { return c == ' ' || c == '\t'; }
 
 // Read between `min_d` and `max_d` digits greedily. Advances pos by the digits read.
 // Returns false (and the partial pos advance is irrelevant since walk_tokens aborts on failure).
@@ -146,7 +152,9 @@ struct format_token {
 //     e.g. yyyyMMdd) get exact width — otherwise the boundary is ambiguous.
 //   - Otherwise CORRECTED uses exact width and LEGACY uses [1, 2].
 //   - CORRECTED `yyyy/MM/dd` keeps the existing spark-rapids compatibility contract and accepts
-//     1-2 digit month/day fields.
+//     1-2 digit month/day fields. This intentionally DEVIATES from Spark CPU, whose STRICT
+//     DateTimeFormatter rejects single-digit fields ("2024/5/6" is null on CPU); the GPU
+//     over-accepts. Pinned by parseTimestampWithFormat_correctedSlashDateDeviation.
 // Literal handling:
 //   - A space matches exactly one ' '. Spark rejects 'T' as the separator for a space pattern
 //     under both policies (unlike the format-less cast, which accepts 'T').
