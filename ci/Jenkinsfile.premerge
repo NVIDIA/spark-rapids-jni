@@ -232,6 +232,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                                     try {
                                         sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
                                         sh 'bash ci/fuzz-test.sh'
+                                        error('TEMPORARY: fail after regular test run to validate debug bundle upload')
                                     } catch (e) {
                                         common.printJVMCoreDumps(this)
                                         common.uploadDebugBundle(this, 'spark-rapids-jni', 'cuda12')
@@ -270,6 +271,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                                     try {
                                         sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
                                         sh 'bash ci/fuzz-test.sh'
+                                        error('TEMPORARY: fail after regular test run to validate debug bundle upload')
                                     } catch (e) {
                                         common.printJVMCoreDumps(this)
                                         common.uploadDebugBundle(this, 'spark-rapids-jni', 'cuda13')
