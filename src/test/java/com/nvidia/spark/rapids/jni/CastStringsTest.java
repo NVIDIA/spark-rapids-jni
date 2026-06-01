@@ -1432,6 +1432,12 @@ public class CastStringsTest {
                      "2024-12-31 23:59:5", "2024-12-31  23:59:58", "2024-12-31 23:59:60"},
         "yyyy-MM-dd HH:mm:ss", false,
         new Long[]{ts, null, null, null, null});
+
+    // Packed date + time under CORRECTED: 'T' separator rejected, same as LEGACY.
+    assertParsedTimestamp(
+        new String[]{"20241231 23:59:58", "20241231T23:59:58"},
+        "yyyyMMdd HH:mm:ss", false,
+        new Long[]{ts, null});
   }
 
   @Test
@@ -1512,9 +1518,10 @@ public class CastStringsTest {
   void parseTimestampWithFormat_legacyDayFirstFormats() {
     long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
     assertParsedTimestamp(
-        new String[]{"06-05-2024", "6-5-2024", "6- 5-2024", "06-05-2024x"},
+        new String[]{"06-05-2024", "6-5-2024", "6- 5-2024", "06-05-2024x",
+                     "06-05-  2024"},  // [ \t] skipped before a mid-format year field too
         "dd-MM-yyyy", true,
-        new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06});
+        new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06});
     assertParsedTimestamp(
         new String[]{"06/05/2024", "6/5/2024", "6/ 5/2024", "06/05/2024x"},
         "dd/MM/yyyy", true,
