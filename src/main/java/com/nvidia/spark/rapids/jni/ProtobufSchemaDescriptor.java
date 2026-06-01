@@ -234,20 +234,11 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     Set<Long> seenFieldNumbers = new HashSet<>();
     for (int i = 0; i < n; i++) {
       validateFieldRange(i, fieldNumbers[i], depthLevels[i]);
-      validateParentChild(i, parentIndices[i], depthLevels, outputTypeIds);
-      validateOutputFlag(i, parentIndices[i], isOutput);
+      validateParentChild(i, parentIndices[i], depthLevels, outputTypeIds, isOutput);
       validateUniqueFieldKey(i, parentIndices[i], fieldNumbers[i], seenFieldNumbers);
       validateWireTypeAndEncoding(i, wireTypes[i], outputTypeIds[i], encodings[i]);
       validateFieldFlags(i, isRepeated[i], isRequired[i], hasDefaultValue[i], outputTypeIds[i]);
       validateEnumMetadata(i, encodings[i], enumValidValues[i], enumNames[i]);
-    }
-  }
-
-  private static void validateOutputFlag(int index, int parentIndex, boolean[] isOutput) {
-    if (parentIndex >= 0 && isOutput[index] != isOutput[parentIndex]) {
-      throw new IllegalArgumentException(
-          "Nested field at index " + index + " must use the same output flag as parent " +
-          parentIndex);
     }
   }
 
@@ -265,7 +256,8 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   }
 
   private static void validateParentChild(int index, int parentIndex,
-                                           int[] depthLevels, int[] outputTypeIds) {
+                                           int[] depthLevels, int[] outputTypeIds,
+                                           boolean[] isOutput) {
     if (parentIndex < -1 || parentIndex >= index) {
       throw new IllegalArgumentException(
           "Invalid parent index at index " + index + ": " + parentIndex +
@@ -282,6 +274,13 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
         throw new IllegalArgumentException(
             "Parent at index " + parentIndex + " for field " + index +
             " must be STRUCT, got type id " + outputTypeIds[parentIndex]);
+      }
+      // A field and its parent must share an output flag: a hidden STRUCT cannot expose
+      // visible children, and a visible STRUCT cannot hide individual children.
+      if (isOutput[index] != isOutput[parentIndex]) {
+        throw new IllegalArgumentException(
+            "Nested field at index " + index + " must use the same output flag as parent " +
+            parentIndex);
       }
       if (depthLevels[index] != depthLevels[parentIndex] + 1) {
         throw new IllegalArgumentException(

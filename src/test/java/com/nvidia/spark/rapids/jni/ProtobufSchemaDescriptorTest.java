@@ -16,6 +16,7 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import ai.rapids.cudf.DType;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -26,7 +27,6 @@ import java.io.ObjectOutputStream;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -341,14 +341,37 @@ public class ProtobufSchemaDescriptorTest {
   }
 
   @Test
+  void testMismatchedArrayLengthsRejected() {
+    // parentIndices has length 2 while every other array has length 1.
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1},
+            new int[]{-1, -1},
+            new int[]{0},
+            new int[]{Protobuf.WT_VARINT},
+            new int[]{DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT},
+            new boolean[]{false},
+            new boolean[]{false},
+            new boolean[]{false},
+            new long[]{0},
+            new double[]{0.0},
+            new boolean[]{false},
+            new byte[][]{null},
+            new int[][]{null},
+            new byte[][][]{null}));
+  }
+
+  @Test
   void testBackCompatConstructorMarksAllFieldsAsOutput() {
+    // The 15-arg constructor is the back-compat path; verify it fills isOutput with all-true.
     ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptor(
         new int[]{1, 2},
         new int[]{-1, -1},
         new int[]{0, 0},
         new int[]{Protobuf.WT_VARINT, Protobuf.WT_LEN},
-        new int[]{ai.rapids.cudf.DType.INT32.getTypeId().getNativeId(),
-                  ai.rapids.cudf.DType.STRING.getTypeId().getNativeId()},
+        new int[]{DType.INT32.getTypeId().getNativeId(),
+                  DType.STRING.getTypeId().getNativeId()},
         new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
         new boolean[]{false, false},
         new boolean[]{false, false},
@@ -359,17 +382,14 @@ public class ProtobufSchemaDescriptorTest {
         new byte[][]{null, null},
         new int[][]{null, null},
         new byte[][][]{null, null});
-    assertEquals(2, schema.isOutput.length);
-    for (boolean flag : schema.isOutput) {
-      assertEquals(true, flag);
-    }
+    assertArrayEquals(new boolean[]{true, true}, schema.isOutput);
   }
 
   @Test
   void testNestedFieldMustShareOutputFlagWithParent() {
-    int structType = ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId();
-    int intType = ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
-    // Parent struct hidden, child visible -> illegal.
+    int structType = DType.STRUCT.getTypeId().getNativeId();
+    int intType = DType.INT32.getTypeId().getNativeId();
+    // Hidden parent struct with a visible child -> illegal.
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptor(
             new int[]{1, 1},
@@ -388,11 +408,31 @@ public class ProtobufSchemaDescriptorTest {
             new byte[][]{null, null},
             new int[][]{null, null},
             new byte[][][]{null, null}));
+
+    // Reverse direction: visible parent struct with a hidden child -> also illegal.
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1, 1},
+            new int[]{-1, 0},
+            new int[]{0, 1},
+            new int[]{Protobuf.WT_LEN, Protobuf.WT_VARINT},
+            new int[]{structType, intType},
+            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+            new boolean[]{false, false},
+            new boolean[]{false, false},
+            new boolean[]{false, false},
+            new boolean[]{true, false},     // visible parent, hidden child
+            new long[]{0, 0},
+            new double[]{0.0, 0.0},
+            new boolean[]{false, false},
+            new byte[][]{null, null},
+            new int[][]{null, null},
+            new byte[][][]{null, null}));
   }
 
   @Test
   void testHiddenFieldRoundTripsThroughSerialization() throws Exception {
-    int intType = ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
+    int intType = DType.INT32.getTypeId().getNativeId();
     ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptor(
         new int[]{1, 2},
         new int[]{-1, -1},
@@ -424,7 +464,7 @@ public class ProtobufSchemaDescriptorTest {
 
   @Test
   void testLegacyStreamWithoutIsOutputBackfillsAllOutput() throws Exception {
-    int intType = ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
+    int intType = DType.INT32.getTypeId().getNativeId();
     ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptor(
         new int[]{1, 2},
         new int[]{-1, -1},
@@ -459,10 +499,6 @@ public class ProtobufSchemaDescriptorTest {
     try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()))) {
       roundTrip = (ProtobufSchemaDescriptor) ois.readObject();
     }
-    assertNotNull(roundTrip.isOutput);
-    assertEquals(2, roundTrip.isOutput.length);
-    for (boolean flag : roundTrip.isOutput) {
-      assertEquals(true, flag);
-    }
+    assertArrayEquals(new boolean[]{true, true}, roundTrip.isOutput);
   }
 }
