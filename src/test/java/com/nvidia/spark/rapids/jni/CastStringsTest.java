@@ -1421,16 +1421,41 @@ public class CastStringsTest {
         new String[]{"06/05", "6/05", "06/5", "06-05"},
         "dd/MM", false,
         new Long[]{y1970_05_06, null, null, null});
+
+    // yyyy/MM, MM/dd, MM/yyyy, MM-yyyy corrected: strict 2-digit fields, missing fields default.
+    assertParsedTimestamp(
+        new String[]{"2024/05", "2024/5"},
+        "yyyy/MM", false,
+        new Long[]{y2024_05_01, null});
+    assertParsedTimestamp(
+        new String[]{"05/06", "5/06"},
+        "MM/dd", false,
+        new Long[]{y1970_05_06, null});
+    assertParsedTimestamp(
+        new String[]{"05/2024", "5/2024"},
+        "MM/yyyy", false,
+        new Long[]{y2024_05_01, null});
+    assertParsedTimestamp(
+        new String[]{"05-2024", "5-2024"},
+        "MM-yyyy", false,
+        new Long[]{y2024_05_01, null});
   }
 
   @Test
   void parseTimestampWithFormat_correctedDateTime() {
     long ts = expectedUs(2024, 12, 31, 23, 59, 58);
+    // CORRECTED: one ' ' separator only, so 'T' and double-space are rejected.
     assertParsedTimestamp(
         new String[]{"2024-12-31 23:59:58", "2024-12-31T23:59:58",
                      "2024-12-31 23:59:5", "2024-12-31  23:59:58", "2024-12-31 23:59:60"},
         "yyyy-MM-dd HH:mm:ss", false,
-        new Long[]{ts, ts, null, null, null});
+        new Long[]{ts, null, null, null, null});
+
+    // Packed date + time under CORRECTED: 'T' separator rejected, same as LEGACY.
+    assertParsedTimestamp(
+        new String[]{"20241231 23:59:58", "20241231T23:59:58"},
+        "yyyyMMdd HH:mm:ss", false,
+        new Long[]{ts, null});
   }
 
   @Test
@@ -1463,24 +1488,30 @@ public class CastStringsTest {
   void parseTimestampWithFormat_legacyWhitespaceFold() {
     long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
 
-    // LEGACY yyyy-MM-dd: 1-2 digit month/day, whitespace fold AFTER each '-' separator,
+    // LEGACY yyyy-MM-dd: 1-2 digit month/day, [ \t] skipped before each numeric field,
     // outer trim, trailing non-digit/EOF accepted.
     assertParsedTimestamp(
         new String[]{
             "2024-05-06",
             "2024-5-6",
-            "2024- 05- 06",     // [ \t]* fold after each '-'
-            "2024-\t05-\t06",   // tabs accepted by fold
-            "2024  -05-06",     // whitespace before '-' is NOT folded
+            "2024- 05- 06",     // [ \t] skipped before month/day
+            "2024-\t05-\t06",   // tabs skipped too
+            "2024  -05-06",     // whitespace before the '-' literal is NOT skipped
             " 2024-05-06 ",     // outer trim
             "2024-05-06xxx",    // legacy trailing non-digit accepted
             "2024-05-061",      // trailing digit rejected
             "\n2024-05-06",     // leading newline rejected
+            // SimpleDateFormat skips only ' '/'\t', so other leading control bytes reject on CPU.
+            "\r2024-05-06",
+            "\f2024-05-06",
+            "\u000B2024-05-06",
+            "\b2024-05-06",
             null,
         },
         "yyyy-MM-dd", true,
         new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06,
-                    null, y2024_05_06, y2024_05_06, null, null, null});
+                    null, y2024_05_06, y2024_05_06, null, null,
+                    null, null, null, null, null});
   }
 
   @Test
@@ -1494,26 +1525,27 @@ public class CastStringsTest {
         new Long[]{expectedUs(2024, 5, 6, 0, 0, 0), null, null,
                     expectedUs(2024, 5, 6, 0, 0, 0)});
 
-    // yyyyMMdd HH:mm:ss
+    // yyyyMMdd HH:mm:ss: 'T' separator rejected (literal space matches only ' ').
     assertParsedTimestamp(
         new String[]{"20241231 23:59:58", "20241231T23:59:58", "20241231 23:59:58Z"},
         "yyyyMMdd HH:mm:ss", true,
-        new Long[]{ts, ts, ts});
+        new Long[]{ts, null, ts});
 
     // Slash-separated legacy timestamp path.
     assertParsedTimestamp(
         new String[]{"2024/12/31 23:59:58", "2024/12/31T23:59:58", "2024/12/31 23:59:58Z"},
         "yyyy/MM/dd HH:mm:ss", true,
-        new Long[]{ts, ts, ts});
+        new Long[]{ts, null, ts});
   }
 
   @Test
   void parseTimestampWithFormat_legacyDayFirstFormats() {
     long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
     assertParsedTimestamp(
-        new String[]{"06-05-2024", "6-5-2024", "6- 5-2024", "06-05-2024x"},
+        new String[]{"06-05-2024", "6-5-2024", "6- 5-2024", "06-05-2024x",
+                     "06-05-  2024"},  // [ \t] skipped before a mid-format year field too
         "dd-MM-yyyy", true,
-        new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06});
+        new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06});
     assertParsedTimestamp(
         new String[]{"06/05/2024", "6/5/2024", "6/ 5/2024", "06/05/2024x"},
         "dd/MM/yyyy", true,
@@ -1569,7 +1601,7 @@ public class CastStringsTest {
 
   @Test
   void parseTimestampWithFormat_legacyMultiTabFold() {
-    // skip_ht_whitespace loops, so multiple tabs/spaces after a '-' or '/' are all consumed.
+    // skip_ht_whitespace loops, so a whole run of tabs/spaces before a numeric field is consumed.
     long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
     assertParsedTimestamp(
         new String[]{"2024-\t\t05-\t \t06", "2024/  05/\t\t06"},
@@ -1579,6 +1611,52 @@ public class CastStringsTest {
         new String[]{"2024/  05/\t\t06"},
         "yyyy/MM/dd", true,
         new Long[]{y2024_05_06});
+  }
+
+  @Test
+  void parseTimestampWithFormat_legacyWhitespaceBeforeEveryField() {
+    // LEGACY skips [ \t] before each numeric field, so whitespace runs after the separator and
+    // after ':' parse; whitespace before a literal, and a tab/'T' separator, still fail.
+    long ts = expectedUs(1999, 12, 31, 11, 59, 59);
+    assertParsedTimestamp(
+        new String[]{
+            "1999-12-31 11:59:59",     // single space
+            "1999-12-31  11:59:59",    // double space after separator
+            "1999-12-31   11:59:59",   // triple space
+            "1999-12-31 \t 11:59:59",  // mixed space/tab run after separator
+            "1999-12-31 11: 59: 59",   // whitespace after ':' before minute/second
+            " 1999-12-31 11:59:59 ",   // outer trim
+            "1999-12-31\t11:59:59",    // tab separator rejected (literal space != '\t')
+            "1999-12-31T11:59:59",     // 'T' separator rejected (literal space != 'T')
+            "1999-12-31 11 :59:59",    // whitespace before ':' literal rejected
+        },
+        "yyyy-MM-dd HH:mm:ss", true,
+        new Long[]{ts, ts, ts, ts, ts, ts, null, null, null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_correctedSingleSeparatorOnly() {
+    // CORRECTED keeps DateTimeFormatter semantics: exactly one separator, no whitespace fold,
+    // and no leading whitespace (CORRECTED does not trim).
+    long ts = expectedUs(1999, 12, 31, 11, 59, 59);
+    assertParsedTimestamp(
+        new String[]{"1999-12-31 11:59:59", "1999-12-31  11:59:59", "1999-12-31 11: 59:59",
+                     "\n1999-12-31 11:59:59", " 1999-12-31 11:59:59"},
+        "yyyy-MM-dd HH:mm:ss", false,
+        new Long[]{ts, null, null, null, null});
+  }
+
+  @Test
+  void parseTimestampWithFormat_correctedSlashDateDeviation() {
+    // CORRECTED yyyy/MM/dd accepts 1-2 digit month/day to preserve the pre-existing spark-rapids
+    // compatibility contract. This DEVIATES from Spark CPU, whose STRICT DateTimeFormatter rejects
+    // single-digit fields ("2024/5/6" is null on CPU). This test pins the deviation so a future
+    // refactor of compile_format's corrected_variable_width_slash_date cannot silently change it.
+    long y2024_05_06 = expectedUs(2024, 5, 6, 0, 0, 0);
+    assertParsedTimestamp(
+        new String[]{"2024/05/06", "2024/5/6", "2024/5/06", "2024/05/6"},
+        "yyyy/MM/dd", false,
+        new Long[]{y2024_05_06, y2024_05_06, y2024_05_06, y2024_05_06});
   }
 
   @Test
