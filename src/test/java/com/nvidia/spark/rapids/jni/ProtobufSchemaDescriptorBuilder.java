@@ -18,7 +18,9 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.DType;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -37,6 +39,25 @@ import java.util.List;
  *
  * <p>Each attribute setter applies to the most recently added field. Wire types are derived from
  * the output type and encoding unless overridden via {@link #wireType(int)}.
+ *
+ * <p>For nested messages, {@link #down()} descends into the most recently added field so that
+ * subsequent {@code addField} calls become its children (with parent index and depth derived
+ * automatically); {@link #up()} returns to the enclosing level. This avoids hand-counting flat
+ * parent indices as the nesting deepens:
+ *
+ * <pre>{@code
+ * ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
+ *     .addField(1, DType.STRUCT).down()   // message Outer
+ *         .addField(1, DType.INT32)       //   int32 a = 1
+ *         .addField(2, DType.STRUCT).down()  // Inner b = 2
+ *             .addField(1, DType.INT32)   //     int32 x = 1
+ *         .up()
+ *     .up()
+ *     .build();
+ * }</pre>
+ *
+ * <p>{@link #parent(int)} remains available as an explicit escape hatch, e.g. to construct the
+ * malformed schemas that the validation tests deliberately feed to the descriptor.
  */
 public final class ProtobufSchemaDescriptorBuilder {
   private static final class Field {
@@ -58,19 +79,54 @@ public final class ProtobufSchemaDescriptorBuilder {
   }
 
   private final List<Field> fields = new ArrayList<>();
+  // Indices of the fields we have descended into via down(); the top is the current parent.
+  private final Deque<Integer> parentStack = new ArrayDeque<>();
 
-  /** Start a new top-level field with the given field number and output type. */
+  /**
+   * Add a field. By default it is top-level; inside a {@link #down()} scope it becomes a child of
+   * the enclosing field, with parent index and depth derived automatically.
+   */
   public ProtobufSchemaDescriptorBuilder addField(int fieldNumber, DType outputType) {
     Field f = new Field();
     f.fieldNumber = fieldNumber;
     f.outputTypeId = outputType.getTypeId().getNativeId();
+    if (!parentStack.isEmpty()) {
+      int parentIndex = parentStack.peek();
+      f.parentIndex = parentIndex;
+      f.depth = fields.get(parentIndex).depth + 1;
+    }
     fields.add(f);
     return this;
   }
 
   /**
-   * Mark the current field as a child of {@code parentIndex}, setting its depth to
-   * parent depth + 1.
+   * Descend into the most recently added field so that subsequent {@code addField} calls become
+   * its children (until the matching {@link #up()}). This is the idiom for expressing message
+   * nesting; prefer it over {@link #parent(int)}, which is a low-level primitive.
+   */
+  public ProtobufSchemaDescriptorBuilder down() {
+    if (fields.isEmpty()) {
+      throw new IllegalStateException("down() requires a field to descend into");
+    }
+    parentStack.push(fields.size() - 1);
+    return this;
+  }
+
+  /** Return to the enclosing nesting level opened by {@link #down()}. */
+  public ProtobufSchemaDescriptorBuilder up() {
+    if (parentStack.isEmpty()) {
+      throw new IllegalStateException("up() called without a matching down()");
+    }
+    parentStack.pop();
+    return this;
+  }
+
+  /**
+   * Low-level: assign a raw parent index to the current field (depth = parent depth + 1),
+   * overriding any parent set by {@link #down()}. Prefer {@link #down()}/{@link #up()} for ordinary
+   * nesting. Reserve this for (a) loop-built degenerate chains where {@code parent(i - 1)} reads
+   * cleaner, and (b) malformed parent links that {@code down()}/{@code up()} cannot express (e.g. a
+   * non-ancestor index) in validation tests.
    */
   public ProtobufSchemaDescriptorBuilder parent(int parentIndex) {
     Field f = current();
@@ -169,6 +225,9 @@ public final class ProtobufSchemaDescriptorBuilder {
   }
 
   public ProtobufSchemaDescriptor build() {
+    if (!parentStack.isEmpty()) {
+      throw new IllegalStateException("build() called inside a down() scope; missing up()");
+    }
     int n = fields.size();
     int[] fieldNumbers = new int[n];
     int[] parentIndices = new int[n];

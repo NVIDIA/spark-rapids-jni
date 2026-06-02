@@ -1660,8 +1660,9 @@ public class ProtobufTest {
       try (ColumnVector result = Protobuf.decodeToStruct(
           input.getColumn(0),
           new ProtobufSchemaDescriptorBuilder()
-              .addField(1, DType.STRUCT)           // inner
-              .addField(1, DType.INT32).parent(0)  // inner.x
+              .addField(1, DType.STRUCT).down()    // inner
+                  .addField(1, DType.INT32)        // inner.x
+              .up()
               .build(),
           false)) {
         assertNotNull(result);
@@ -2520,9 +2521,10 @@ public class ProtobufTest {
   void testNestedMessageOutputShape() {
     // Schema: message Outer { int32 a = 1; Inner b = 2; } message Inner { int32 x = 1; }
     ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
-        .addField(1, DType.INT32)
-        .addField(2, DType.STRUCT)
-        .addField(1, DType.INT32).parent(1)
+        .addField(1, DType.INT32)            // a
+        .addField(2, DType.STRUCT).down()    // b
+            .addField(1, DType.INT32)        // x
+        .up()
         .build();
 
     Byte[] row = new Byte[]{0x08, 0x01};
@@ -2548,8 +2550,9 @@ public class ProtobufTest {
          ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.STRUCT)
-                 .addField(1, DType.INT32).parent(0)
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32)
+                 .up()
                  .build(),
              false)) {
       assertNotNull(result);
@@ -2597,9 +2600,10 @@ public class ProtobufTest {
     // 0 rows with nested schema — verify correct type hierarchy.
     // message Outer { int32 a = 1; Inner b = 2; }  message Inner { int32 x = 1; }
     ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
-        .addField(1, DType.INT32)
-        .addField(2, DType.STRUCT)
-        .addField(1, DType.INT32).parent(1)
+        .addField(1, DType.INT32)            // a
+        .addField(2, DType.STRUCT).down()    // b
+            .addField(1, DType.INT32)        // x
+        .up()
         .build();
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{}).build();
@@ -2617,8 +2621,9 @@ public class ProtobufTest {
   void testZeroRowRepeatedMessageShape() {
     // 0 rows with repeated message schema: repeated Inner inner = 1; message Inner { int32 x = 1; }
     ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
-        .addField(1, DType.STRUCT).repeated()
-        .addField(1, DType.INT32).parent(0)
+        .addField(1, DType.STRUCT).repeated().down()
+            .addField(1, DType.INT32)
+        .up()
         .build();
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{}).build();

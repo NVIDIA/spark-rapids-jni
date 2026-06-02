@@ -152,6 +152,57 @@ public class ProtobufSchemaDescriptorTest {
   }
 
   @Test
+  void testDownUpNestingMatchesExplicitParent() {
+    // A branching tree:
+    //   message Outer { int32 a = 1; Mid b = 2; int32 f = 3; }
+    //   message Mid   { int32 c = 1; Inner d = 2; }
+    //   message Inner { int32 e = 1; }
+    ProtobufSchemaDescriptor viaDownUp = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.STRUCT).down()        // Outer
+            .addField(1, DType.INT32)            //   a
+            .addField(2, DType.STRUCT).down()    //   b: Mid
+                .addField(1, DType.INT32)        //     c
+                .addField(2, DType.STRUCT).down()//     d: Inner
+                    .addField(1, DType.INT32)    //       e
+                .up()
+            .up()
+            .addField(3, DType.INT32)            //   f
+        .up()
+        .build();
+
+    ProtobufSchemaDescriptor viaExplicitParent = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.STRUCT)
+        .addField(1, DType.INT32).parent(0)
+        .addField(2, DType.STRUCT).parent(0)
+        .addField(1, DType.INT32).parent(2)
+        .addField(2, DType.STRUCT).parent(2)
+        .addField(1, DType.INT32).parent(4)
+        .addField(3, DType.INT32).parent(0)
+        .build();
+
+    assertArrayEquals(viaExplicitParent.parentIndices, viaDownUp.parentIndices);
+    assertArrayEquals(viaExplicitParent.depthLevels, viaDownUp.depthLevels);
+    assertArrayEquals(viaExplicitParent.fieldNumbers, viaDownUp.fieldNumbers);
+    assertArrayEquals(viaExplicitParent.outputTypeIds, viaDownUp.outputTypeIds);
+    // Spot-check the derived flat indices directly.
+    assertArrayEquals(new int[]{-1, 0, 0, 2, 2, 4, 0}, viaDownUp.parentIndices);
+    assertArrayEquals(new int[]{0, 1, 1, 2, 2, 3, 1}, viaDownUp.depthLevels);
+  }
+
+  @Test
+  void testUnbalancedNestingRejected() {
+    // up() without a matching down()
+    assertThrows(IllegalStateException.class, () ->
+        new ProtobufSchemaDescriptorBuilder().addField(1, DType.STRUCT).up());
+    // down() before any field
+    assertThrows(IllegalStateException.class, () ->
+        new ProtobufSchemaDescriptorBuilder().down());
+    // build() left inside a down() scope (missing up())
+    assertThrows(IllegalStateException.class, () ->
+        new ProtobufSchemaDescriptorBuilder().addField(1, DType.STRUCT).down().build());
+  }
+
+  @Test
   void testSerializationRoundTripPreservesContentsAndIsolation() throws Exception {
     ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptorBuilder()
         .addField(1, DType.STRING)
