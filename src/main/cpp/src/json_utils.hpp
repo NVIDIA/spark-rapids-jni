@@ -56,6 +56,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   bool allow_nonnumeric_numbers,
   bool allow_unquoted_control,
   bool is_us_locale,
+  bool* had_schema_mismatch         = nullptr,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 

@@ -811,6 +811,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    bool allow_nonnumeric_numbers,
                                                    bool allow_unquoted_control,
                                                    bool is_us_locale,
+                                                   bool* had_schema_mismatch,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
@@ -849,6 +850,10 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
   std::unordered_set<std::string> const mismatched_columns(
     parsed_result.diagnostics.top_level_columns_with_schema_mismatch.begin(),
     parsed_result.diagnostics.top_level_columns_with_schema_mismatch.end());
+
+  // Surface to the caller whether any top-level column mismatched the schema in this batch, so
+  // spark-rapids can fall back the whole batch to CPU for exact Spark parity (#4536/#4645).
+  if (had_schema_mismatch != nullptr) { *had_schema_mismatch = !mismatched_columns.empty(); }
 
   CUDF_EXPECTS(parsed_columns.size() == schema.child_types.size(),
                "Numbers of output columns is different from schema size.");
@@ -921,6 +926,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    bool allow_nonnumeric_numbers,
                                                    bool allow_unquoted_control,
                                                    bool is_us_locale,
+                                                   bool* had_schema_mismatch,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
@@ -937,6 +943,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                       allow_nonnumeric_numbers,
                                       allow_unquoted_control,
                                       is_us_locale,
+                                      had_schema_mismatch,
                                       stream,
                                       mr);
 }
