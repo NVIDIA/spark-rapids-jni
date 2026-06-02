@@ -159,6 +159,7 @@ public class ProtobufSchemaDescriptorTest {
         .addField(1, DType.STRING)
             .enumMetadata(new int[]{0, 1}, new byte[][]{"A".getBytes(), "B".getBytes()})
             .defaultString("def".getBytes())
+            .defaultInt(7)  // non-zero numeric default to exercise scalar round-trip
         .build();
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -173,6 +174,7 @@ public class ProtobufSchemaDescriptorTest {
 
     assertEquals(original.numFields(), roundTrip.numFields());
     assertArrayEquals(original.fieldNumbers, roundTrip.fieldNumbers);
+    assertArrayEquals(original.defaultInts, roundTrip.defaultInts);
     assertArrayEquals(original.defaultStrings[0], roundTrip.defaultStrings[0]);
     assertArrayEquals(original.enumValidValues[0], roundTrip.enumValidValues[0]);
     assertArrayEquals(original.enumNames[0][0], roundTrip.enumNames[0][0]);
