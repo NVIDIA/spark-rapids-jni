@@ -38,13 +38,11 @@ public class ProtobufSchemaDescriptorTest {
       int[] enumValidValues,
       byte[][] enumNames) {
     DType outputType = (encoding == Protobuf.ENC_ENUM_STRING) ? DType.STRING : DType.INT32;
-    ProtobufSchemaDescriptorBuilder b =
-        new ProtobufSchemaDescriptorBuilder().addField(1, outputType).encoding(encoding);
-    if (isRepeated) b.repeated();
-    if (hasDefaultValue) b.hasDefault();
-    if (enumValidValues != null) b.enumValidValues(enumValidValues);
-    if (enumNames != null) b.enumNames(enumNames);
-    return b.build();
+    return new ProtobufSchemaDescriptorBuilder()
+        .addField(1, outputType).encoding(encoding)
+            .repeated(isRepeated).hasDefault(hasDefaultValue)
+            .enumValidValues(enumValidValues).enumNames(enumNames)
+        .build();
   }
 
   @Test
@@ -137,7 +135,7 @@ public class ProtobufSchemaDescriptorTest {
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptorBuilder()
             .addField(1, DType.STRING).wireType(Protobuf.WT_LEN)
-            .enumMetadata(new int[]{0, 1}, new byte[][]{"A".getBytes(), "B".getBytes()})
+                .enumMetadata(new int[]{0, 1}, new byte[][]{"A".getBytes(), "B".getBytes()})
             .build());
   }
 

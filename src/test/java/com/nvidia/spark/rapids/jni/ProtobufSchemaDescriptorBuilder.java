@@ -94,6 +94,12 @@ public final class ProtobufSchemaDescriptorBuilder {
     return this;
   }
 
+  /** Conditional form so callers can pass a flag inline; {@code repeated(false)} is a no-op. */
+  public ProtobufSchemaDescriptorBuilder repeated(boolean value) {
+    current().isRepeated = value;
+    return this;
+  }
+
   public ProtobufSchemaDescriptorBuilder required() {
     current().isRequired = true;
     return this;
@@ -133,6 +139,12 @@ public final class ProtobufSchemaDescriptorBuilder {
    */
   public ProtobufSchemaDescriptorBuilder hasDefault() {
     current().hasDefaultValue = true;
+    return this;
+  }
+
+  /** Conditional form so callers can pass a flag inline; {@code hasDefault(false)} is a no-op. */
+  public ProtobufSchemaDescriptorBuilder hasDefault(boolean value) {
+    current().hasDefaultValue = value;
     return this;
   }
 

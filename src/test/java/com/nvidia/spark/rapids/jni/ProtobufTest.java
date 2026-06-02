@@ -127,118 +127,11 @@ public class ProtobufTest {
     return out;
   }
 
-  // ============================================================================
-  // Helper methods for calling the unified API
-  // ============================================================================
-
-  private static ProtobufSchemaDescriptor makeScalarSchema(int[] fieldNumbers, int[] typeIds,
-                                                           int[] encodings) {
-    int n = fieldNumbers.length;
-    int[] parentIndices = new int[n];
-    int[] depthLevels = new int[n];
-    int[] wireTypes = new int[n];
-    boolean[] isRepeated = new boolean[n];
-    boolean[] isRequired = new boolean[n];
-    boolean[] hasDefault = new boolean[n];
-    long[] defaultInts = new long[n];
-    double[] defaultFloats = new double[n];
-    boolean[] defaultBools = new boolean[n];
-    byte[][] defaultStrings = new byte[n][];
-    int[][] enumValid = new int[n][];
-    byte[][][] enumNames = new byte[n][][];
-
-    java.util.Arrays.fill(parentIndices, -1);
-    for (int i = 0; i < n; i++) {
-      wireTypes[i] = ProtobufSchemaDescriptorBuilder.deriveWireType(typeIds[i], encodings[i]);
-    }
-    return new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels,
-        wireTypes, typeIds, encodings, isRepeated, isRequired, hasDefault,
-        defaultInts, defaultFloats, defaultBools, defaultStrings, enumValid, enumNames);
-  }
-
-  /**
-   * Helper to decode all scalar fields using the unified API.
-   * Builds a flat schema (parentIndices=-1, depth=0, isRepeated=false for all fields).
-   */
-  private static ColumnVector decodeScalarFields(ColumnView binaryInput,
-                                                 int[] fieldNumbers,
-                                                 int[] typeIds,
-                                                 int[] encodings,
-                                                 boolean[] isRequired,
-                                                 boolean[] hasDefaultValue,
-                                                 long[] defaultInts,
-                                                 double[] defaultFloats,
-                                                 boolean[] defaultBools,
-                                                 byte[][] defaultStrings,
-                                                 int[][] enumValidValues,
-                                                 boolean failOnErrors) {
-    int numFields = fieldNumbers.length;
-    int[] parentIndices = new int[numFields];
-    int[] depthLevels = new int[numFields];
-    int[] wireTypes = new int[numFields];
-    boolean[] isRepeated = new boolean[numFields];
-
-    java.util.Arrays.fill(parentIndices, -1);
-    // depthLevels already initialized to 0
-    // isRepeated already initialized to false
-    for (int i = 0; i < numFields; i++) {
-      wireTypes[i] = ProtobufSchemaDescriptorBuilder.deriveWireType(typeIds[i], encodings[i]);
-    }
-
-    return Protobuf.decodeToStruct(binaryInput,
-        new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels,
-            wireTypes, typeIds, encodings, isRepeated, isRequired, hasDefaultValue,
-            defaultInts, defaultFloats, defaultBools, defaultStrings, enumValidValues,
-            new byte[fieldNumbers.length][][]),
-        failOnErrors);
-  }
-
-  /**
-   * Helper method that wraps the unified API for tests that decode all scalar fields.
-   */
-  private static ColumnVector decodeAllFields(ColumnView binaryInput,
-                                              int[] fieldNumbers,
-                                              int[] typeIds,
-                                              int[] encodings) {
-    return decodeAllFields(binaryInput, fieldNumbers, typeIds, encodings, true);
-  }
-
-  /**
-   * Helper method that wraps the unified API for tests that decode all scalar fields.
-   */
-  private static ColumnVector decodeAllFields(ColumnView binaryInput,
-                                              int[] fieldNumbers,
-                                              int[] typeIds,
-                                              int[] encodings,
-                                              boolean failOnErrors) {
-    int numFields = fieldNumbers.length;
-    return decodeScalarFields(binaryInput, fieldNumbers, typeIds, encodings,
-        new boolean[numFields], new boolean[numFields], new long[numFields],
-        new double[numFields], new boolean[numFields], new byte[numFields][],
-        new int[numFields][], failOnErrors);
-  }
-
   private static void assertSingleNullStructRow(ColumnVector actual, String message) {
     try (HostColumnVector hostStruct = actual.copyToHost()) {
       assertEquals(1, actual.getNullCount(), message);
       assertTrue(hostStruct.isNull(0), "Row 0 should be null");
     }
-  }
-
-  /**
-   * Helper method for tests with required field support.
-   */
-  private static ColumnVector decodeAllFieldsWithRequired(ColumnView binaryInput,
-                                                          int[] fieldNumbers,
-                                                          int[] typeIds,
-                                                          int[] encodings,
-                                                          boolean[] isRequired,
-                                                          boolean failOnErrors) {
-    int numFields = fieldNumbers.length;
-    return decodeScalarFields(binaryInput, fieldNumbers, typeIds, encodings,
-        isRequired, new boolean[numFields], new long[numFields],
-        new double[numFields], new boolean[numFields], new byte[numFields][],
-        new int[numFields][], failOnErrors);
   }
 
   // ============================================================================
@@ -268,11 +161,13 @@ public class ProtobufTest {
          ColumnVector expectedId = ColumnVector.fromBoxedLongs(100L, 200L, null);
          ColumnVector expectedName = ColumnVector.fromStrings("alice", null, null);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedId, expectedName);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
-             new int[]{0, 0})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .addField(2, DType.STRING)
+                 .build(),
+             true)) {
       // Row 2 is a null input row — the output struct row should also be null.
       assertEquals(3, actualStruct.getRowCount());
       assertEquals(1, actualStruct.getNullCount());
@@ -315,19 +210,15 @@ public class ProtobufTest {
          ColumnVector expectedB = ColumnVector.fromLists(
             new ListType(true, new BasicType(true, DType.UINT8)),
              Arrays.asList((byte) 1, (byte) 2, (byte) 3));
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2, 3, 4},
-             new int[]{
-                 DType.UINT32.getTypeId().getNativeId(),
-                 DType.INT64.getTypeId().getNativeId(),
-                 DType.INT32.getTypeId().getNativeId(),
-                 DType.LIST.getTypeId().getNativeId()},
-             new int[]{
-                 Protobuf.ENC_DEFAULT,
-                 Protobuf.ENC_ZIGZAG,
-                 Protobuf.ENC_FIXED,
-                 Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.UINT32)
+                 .addField(2, DType.INT64).encoding(Protobuf.ENC_ZIGZAG)
+                 .addField(3, DType.INT32).encoding(Protobuf.ENC_FIXED)
+                 .addField(4, DType.LIST)
+                 .build(),
+             true)) {
       try (ColumnVector expectedU32Correct = expectedU32.castTo(DType.UINT32);
            ColumnVector expectedStructCorrect = ColumnVector.makeStruct(
                expectedU32Correct, expectedS64, expectedF32, expectedB)) {
@@ -354,14 +245,14 @@ public class ProtobufTest {
          ColumnVector expectedFloat = ColumnVector.fromBoxedFloats(3.14f, -1.5f);
          ColumnVector expectedDouble = ColumnVector.fromBoxedDoubles(2.71828, 0.0);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedBool, expectedFloat, expectedDouble);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2, 3},
-             new int[]{
-                 DType.BOOL8.getTypeId().getNativeId(),
-                 DType.FLOAT32.getTypeId().getNativeId(),
-                 DType.FLOAT64.getTypeId().getNativeId()},
-             new int[]{0, 0, 0})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.BOOL8)
+                 .addField(2, DType.FLOAT32)
+                 .addField(3, DType.FLOAT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -384,14 +275,13 @@ public class ProtobufTest {
          ColumnVector expectedF1 = ColumnVector.fromBoxedLongs(100L);
          ColumnVector expectedF3 = ColumnVector.fromBoxedInts(42);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedF1, expectedF3);
-         // Decode only f1 (field_number=1) and f3 (field_number=3), skip f2
-         // With the unified API, we only include the fields we want in the schema
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 3},  // field numbers for f1 and f3
-             new int[]{DType.INT64.getTypeId().getNativeId(),
-                       DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)   // f1
+                 .addField(3, DType.INT32)   // f3 (f2 skipped -> projection)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -405,11 +295,11 @@ public class ProtobufTest {
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row0}).build();
          // With no fields in the schema, the GPU returns an empty struct
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{},  // no field numbers
-             new int[]{},  // no types
-             new int[]{})) {  // no encodings
+             new ProtobufSchemaDescriptorBuilder()
+                 .build(),
+             true)) {
       assertNotNull(actualStruct);
       assertEquals(DType.STRUCT, actualStruct.getType());
     }
@@ -429,11 +319,12 @@ public class ProtobufTest {
                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0x01});
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.UINT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.UINT64)
+                 .build(),
+             true)) {
       try (ColumnVector expectedU64 = ColumnVector.fromBoxedLongs(-1L);  // -1 as unsigned = max
            ColumnVector expectedU64Correct = expectedU64.castTo(DType.UINT64);
            ColumnVector expectedStruct = ColumnVector.makeStruct(expectedU64Correct)) {
@@ -451,7 +342,7 @@ public class ProtobufTest {
     Byte[] row = new Byte[]{0x08, 0x01};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0),
-             makeScalarSchema(new int[]{}, new int[]{}, new int[]{}), true)) {
+             new ProtobufSchemaDescriptorBuilder().build(), true)) {
       assertNotNull(result);
       assertEquals(DType.STRUCT, result.getType());
       assertEquals(1, result.getRowCount());
@@ -467,11 +358,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(0L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -481,10 +373,9 @@ public class ProtobufTest {
     Byte[] row = new Byte[]{0x08, 0x01};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0),
-             makeScalarSchema(
-                 new int[]{1},
-                 new int[]{DType.INT64.getTypeId().getNativeId()},
-                 new int[]{Protobuf.ENC_DEFAULT}), true)) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(), true)) {
       assertNotNull(result);
       assertEquals(DType.STRUCT, result.getType());
       assertEquals(1, result.getRowCount());
@@ -505,11 +396,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(0L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -524,11 +416,11 @@ public class ProtobufTest {
                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0x02});  // 0x02 has 2nd bit set
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
              false)) {
       try (ColumnVector expected = ColumnVector.fromBoxedLongs((Long)null);
            ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
@@ -553,11 +445,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(minInt32);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_ZIGZAG})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).encoding(Protobuf.ENC_ZIGZAG)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -574,11 +467,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(maxInt32);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_ZIGZAG})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).encoding(Protobuf.ENC_ZIGZAG)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -594,11 +488,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedLong = ColumnVector.fromBoxedLongs(minInt64);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedLong);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_ZIGZAG})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64).encoding(Protobuf.ENC_ZIGZAG)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -613,11 +508,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedLong = ColumnVector.fromBoxedLongs(maxInt64);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedLong);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_ZIGZAG})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64).encoding(Protobuf.ENC_ZIGZAG)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -632,11 +528,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedLong = ColumnVector.fromBoxedLongs(-1L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedLong);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_ZIGZAG})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64).encoding(Protobuf.ENC_ZIGZAG)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -652,11 +549,11 @@ public class ProtobufTest {
                                    (byte)0xFF, (byte)0xFF, (byte)0xFF,
                                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{malformed}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{0},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result, "Malformed varint should null the struct row");
     }
@@ -667,11 +564,11 @@ public class ProtobufTest {
     // Single byte with continuation bit set but no following byte
     Byte[] truncated = concat(box(tag(1, WT_VARINT)), new Byte[]{(byte)0x80});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{0},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result, "Truncated varint should null the struct row");
     }
@@ -682,11 +579,11 @@ public class ProtobufTest {
     // String field with length=5 but no actual data
     Byte[] truncated = concat(box(tag(2, WT_LEN)), box(encodeVarint(5)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{2},
-             new int[]{DType.STRING.getTypeId().getNativeId()},
-             new int[]{0},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(2, DType.STRING)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result,
           "Truncated length-delimited field should null the struct row");
@@ -698,11 +595,11 @@ public class ProtobufTest {
     // Fixed32 needs 4 bytes but only 3 provided
     Byte[] truncated = concat(box(tag(1, WT_32BIT)), new Byte[]{0x01, 0x02, 0x03});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_FIXED},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).encoding(Protobuf.ENC_FIXED)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result, "Truncated fixed32 should null the struct row");
     }
@@ -714,11 +611,11 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(1, WT_64BIT)), 
         new Byte[]{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_FIXED},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64).encoding(Protobuf.ENC_FIXED)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result, "Truncated fixed64 should null the struct row");
     }
@@ -732,11 +629,11 @@ public class ProtobufTest {
         box(encodeVarint(10)),
         box("hello".getBytes()));  // only 5 bytes
     try (Table input = new Table.TestBuilder().column(new Byte[][]{partial}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.STRING.getTypeId().getNativeId()},
-             new int[]{0},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result,
           "Partial length-delimited payload should null the struct row");
@@ -754,11 +651,11 @@ public class ProtobufTest {
         box(tag(1, WT_32BIT)),  // wire type 5 instead of 0
         box(encodeFixed32(100)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{wrongType}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},  // expects varint
-             new int[]{Protobuf.ENC_DEFAULT},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result, "Wrong wire type should null the struct row");
     }
@@ -771,11 +668,11 @@ public class ProtobufTest {
         box(tag(1, WT_VARINT)),
         box(encodeVarint(12345)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{wrongType}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.STRING.getTypeId().getNativeId()},  // expects LEN
-             new int[]{Protobuf.ENC_DEFAULT},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result, "Wrong wire type for string should null the struct row");
     }
@@ -797,11 +694,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -818,11 +716,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -840,11 +739,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -861,11 +761,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -885,11 +786,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs(300L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -905,11 +807,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedStr = ColumnVector.fromStrings("last");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -925,11 +828,11 @@ public class ProtobufTest {
                                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{malformed}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{0},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
              true)) {
         }
       });
@@ -941,11 +844,11 @@ public class ProtobufTest {
     // Field number 0 is reserved and invalid
     Byte[] invalid = concat(box(tag(0, WT_VARINT)), box(encodeVarint(123)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{invalid}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{0},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
              false)) {
       assertSingleNullStructRow(result, "Field number zero should null the struct row");
     }
@@ -959,11 +862,13 @@ public class ProtobufTest {
          ColumnVector expectedInt = ColumnVector.fromBoxedLongs((Long)null);
          ColumnVector expectedStr = ColumnVector.fromStrings((String)null);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt, expectedStr);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
-             new int[]{0, 0})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .addField(2, DType.STRING)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -985,11 +890,12 @@ public class ProtobufTest {
              Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NaN, 
              Float.MIN_VALUE, Float.MAX_VALUE);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedFloat);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.FLOAT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.FLOAT32)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -1007,11 +913,12 @@ public class ProtobufTest {
              Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NaN,
              Double.MIN_VALUE, Double.MAX_VALUE);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedDouble);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.FLOAT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.FLOAT64)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -1029,11 +936,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(1);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -1047,11 +955,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(0);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -1065,11 +974,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(999);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -1083,11 +993,12 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(-1);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -1106,13 +1017,14 @@ public class ProtobufTest {
          ColumnVector expectedCount = ColumnVector.fromBoxedInts(42);
          ColumnVector expectedS2 = ColumnVector.fromBoxedInts(0);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedS1, expectedCount, expectedS2);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2, 3},
-             new int[]{DType.INT32.getTypeId().getNativeId(),
-                       DType.INT32.getTypeId().getNativeId(),
-                       DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32)
+                 .addField(2, DType.INT32)
+                 .addField(3, DType.INT32)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -1126,12 +1038,13 @@ public class ProtobufTest {
          ColumnVector expectedEnum = ColumnVector.fromBoxedInts((Integer) null);
          ColumnVector expectedCount = ColumnVector.fromBoxedInts(42);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedEnum, expectedCount);
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT32.getTypeId().getNativeId(),
-                       DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32)
+                 .addField(2, DType.INT32)
+                 .build(),
+             true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
   }
@@ -1152,12 +1065,12 @@ public class ProtobufTest {
          ColumnVector expectedId = ColumnVector.fromBoxedLongs(42L);
          ColumnVector expectedName = ColumnVector.fromStrings("hello");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedId, expectedName);
-         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{true, false},  // id is required, name is optional
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64).required()
+                 .addField(2, DType.STRING)
+                 .build(),
              true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1172,12 +1085,12 @@ public class ProtobufTest {
         box(tag(2, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{true, false},  // id is required, name is optional
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64).required()
+                 .addField(2, DType.STRING)
+                 .build(),
              false)) {  // permissive mode - don't fail on errors
       assertSingleNullStructRow(actualStruct,
           "Missing top-level required field should null the row in PERMISSIVE mode");
@@ -1194,12 +1107,12 @@ public class ProtobufTest {
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFieldsWithRequired(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1, 2},
-            new int[]{DType.INT64.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-            new boolean[]{true, false},  // id is required, name is optional
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64).required()
+                .addField(2, DType.STRING)
+                .build(),
             true)) {  // failfast mode - should throw
         }
       });
@@ -1219,14 +1132,13 @@ public class ProtobufTest {
          ColumnVector expectedB = ColumnVector.fromBoxedLongs(20L);
          ColumnVector expectedC = ColumnVector.fromStrings("abc");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB, expectedC);
-         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2, 3},
-             new int[]{DType.INT32.getTypeId().getNativeId(),
-                       DType.INT64.getTypeId().getNativeId(),
-                       DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{true, true, true},  // all required
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).required()
+                 .addField(2, DType.INT64).required()
+                 .addField(3, DType.STRING).required()
+                 .build(),
              true)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1241,14 +1153,13 @@ public class ProtobufTest {
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFieldsWithRequired(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1, 2, 3},
-            new int[]{DType.INT32.getTypeId().getNativeId(),
-                      DType.INT64.getTypeId().getNativeId(),
-                      DType.STRING.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-            new boolean[]{true, true, true},  // all required
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT32).required()
+                .addField(2, DType.INT64).required()
+                .addField(3, DType.STRING).required()
+                .build(),
             true)) {
         }
       });
@@ -1265,12 +1176,12 @@ public class ProtobufTest {
          ColumnVector expectedA = ColumnVector.fromBoxedInts((Integer) null);
          ColumnVector expectedB = ColumnVector.fromBoxedLongs((Long) null);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB);
-         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},  // all optional
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32)
+                 .addField(2, DType.INT64)
+                 .build(),
              true)) {  // even with failOnErrors=true, should succeed since all fields are optional
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1286,12 +1197,11 @@ public class ProtobufTest {
 
     try (Table input = new Table.TestBuilder().column(row0, row1).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFieldsWithRequired(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT64.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT},
-            new boolean[]{true},  // required
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64).required()
+                .build(),
             true)) {
         }
       });
@@ -1304,12 +1214,11 @@ public class ProtobufTest {
     Byte[] row1 = null;
 
     try (Table input = new Table.TestBuilder().column(row0, row1).build();
-         ColumnVector actualStruct = decodeAllFieldsWithRequired(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{true},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64).required()
+                 .build(),
              true);
          ColumnVector idCol = actualStruct.getChildColumnView(0).copyToColumnVector();
          HostColumnVector hostStruct = actualStruct.copyToHost();
@@ -1326,26 +1235,6 @@ public class ProtobufTest {
   // Default Value Tests (API accepts parameters, CUDA fill not yet implemented)
   // ============================================================================
 
-  /**
-   * Helper method for tests with default value support.
-   */
-  private static ColumnVector decodeAllFieldsWithDefaults(ColumnView binaryInput,
-                                                          int[] fieldNumbers,
-                                                          int[] typeIds,
-                                                          int[] encodings,
-                                                          boolean[] isRequired,
-                                                          boolean[] hasDefaultValue,
-                                                          long[] defaultInts,
-                                                          double[] defaultFloats,
-                                                          boolean[] defaultBools,
-                                                          byte[][] defaultStrings,
-                                                          boolean failOnErrors) {
-    int numFields = fieldNumbers.length;
-    return decodeScalarFields(binaryInput, fieldNumbers, typeIds, encodings,
-        isRequired, hasDefaultValue, defaultInts, defaultFloats, defaultBools,
-        defaultStrings, new int[numFields][], failOnErrors);
-  }
-
   @Test
   void testDefaultValueForMissingFields() {
     // Test that missing fields with default values return the defaults
@@ -1356,17 +1245,12 @@ public class ProtobufTest {
          ColumnVector expectedA = ColumnVector.fromBoxedInts(42);
          ColumnVector expectedB = ColumnVector.fromBoxedLongs(100L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},  // not required
-             new boolean[]{true, true},    // has default value
-             new long[]{42, 100},          // default int values (42, 100)
-             new double[]{0.0, 0.0},       // default float values (unused for int fields)
-             new boolean[]{false, false},  // default bool values (unused)
-             new byte[][]{null, null},     // default string values (unused)
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).defaultInt(42)
+                 .addField(2, DType.INT64).defaultInt(100)
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1383,17 +1267,12 @@ public class ProtobufTest {
          ColumnVector expectedA = ColumnVector.fromBoxedInts(99);
          ColumnVector expectedB = ColumnVector.fromBoxedLongs(200L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},  // not required
-             new boolean[]{true, true},    // has default value
-             new long[]{42, 100},          // default values - NOT used since field is present
-             new double[]{0.0, 0.0},
-             new boolean[]{false, false},
-             new byte[][]{null, null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).defaultInt(42)
+                 .addField(2, DType.INT64).defaultInt(100)
+                 .build(),
              false)) {
       // Actual values should be used, not defaults
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1409,17 +1288,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(42);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},   // not required
-             new boolean[]{true},    // has default
-             new long[]{42},         // default = 42
-             new double[]{0.0},
-             new boolean[]{false},
-             new byte[][]{null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).defaultInt(42)
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1433,17 +1306,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedBool = ColumnVector.fromBoxedBooleans(true);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedBool);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.BOOL8.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},
-             new boolean[]{true},
-             new long[]{0},
-             new double[]{0.0},
-             new boolean[]{true},  // default = true
-             new byte[][]{null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.BOOL8).defaultBool(true)
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1457,17 +1324,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedDouble = ColumnVector.fromBoxedDoubles(3.14);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedDouble);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.FLOAT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},
-             new boolean[]{true},
-             new long[]{0},
-             new double[]{3.14},  // default = 3.14
-             new boolean[]{false},
-             new byte[][]{null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.FLOAT64).defaultFloat(3.14)
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1481,17 +1342,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedLong = ColumnVector.fromBoxedLongs(9876543210L);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedLong);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},
-             new boolean[]{true},
-             new long[]{9876543210L},  // default = 9876543210
-             new double[]{0.0},
-             new boolean[]{false},
-             new byte[][]{null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64).defaultInt(9876543210L)
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1510,19 +1365,13 @@ public class ProtobufTest {
          ColumnVector expectedB = ColumnVector.fromBoxedLongs((Long) null);  // no default
          ColumnVector expectedC = ColumnVector.fromBoxedBooleans(true);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB, expectedC);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2, 3},
-             new int[]{DType.INT32.getTypeId().getNativeId(),
-                       DType.INT64.getTypeId().getNativeId(),
-                       DType.BOOL8.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false, false},  // not required
-             new boolean[]{true, false, true},    // a and c have defaults, b doesn't
-             new long[]{42, 0, 0},                // default for a
-             new double[]{0.0, 0.0, 0.0},
-             new boolean[]{false, false, true},   // default for c
-             new byte[][]{null, null, null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).defaultInt(42)
+                 .addField(2, DType.INT64)
+                 .addField(3, DType.BOOL8).defaultBool(true)
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1540,17 +1389,12 @@ public class ProtobufTest {
          ColumnVector expectedA = ColumnVector.fromBoxedInts(42);  // default
          ColumnVector expectedB = ColumnVector.fromBoxedLongs(999L);  // actual value
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedA, expectedB);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},  // not required
-             new boolean[]{true, true},    // both have defaults
-             new long[]{42, 100},
-             new double[]{0.0, 0.0},
-             new boolean[]{false, false},
-             new byte[][]{null, null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).defaultInt(42)
+                 .addField(2, DType.INT64).defaultInt(100)
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1565,17 +1409,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedStr = ColumnVector.fromStrings("hello");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},   // not required
-             new boolean[]{true},    // has default
-             new long[]{0},
-             new double[]{0.0},
-             new boolean[]{false},
-             new byte[][]{"hello".getBytes(java.nio.charset.StandardCharsets.UTF_8)},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING).defaultString("hello".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1590,17 +1428,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedStr = ColumnVector.fromStrings("");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},
-             new boolean[]{true},
-             new long[]{0},
-             new double[]{0.0},
-             new boolean[]{false},
-             new byte[][]{new byte[0]},  // empty default string
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING).defaultString(new byte[0])
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1619,17 +1451,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedStr = ColumnVector.fromStrings("actual");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},
-             new boolean[]{true},
-             new long[]{0},
-             new double[]{0.0},
-             new boolean[]{false},
-             new byte[][]{"default".getBytes(java.nio.charset.StandardCharsets.UTF_8)},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING).defaultString("default".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1646,17 +1472,12 @@ public class ProtobufTest {
          ColumnVector expectedInt = ColumnVector.fromBoxedInts(42);
          ColumnVector expectedStr = ColumnVector.fromStrings("test");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedInt, expectedStr);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT32.getTypeId().getNativeId(), DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},
-             new boolean[]{true, true},
-             new long[]{42, 0},
-             new double[]{0.0, 0.0},
-             new boolean[]{false, false},
-             new byte[][]{null, "test".getBytes(java.nio.charset.StandardCharsets.UTF_8)},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).defaultInt(42)
+                 .addField(2, DType.STRING).defaultString("test".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1677,17 +1498,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row1, row2, row3}).build();
          ColumnVector expectedStr = ColumnVector.fromStrings("default", "row2val", "default");
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedStr);
-         ColumnVector actualStruct = decodeAllFieldsWithDefaults(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.STRING.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},
-             new boolean[]{true},
-             new long[]{0},
-             new double[]{0.0},
-             new boolean[]{false},
-             new byte[][]{"default".getBytes(java.nio.charset.StandardCharsets.UTF_8)},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING).defaultString("default".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -1707,11 +1522,10 @@ public class ProtobufTest {
         box(tag(1, WT_VARINT)), box(encodeVarint(3)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
-      // Field: ids (field_number=1, repeated int32)
       try (ColumnVector result = Protobuf.decodeToStruct(
           input.getColumn(0),
           new ProtobufSchemaDescriptorBuilder()
-              .addField(1, DType.INT32).repeated()
+              .addField(1, DType.INT32).repeated()  // ids
               .build(),
           false)) {
         // Result should be STRUCT<ids: LIST<INT32>> containing [1, 2, 3]
@@ -1783,7 +1597,7 @@ public class ProtobufTest {
       try (ColumnVector result = Protobuf.decodeToStruct(
           input.getColumn(0),
           new ProtobufSchemaDescriptorBuilder()
-              .addField(1, DType.INT32)            // id
+              .addField(1, DType.INT32)               // id
               .addField(2, DType.INT32).repeated()    // int_values (packed)
               .addField(3, DType.FLOAT64).repeated()  // double_values (packed)
               .addField(4, DType.BOOL8).repeated()    // bool_values (packed)
@@ -1843,15 +1657,11 @@ public class ProtobufTest {
         innerMessage);
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
-      // Flattened schema:
-      // [0] inner: STRUCT, field_number=1, parent=-1, depth=0
-      // [1] inner.x: INT32, field_number=1, parent=0, depth=1
-      // Flattened schema: [0] inner STRUCT, [1] inner.x INT32 (child of 0)
       try (ColumnVector result = Protobuf.decodeToStruct(
           input.getColumn(0),
           new ProtobufSchemaDescriptorBuilder()
-              .addField(1, DType.STRUCT)
-              .addField(1, DType.INT32).parent(0)
+              .addField(1, DType.STRUCT)           // inner
+              .addField(1, DType.INT32).parent(0)  // inner.x
               .build(),
           false)) {
         assertNotNull(result);
@@ -1953,11 +1763,11 @@ public class ProtobufTest {
                                    (byte)0xFF, (byte)0xFF, (byte)0xFF, (byte)0xFF};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{malformed}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT64.getTypeId().getNativeId()},
-            new int[]{0},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64)
+                .build(),
             true)) {  // failOnErrors = true
         }
       });
@@ -1970,11 +1780,11 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(1, WT_VARINT)), new Byte[]{(byte)0x80});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT64.getTypeId().getNativeId()},
-            new int[]{0},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64)
+                .build(),
             true)) {
         }
       });
@@ -1987,11 +1797,11 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(2, WT_LEN)), box(encodeVarint(5)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{2},
-            new int[]{DType.STRING.getTypeId().getNativeId()},
-            new int[]{0},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(2, DType.STRING)
+                .build(),
             true)) {
         }
       });
@@ -2004,11 +1814,11 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(1, WT_32BIT)), new Byte[]{0x01, 0x02, 0x03});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT32.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_FIXED},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT32).encoding(Protobuf.ENC_FIXED)
+                .build(),
             true)) {
         }
       });
@@ -2021,11 +1831,11 @@ public class ProtobufTest {
     Byte[] truncated = concat(box(tag(1, WT_64BIT)), new Byte[]{0x01, 0x02, 0x03, 0x04, 0x05});
     try (Table input = new Table.TestBuilder().column(new Byte[][]{truncated}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT64.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_FIXED},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64).encoding(Protobuf.ENC_FIXED)
+                .build(),
             true)) {
         }
       });
@@ -2038,11 +1848,11 @@ public class ProtobufTest {
     Byte[] row = concat(box(tag(1, WT_LEN)), box(encodeVarint(3)), box("abc".getBytes()));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT64.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64)
+                .build(),
             true)) {
         }
       });
@@ -2055,11 +1865,11 @@ public class ProtobufTest {
     Byte[] row = concat(box(tag(0, WT_VARINT)), box(encodeVarint(42)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT64.getTypeId().getNativeId()},
-            new int[]{0},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64)
+                .build(),
             true)) {
         }
       });
@@ -2072,11 +1882,11 @@ public class ProtobufTest {
     Byte[] row = concat(box(tag(1 << 29, WT_VARINT)), box(encodeVarint(42)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeAllFields(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1},
-            new int[]{DType.INT64.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64)
+                .build(),
             true)) {
         }
       });
@@ -2089,11 +1899,11 @@ public class ProtobufTest {
         box(tag(5, 4)),
         box(tag(1, WT_VARINT)), box(encodeVarint(42)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actual = decodeAllFields(
+         ColumnVector actual = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
              false)) {
       assertSingleNullStructRow(actual, "Unknown end-group wire type should null the struct row");
     }
@@ -2104,11 +1914,11 @@ public class ProtobufTest {
     // Valid protobuf should not throw even with failOnErrors = true
     Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = decodeAllFields(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT64.getTypeId().getNativeId()},
-             new int[]{0},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(),
              true)) {
       try (ColumnVector expected = ColumnVector.fromBoxedLongs(42L);
            ColumnVector expectedStruct = ColumnVector.makeStruct(expected)) {
@@ -2134,17 +1944,17 @@ public class ProtobufTest {
         box(tag(6, WT_LEN)), box(encodeVarint(5)), box("hello".getBytes()));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actualStruct = decodeAllFields(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2, 3, 4, 5, 6},
-             new int[]{
-                 DType.BOOL8.getTypeId().getNativeId(),
-                 DType.INT32.getTypeId().getNativeId(),
-                 DType.INT64.getTypeId().getNativeId(),
-                 DType.FLOAT32.getTypeId().getNativeId(),
-                 DType.FLOAT64.getTypeId().getNativeId(),
-                 DType.STRING.getTypeId().getNativeId()},
-             new int[]{0, 0, 0, 0, 0, 0})) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.BOOL8)
+                 .addField(2, DType.INT32)
+                 .addField(3, DType.INT64)
+                 .addField(4, DType.FLOAT32)
+                 .addField(5, DType.FLOAT64)
+                 .addField(6, DType.STRING)
+                 .build(),
+             true)) {
       try (ColumnVector expectedBool = ColumnVector.fromBoxedBooleans(true);
            ColumnVector expectedInt = ColumnVector.fromBoxedInts(12345);
            ColumnVector expectedLong = ColumnVector.fromBoxedLongs(9876543210L);
@@ -2162,52 +1972,6 @@ public class ProtobufTest {
   // Enum Validation Tests
   // ============================================================================
 
-  /**
-   * Helper method that wraps decodeToStruct with enum validation support.
-   */
-  private static ColumnVector decodeAllFieldsWithEnums(ColumnView binaryInput,
-                                                        int[] fieldNumbers,
-                                                        int[] typeIds,
-                                                        int[] encodings,
-                                                        int[][] enumValidValues,
-                                                        boolean failOnErrors) {
-    int numFields = fieldNumbers.length;
-    return decodeScalarFields(binaryInput, fieldNumbers, typeIds, encodings,
-        new boolean[numFields], new boolean[numFields], new long[numFields],
-        new double[numFields], new boolean[numFields], new byte[numFields][],
-        enumValidValues, failOnErrors);
-  }
-
-  /**
-   * Helper that enables enum-as-string decoding by passing enum name mappings.
-   */
-  private static ColumnVector decodeAllFieldsWithEnumStrings(ColumnView binaryInput,
-                                                             int[] fieldNumbers,
-                                                             int[][] enumValidValues,
-                                                             byte[][][] enumNames,
-                                                             boolean failOnErrors) {
-    int numFields = fieldNumbers.length;
-    int[] typeIds = new int[numFields];
-    int[] encodings = new int[numFields];
-    for (int i = 0; i < numFields; i++) {
-      typeIds[i] = DType.STRING.getTypeId().getNativeId();
-      encodings[i] = Protobuf.ENC_ENUM_STRING;
-    }
-    int[] parentIndices = new int[numFields];
-    int[] depthLevels = new int[numFields];
-    int[] wireTypes = new int[numFields];
-    boolean[] isRepeated = new boolean[numFields];
-    java.util.Arrays.fill(parentIndices, -1);
-    java.util.Arrays.fill(wireTypes, Protobuf.WT_VARINT);
-    return Protobuf.decodeToStruct(binaryInput,
-        new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels,
-            wireTypes, typeIds, encodings, isRepeated,
-            new boolean[numFields], new boolean[numFields], new long[numFields],
-            new double[numFields], new boolean[numFields], new byte[numFields][],
-            enumValidValues, enumNames),
-        failOnErrors);
-  }
-
   @Test
   void testEnumAsStringValidValue() {
     // enum Color { RED=0; GREEN=1; BLUE=2; }
@@ -2223,11 +1987,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedField = ColumnVector.fromStrings("GREEN");
          ColumnVector expected = ColumnVector.makeStruct(expectedField);
-         ColumnVector actual = decodeAllFieldsWithEnumStrings(
+         ColumnVector actual = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[][]{{0, 1, 2}},
-             enumNames,
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING).enumMetadata(new int[]{0, 1, 2}, enumNames[0])
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expected, actual);
     }
@@ -2246,11 +2010,11 @@ public class ProtobufTest {
         }
     };
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actual = decodeAllFieldsWithEnumStrings(
+         ColumnVector actual = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[][]{{0, 1, 2}},
-             enumNames,
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING).enumMetadata(new int[]{0, 1, 2}, enumNames[0])
+                 .build(),
              false);
          HostColumnVector hostStruct = actual.copyToHost()) {
       assertEquals(1, actual.getNullCount(), "Struct row should be null for unknown enum value");
@@ -2272,11 +2036,11 @@ public class ProtobufTest {
         }
     };
     try (Table input = new Table.TestBuilder().column(row0, row1, row2).build();
-         ColumnVector actual = decodeAllFieldsWithEnumStrings(
+         ColumnVector actual = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[][]{{0, 1, 2}},
-             enumNames,
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRING).enumMetadata(new int[]{0, 1, 2}, enumNames[0])
+                 .build(),
              false);
          HostColumnVector hostStruct = actual.copyToHost()) {
       assertEquals(1, actual.getNullCount(), "Only the unknown enum row should be null");
@@ -2296,12 +2060,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedColor = ColumnVector.fromBoxedInts(1);  // GREEN
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedColor);
-         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new int[][]{{0, 1, 2}},  // valid enum values: RED=0, GREEN=1, BLUE=2
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).enumValidValues(new int[]{0, 1, 2})
+                 .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
     }
@@ -2316,12 +2079,11 @@ public class ProtobufTest {
     Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(999)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new int[][]{{0, 1, 2}},  // valid enum values: RED=0, GREEN=1, BLUE=2
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).enumValidValues(new int[]{0, 1, 2})
+                 .build(),
              false);
          HostColumnVector hostStruct = actualStruct.copyToHost()) {
       // The struct itself should be null (not just the field)
@@ -2340,12 +2102,11 @@ public class ProtobufTest {
     Byte[] row3 = concat(box(tag(1, WT_VARINT)), box(encodeVarint(-1)));   // negative (unknown) -> struct null
 
     try (Table input = new Table.TestBuilder().column(row0, row1, row2, row3).build();
-         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new int[][]{{0, 1, 2}},  // valid enum values
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).enumValidValues(new int[]{0, 1, 2})
+                 .build(),
              false);
          HostColumnVector hostStruct = actualStruct.copyToHost()) {
       // Check struct-level nulls
@@ -2367,12 +2128,12 @@ public class ProtobufTest {
         box(tag(2, WT_VARINT)), box(encodeVarint(42)));  // count = 42
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new int[][]{{0, 1, 2}, null},  // first field is enum, second is regular int (no validation)
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).enumValidValues(new int[]{0, 1, 2})
+                 .addField(2, DType.INT32)
+                 .build(),
              false);
          HostColumnVector hostStruct = actualStruct.copyToHost()) {
       // The entire struct row should be null
@@ -2390,12 +2151,11 @@ public class ProtobufTest {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector expectedColor = ColumnVector.fromBoxedInts((Integer) null);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedColor);
-         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new int[][]{{0, 1, 2}},  // valid enum values
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).enumValidValues(new int[]{0, 1, 2})
+                 .build(),
              false)) {
       // Struct row should be valid (not null), only the field is null
       assertEquals(0, actualStruct.getNullCount(), "Struct row should NOT be null for missing field");
@@ -2415,12 +2175,12 @@ public class ProtobufTest {
          ColumnVector expectedColor = ColumnVector.fromBoxedInts(1);
          ColumnVector expectedCount = ColumnVector.fromBoxedInts(42);
          ColumnVector expectedStruct = ColumnVector.makeStruct(expectedColor, expectedCount);
-         ColumnVector actualStruct = decodeAllFieldsWithEnums(
+         ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 2},
-             new int[]{DType.INT32.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new int[][]{{0, 1, 2}, null},  // first field is enum, second is regular int
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT32).enumValidValues(new int[]{0, 1, 2})
+                 .addField(2, DType.INT32)
+                 .build(),
              false)) {
       // Struct row should be valid with correct values
       assertEquals(0, actualStruct.getNullCount(), "Struct row should be valid");
@@ -2611,12 +2371,11 @@ public class ProtobufTest {
     Byte[] row = new Byte[]{0x08, 0x01};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0),
-             makeScalarSchema(
-                 new int[]{1, 2, 3},
-                 new int[]{DType.INT64.getTypeId().getNativeId(),
-                           DType.STRING.getTypeId().getNativeId(),
-                           DType.FLOAT32.getTypeId().getNativeId()},
-                 new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT}),
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .addField(2, DType.STRING)
+                 .addField(3, DType.FLOAT32)
+                 .build(),
              true)) {
       assertNotNull(result);
       assertEquals(DType.STRUCT, result.getType());
@@ -2635,10 +2394,9 @@ public class ProtobufTest {
     Byte[] row2 = new Byte[]{0x08, 0x03};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1, row2}).build();
          ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0),
-             makeScalarSchema(
-                 new int[]{1},
-                 new int[]{DType.INT64.getTypeId().getNativeId()},
-                 new int[]{Protobuf.ENC_DEFAULT}), true)) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(), true)) {
       assertEquals(3, result.getRowCount());
       assertEquals(1, result.getNumChildren());
     }
@@ -2653,10 +2411,9 @@ public class ProtobufTest {
     Byte[] row0 = new Byte[]{0x08, 0x01};
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, null}).build();
          ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0),
-             makeScalarSchema(
-                 new int[]{1},
-                 new int[]{DType.INT64.getTypeId().getNativeId()},
-                 new int[]{Protobuf.ENC_DEFAULT}), true)) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .build(), true)) {
       assertEquals(2, result.getRowCount());
       try (HostColumnVector hcv = result.copyToHost()) {
         assertFalse(hcv.isNull(0), "Row 0 should not be null");
@@ -2698,11 +2455,10 @@ public class ProtobufTest {
   void testAllNullInputRows() {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{null, null, null}).build();
          ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0),
-             makeScalarSchema(
-                 new int[]{1, 2},
-                 new int[]{DType.INT64.getTypeId().getNativeId(),
-                           DType.STRING.getTypeId().getNativeId()},
-                 new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT}), true)) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .addField(2, DType.STRING)
+                 .build(), true)) {
       assertEquals(3, result.getRowCount());
       assertEquals(2, result.getNumChildren());
       try (HostColumnVector hcv = result.copyToHost()) {
@@ -2736,41 +2492,6 @@ public class ProtobufTest {
     }
   }
 
-  private void verifyDeepNesting(int numLevels) {
-    byte[] current = concatBytes(tag(1, WT_VARINT), encodeVarint(1));
-    for (int level = numLevels - 2; level >= 0; level--) {
-      current = concatBytes(
-          tag(1, WT_VARINT), encodeVarint(1),
-          tag(2, WT_LEN), encodeVarint(current.length), current);
-    }
-    Byte[] row = box(current);
-
-    // Each level contributes an INT32 leaf (field 1) and, except the last, a STRUCT (field 2)
-    // that parents the next level. Flat indices: int at 2*level, struct at 2*level+1.
-    ProtobufSchemaDescriptorBuilder builder = new ProtobufSchemaDescriptorBuilder();
-    for (int level = 0; level < numLevels; level++) {
-      int parentIdx = level == 0 ? -1 : 2 * (level - 1) + 1;
-      builder.addField(1, DType.INT32);
-      if (parentIdx >= 0) builder.parent(parentIdx);
-      if (level < numLevels - 1) {
-        builder.addField(2, DType.STRUCT);
-        if (parentIdx >= 0) builder.parent(parentIdx);
-      }
-    }
-
-    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0), builder.build(), false)) {
-      assertNotNull(result);
-      assertEquals(DType.STRUCT, result.getType());
-      // Verify the deepest leaf (encoded as 1 in this synthetic schema) actually decodes to 1.
-      try (ColumnVector firstChild = result.getChildColumnView(0).copyToColumnVector();
-           HostColumnVector hostChild = firstChild.copyToHost()) {
-        assertEquals(DType.INT32, firstChild.getType());
-        assertEquals(1, hostChild.getInt(0));
-      }
-    }
-  }
-
   // ============================================================================
   // Empty-row (0 rows) handling
   // ============================================================================
@@ -2779,11 +2500,10 @@ public class ProtobufTest {
   void testZeroRowInput() {
     try (Table input = new Table.TestBuilder().column(new Byte[][]{}).build();
          ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0),
-             makeScalarSchema(
-                 new int[]{1, 2},
-                 new int[]{DType.INT64.getTypeId().getNativeId(),
-                           DType.STRING.getTypeId().getNativeId()},
-                 new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT}), true)) {
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.INT64)
+                 .addField(2, DType.STRING)
+                 .build(), true)) {
       assertEquals(0, result.getRowCount());
       assertEquals(DType.STRUCT, result.getType());
       assertEquals(2, result.getNumChildren());
@@ -2931,9 +2651,9 @@ public class ProtobufTest {
   void testNullBinaryInputThrows() {
     assertThrows(IllegalArgumentException.class, () ->
         Protobuf.decodeToStruct(null,
-            makeScalarSchema(new int[]{1},
-                new int[]{DType.INT64.getTypeId().getNativeId()},
-                new int[]{0}), true));
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.INT64)
+                .build(), true));
   }
 
   @Test
