@@ -76,10 +76,7 @@ pipeline {
         ART_CREDS = credentials("urm_creds")
         ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME}"
 
-        PVC = credentials("pvc")
         CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
-        PVC_MOUNT_PATH = "/pvc"
-        PVC_WORKSPACE = "/pvc/workspace/${BUILD_TAG}"
     }
 
     stages {
@@ -122,7 +119,6 @@ pipeline {
                     label "docker-${BUILD_TAG}"
                     cloud "${common.CLOUD_NAME}"
                     yaml pod.getDockerBuildYAML()
-                    workspaceVolume persistentVolumeClaimWorkspaceVolume(claimName: "${PVC}", readOnly: false)
                     customWorkspace "${CUSTOM_WORKSPACE}"
                 }
             }
@@ -215,7 +211,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         kubernetes {
                             label "cu12-${BUILD_TAG}"
                             cloud "${common.CLOUD_NAME}"
-                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU12}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '10', '48Gi')
+                            yaml pod.getGPUYAML("${IMAGE_PREMERGE_CU12}", "${env.GPU_RESOURCE}", '10', '48Gi')
                             customWorkspace "${CUSTOM_WORKSPACE}-cu12"
                         }
                     }
@@ -236,7 +232,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                                         sh 'bash ci/fuzz-test.sh'
                                     } catch (e) {
                                         common.printJVMCoreDumps(this)
-                                        common.syncDir(this, "${CUSTOM_WORKSPACE}-cu12", "${PVC_WORKSPACE}-cu12", false, ['.m2/'])
+                                        common.uploadDebugBundle(this, 'spark-rapids-jni', 'cuda12')
                                         throw e
                                     }
                                 }
@@ -253,7 +249,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         kubernetes {
                             label "cu13-${BUILD_TAG}"
                             cloud "${common.CLOUD_NAME}"
-                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU13}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '10', '48Gi', '590.44.01')
+                            yaml pod.getGPUYAMLwithDriver("${IMAGE_PREMERGE_CU13}", "${env.GPU_RESOURCE}", '590.44.01', '10', '48Gi')
                             customWorkspace "${CUSTOM_WORKSPACE}-cu13"
                         }
                     }
@@ -274,7 +270,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                                         sh 'bash ci/fuzz-test.sh'
                                     } catch (e) {
                                         common.printJVMCoreDumps(this)
-                                        common.syncDir(this, "${CUSTOM_WORKSPACE}-cu13", "${PVC_WORKSPACE}-cu13", false, ['.m2/'])
+                                        common.uploadDebugBundle(this, 'spark-rapids-jni', 'cuda13')
                                         throw e
                                     }
                                 }

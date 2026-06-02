@@ -37,25 +37,14 @@ public class ProtobufSchemaDescriptorTest {
       int encoding,
       int[] enumValidValues,
       byte[][] enumNames) {
-    int outputType = (encoding == Protobuf.ENC_ENUM_STRING)
-        ? ai.rapids.cudf.DType.STRING.getTypeId().getNativeId()
-        : ai.rapids.cudf.DType.INT32.getTypeId().getNativeId();
-    return new ProtobufSchemaDescriptor(
-        new int[]{1},
-        new int[]{-1},
-        new int[]{0},
-        new int[]{Protobuf.WT_VARINT},
-        new int[]{outputType},
-        new int[]{encoding},
-        new boolean[]{isRepeated},
-        new boolean[]{false},
-        new boolean[]{hasDefaultValue},
-        new long[]{0},
-        new double[]{0.0},
-        new boolean[]{false},
-        new byte[][]{null},
-        new int[][]{enumValidValues},
-        new byte[][][]{enumNames});
+    DType outputType = (encoding == Protobuf.ENC_ENUM_STRING) ? DType.STRING : DType.INT32;
+    ProtobufSchemaDescriptorBuilder b =
+        new ProtobufSchemaDescriptorBuilder().addField(1, outputType).encoding(encoding);
+    if (isRepeated) b.repeated();
+    if (hasDefaultValue) b.hasDefault();
+    if (enumValidValues != null) b.enumValidValues(enumValidValues);
+    if (enumNames != null) b.enumNames(enumNames);
+    return b.build();
   }
 
   @Test
@@ -67,64 +56,25 @@ public class ProtobufSchemaDescriptorTest {
   @Test
   void testFieldCannotBeBothRepeatedAndRequired() {
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1},
-            new int[]{-1},
-            new int[]{0},
-            new int[]{Protobuf.WT_VARINT},
-            new int[]{ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT},
-            new boolean[]{true},
-            new boolean[]{true},
-            new boolean[]{false},
-            new long[]{0},
-            new double[]{0.0},
-            new boolean[]{false},
-            new byte[][]{null},
-            new int[][]{null},
-            new byte[][][]{null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.INT32).repeated().required()
+            .build());
   }
 
   @Test
   void testStructFieldCannotCarryDefaultValue() {
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1},
-            new int[]{-1},
-            new int[]{0},
-            new int[]{Protobuf.WT_LEN},
-            new int[]{ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT},
-            new boolean[]{false},
-            new boolean[]{false},
-            new boolean[]{true},
-            new long[]{0},
-            new double[]{0.0},
-            new boolean[]{false},
-            new byte[][]{null},
-            new int[][]{null},
-            new byte[][][]{null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.STRUCT).hasDefault()
+            .build());
   }
 
   @Test
   void testListFieldCannotCarryDefaultValue() {
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1},
-            new int[]{-1},
-            new int[]{0},
-            new int[]{Protobuf.WT_LEN},
-            new int[]{ai.rapids.cudf.DType.LIST.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT},
-            new boolean[]{false},
-            new boolean[]{false},
-            new boolean[]{true},
-            new long[]{0},
-            new double[]{0.0},
-            new boolean[]{false},
-            new byte[][]{null},
-            new int[][]{null},
-            new byte[][][]{null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.LIST).hasDefault()
+            .build());
   }
 
   @Test
@@ -147,173 +97,70 @@ public class ProtobufSchemaDescriptorTest {
   @Test
   void testDuplicateFieldNumbersUnderSameParentRejected() {
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1, 7, 7},
-            new int[]{-1, 0, 0},
-            new int[]{0, 1, 1},
-            new int[]{Protobuf.WT_LEN, Protobuf.WT_VARINT, Protobuf.WT_VARINT},
-            new int[]{
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-            new boolean[]{false, false, false},
-            new boolean[]{false, false, false},
-            new boolean[]{false, false, false},
-            new long[]{0, 0, 0},
-            new double[]{0.0, 0.0, 0.0},
-            new boolean[]{false, false, false},
-            new byte[][]{null, null, null},
-            new int[][]{null, null, null},
-            new byte[][][]{null, null, null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.STRUCT)
+            .addField(7, DType.INT32).parent(0)
+            .addField(7, DType.INT32).parent(0)  // duplicate field number under same parent
+            .build());
   }
 
   @Test
   void testDuplicateFieldNumbersUnderDifferentParentsAllowed() {
     assertDoesNotThrow(() ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1, 2, 7, 7},
-            new int[]{-1, -1, 0, 1},
-            new int[]{0, 0, 1, 1},
-            new int[]{Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_VARINT, Protobuf.WT_VARINT},
-            new int[]{
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
-            new int[]{
-                Protobuf.ENC_DEFAULT,
-                Protobuf.ENC_DEFAULT,
-                Protobuf.ENC_DEFAULT,
-                Protobuf.ENC_DEFAULT},
-            new boolean[]{false, false, false, false},
-            new boolean[]{false, false, false, false},
-            new boolean[]{false, false, false, false},
-            new long[]{0, 0, 0, 0},
-            new double[]{0.0, 0.0, 0.0, 0.0},
-            new boolean[]{false, false, false, false},
-            new byte[][]{null, null, null, null},
-            new int[][]{null, null, null, null},
-            new byte[][][]{null, null, null, null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.STRUCT)
+            .addField(2, DType.STRUCT)
+            .addField(7, DType.INT32).parent(0)
+            .addField(7, DType.INT32).parent(1)  // same number, different parents -> allowed
+            .build());
   }
 
   @Test
   void testChildParentMustBeStruct() {
+    // Field 2 is parented under field 1, but field 1 is INT32 (not STRUCT) -> illegal.
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1, 2},
-            new int[]{-1, 0},
-            new int[]{0, 1},
-            new int[]{Protobuf.WT_VARINT, Protobuf.WT_VARINT},
-            new int[]{
-                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-            new boolean[]{false, false},
-            new boolean[]{false, false},
-            new boolean[]{false, false},
-            new long[]{0, 0},
-            new double[]{0.0, 0.0},
-            new boolean[]{false, false},
-            new byte[][]{null, null},
-            new int[][]{null, null},
-            new byte[][][]{null, null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.INT32)
+            .addField(2, DType.INT32).parent(0)
+            .build());
   }
 
   @Test
   void testEncodingCompatibilityValidation() {
+    // INT32 with a 32-bit wire type under default (non-fixed) encoding is incompatible.
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1},
-            new int[]{-1},
-            new int[]{0},
-            new int[]{Protobuf.WT_32BIT},
-            new int[]{ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT},
-            new boolean[]{false},
-            new boolean[]{false},
-            new boolean[]{false},
-            new long[]{0},
-            new double[]{0.0},
-            new boolean[]{false},
-            new byte[][]{null},
-            new int[][]{null},
-            new byte[][][]{null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.INT32).wireType(Protobuf.WT_32BIT)
+            .build());
 
+    // Enum-as-string must use the varint wire type; WT_LEN is incompatible.
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1},
-            new int[]{-1},
-            new int[]{0},
-            new int[]{Protobuf.WT_LEN},
-            new int[]{ai.rapids.cudf.DType.STRING.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_ENUM_STRING},
-            new boolean[]{false},
-            new boolean[]{false},
-            new boolean[]{false},
-            new long[]{0},
-            new double[]{0.0},
-            new boolean[]{false},
-            new byte[][]{null},
-            new int[][]{{0, 1}},
-            new byte[][][]{new byte[][]{"A".getBytes(), "B".getBytes()}}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.STRING).wireType(Protobuf.WT_LEN)
+            .enumMetadata(new int[]{0, 1}, new byte[][]{"A".getBytes(), "B".getBytes()})
+            .build());
   }
 
   @Test
   void testDepthAboveSupportedLimitRejected() {
-    assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
-            new int[]{-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
-            new int[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
-            new int[]{Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_LEN,
-                Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_LEN,
-                Protobuf.WT_LEN, Protobuf.WT_LEN, Protobuf.WT_VARINT},
-            new int[]{
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.STRUCT.getTypeId().getNativeId(),
-                ai.rapids.cudf.DType.INT32.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
-                Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
-                Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
-                Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-            new boolean[]{false, false, false, false, false, false, false, false, false, false, false},
-            new boolean[]{false, false, false, false, false, false, false, false, false, false, false},
-            new boolean[]{false, false, false, false, false, false, false, false, false, false, false},
-            new long[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-            new double[]{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
-            new boolean[]{false, false, false, false, false, false, false, false, false, false, false},
-            new byte[][]{null, null, null, null, null, null, null, null, null, null, null},
-            new int[][]{null, null, null, null, null, null, null, null, null, null, null},
-            new byte[][][]{null, null, null, null, null, null, null, null, null, null, null}));
+    // Build a STRUCT chain reaching depth 10 (one past the limit), capped with an INT32 leaf.
+    ProtobufSchemaDescriptorBuilder builder = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.STRUCT);
+    for (int i = 1; i <= 9; i++) {
+      builder.addField(i + 1, DType.STRUCT).parent(i - 1);
+    }
+    builder.addField(11, DType.INT32).parent(9);  // depth 10 -> exceeds limit
+    assertThrows(IllegalArgumentException.class, builder::build);
   }
 
   @Test
   void testSerializationRoundTripPreservesContentsAndIsolation() throws Exception {
-    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptor(
-        new int[]{1},
-        new int[]{-1},
-        new int[]{0},
-        new int[]{Protobuf.WT_VARINT},
-        new int[]{ai.rapids.cudf.DType.STRING.getTypeId().getNativeId()},
-        new int[]{Protobuf.ENC_ENUM_STRING},
-        new boolean[]{false},
-        new boolean[]{false},
-        new boolean[]{false},
-        new long[]{7},
-        new double[]{0.0},
-        new boolean[]{false},
-        new byte[][]{"def".getBytes()},
-        new int[][]{{0, 1}},
-        new byte[][][]{new byte[][]{"A".getBytes(), "B".getBytes()}});
+    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.STRING)
+            .enumMetadata(new int[]{0, 1}, new byte[][]{"A".getBytes(), "B".getBytes()})
+            .defaultString("def".getBytes())
+            .defaultInt(7)  // non-zero numeric default to exercise scalar round-trip
+        .build();
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
@@ -327,6 +174,7 @@ public class ProtobufSchemaDescriptorTest {
 
     assertEquals(original.numFields(), roundTrip.numFields());
     assertArrayEquals(original.fieldNumbers, roundTrip.fieldNumbers);
+    assertArrayEquals(original.defaultInts, roundTrip.defaultInts);
     assertArrayEquals(original.defaultStrings[0], roundTrip.defaultStrings[0]);
     assertArrayEquals(original.enumValidValues[0], roundTrip.enumValidValues[0]);
     assertArrayEquals(original.enumNames[0][0], roundTrip.enumNames[0][0]);
@@ -387,69 +235,27 @@ public class ProtobufSchemaDescriptorTest {
 
   @Test
   void testNestedFieldMustShareOutputFlagWithParent() {
-    int structType = DType.STRUCT.getTypeId().getNativeId();
-    int intType = DType.INT32.getTypeId().getNativeId();
     // Hidden parent struct with a visible child -> illegal.
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1, 1},
-            new int[]{-1, 0},
-            new int[]{0, 1},
-            new int[]{Protobuf.WT_LEN, Protobuf.WT_VARINT},
-            new int[]{structType, intType},
-            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-            new boolean[]{false, false},
-            new boolean[]{false, false},
-            new boolean[]{false, false},
-            new boolean[]{false, true},     // hidden parent, visible child
-            new long[]{0, 0},
-            new double[]{0.0, 0.0},
-            new boolean[]{false, false},
-            new byte[][]{null, null},
-            new int[][]{null, null},
-            new byte[][][]{null, null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.STRUCT).isOutput(false)
+            .addField(1, DType.INT32).parent(0).isOutput(true)
+            .build());
 
     // Reverse direction: visible parent struct with a hidden child -> also illegal.
     assertThrows(IllegalArgumentException.class, () ->
-        new ProtobufSchemaDescriptor(
-            new int[]{1, 1},
-            new int[]{-1, 0},
-            new int[]{0, 1},
-            new int[]{Protobuf.WT_LEN, Protobuf.WT_VARINT},
-            new int[]{structType, intType},
-            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-            new boolean[]{false, false},
-            new boolean[]{false, false},
-            new boolean[]{false, false},
-            new boolean[]{true, false},     // visible parent, hidden child
-            new long[]{0, 0},
-            new double[]{0.0, 0.0},
-            new boolean[]{false, false},
-            new byte[][]{null, null},
-            new int[][]{null, null},
-            new byte[][][]{null, null}));
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.STRUCT).isOutput(true)
+            .addField(1, DType.INT32).parent(0).isOutput(false)
+            .build());
   }
 
   @Test
   void testHiddenFieldRoundTripsThroughSerialization() throws Exception {
-    int intType = DType.INT32.getTypeId().getNativeId();
-    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptor(
-        new int[]{1, 2},
-        new int[]{-1, -1},
-        new int[]{0, 0},
-        new int[]{Protobuf.WT_VARINT, Protobuf.WT_VARINT},
-        new int[]{intType, intType},
-        new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-        new boolean[]{false, false},
-        new boolean[]{false, false},
-        new boolean[]{false, false},
-        new boolean[]{true, false},  // second field hidden
-        new long[]{0, 0},
-        new double[]{0.0, 0.0},
-        new boolean[]{false, false},
-        new byte[][]{null, null},
-        new int[][]{null, null},
-        new byte[][][]{null, null});
+    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32)
+        .addField(2, DType.INT32).isOutput(false)  // second field hidden
+        .build();
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
@@ -464,24 +270,10 @@ public class ProtobufSchemaDescriptorTest {
 
   @Test
   void testLegacyStreamWithoutIsOutputBackfillsAllOutput() throws Exception {
-    int intType = DType.INT32.getTypeId().getNativeId();
-    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptor(
-        new int[]{1, 2},
-        new int[]{-1, -1},
-        new int[]{0, 0},
-        new int[]{Protobuf.WT_VARINT, Protobuf.WT_VARINT},
-        new int[]{intType, intType},
-        new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-        new boolean[]{false, false},
-        new boolean[]{false, false},
-        new boolean[]{false, false},
-        new boolean[]{true, true},
-        new long[]{0, 0},
-        new double[]{0.0, 0.0},
-        new boolean[]{false, false},
-        new byte[][]{null, null},
-        new int[][]{null, null},
-        new byte[][][]{null, null});
+    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32)
+        .addField(2, DType.INT32)
+        .build();
 
     // Simulate a stream written before isOutput existed: such a stream deserializes the field as
     // null. The constructor forbids a null isOutput, so null it out via reflection before
