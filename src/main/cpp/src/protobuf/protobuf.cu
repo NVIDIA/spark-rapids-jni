@@ -1065,6 +1065,10 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
       auto element_type   = cudf::data_type{schema[schema_idx].output_type};
       int32_t total_count = w.total_count;
 
+      if (!is_output_field(context, schema_idx) && element_type.id() == cudf::type_id::STRUCT) {
+        continue;
+      }
+
       // Repeated MessageType is not supported in this part; full implementation lands in
       // parts 3b/3c. Fail fast rather than silently returning a null LIST<STRUCT>, which
       // would be indistinguishable from a real all-null result downstream.

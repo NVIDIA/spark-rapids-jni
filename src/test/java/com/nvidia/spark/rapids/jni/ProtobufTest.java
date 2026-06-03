@@ -2867,6 +2867,31 @@ public class ProtobufTest {
   }
 
   @Test
+  void testHiddenRepeatedMessageAbsentDoesNotFail() {
+    // message Msg { int32 a = 1; repeated Inner hidden = 2; }
+    // message Inner { int32 x = 1; }
+    // Wire data omits hidden; it should be validated/scanned, then dropped from the output.
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(7)));
+
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32)
+        .addField(2, DType.STRUCT).repeated().isOutput(false).down()
+            .addField(1, DType.INT32).isOutput(false)
+        .up()
+        .build();
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0), schema, true)) {
+      assertEquals(DType.STRUCT, result.getType());
+      assertEquals(1, result.getNumChildren());
+      try (ColumnVector childA = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector expectedA = ColumnVector.fromBoxedInts(7)) {
+        AssertUtils.assertColumnsAreEqual(expectedA, childA);
+      }
+    }
+  }
+
+  @Test
   void testHiddenRequiredFieldStillValidates() {
     // message Msg { int32 a = 1; int32 b = 2 [required]; } — b is hidden but required;
     // wire data omits b. In failfast mode the missing required field must still throw.
