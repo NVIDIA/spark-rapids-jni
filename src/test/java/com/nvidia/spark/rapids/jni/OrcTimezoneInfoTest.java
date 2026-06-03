@@ -321,4 +321,119 @@ public class OrcTimezoneInfoTest {
     assertTrue(ex.getMessage().contains("Failed to extract"),
         "terminal throw should mention 'Failed to extract': " + ex.getMessage());
   }
+
+  // Helper: TimeZone whose getOffset is constant. Probing finds no transitions
+  // across any anchor year and returns null, so extractDstRuleFromZoneRules is
+  // invoked with the hand-crafted ZoneRules in each test below.
+  private static TimeZone newConstantOffsetWithDstFlag(String id) {
+    TimeZone tz = new TimeZone() {
+      @Override public int getOffset(long instant) { return 0; }
+      @Override public int getOffset(int era, int year, int month, int day, int dow, int ms) {
+        return 0;
+      }
+      @Override public int getRawOffset() { return 0; }
+      @Override public void setRawOffset(int offsetMillis) {}
+      @Override public boolean useDaylightTime() { return true; }
+      @Override public boolean inDaylightTime(Date date) { return false; }
+    };
+    tz.setID(id);
+    return tz;
+  }
+
+  @Test
+  void testExtractDstRuleThrowsOnZeroDeltaRule() {
+    // Two recurring rules where the second one has offsetBefore == offsetAfter
+    // (delta == 0). Triggers the "Unsupported zero-delta ORC DST rule" branch.
+    TimeZone tz = newConstantOffsetWithDstFlag("Synthetic/ZeroDelta");
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffsetTransitionRule startRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, ZoneOffset.ofHours(1));
+    ZoneOffsetTransitionRule zeroDeltaRule = ZoneOffsetTransitionRule.of(
+        Month.OCTOBER, 25, DayOfWeek.SUNDAY, LocalTime.of(1, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, base);  // zero delta
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        java.util.Arrays.asList(startRule, zeroDeltaRule));
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule("Synthetic/ZeroDelta", tz, rules));
+    assertTrue(ex.getMessage().contains("zero-delta"),
+        "expected 'zero-delta' in message: " + ex.getMessage());
+  }
+
+  @Test
+  void testExtractDstRuleThrowsOnBothPositiveDeltaRules() {
+    // Two rules both with positive delta — endTransitionRule stays null.
+    // Triggers the "Failed to identify ORC DST start/end rules" branch.
+    TimeZone tz = newConstantOffsetWithDstFlag("Synthetic/BothPositive");
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus1 = ZoneOffset.ofHours(1);
+    ZoneOffsetTransitionRule ruleA = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus1);
+    ZoneOffsetTransitionRule ruleB = ZoneOffsetTransitionRule.of(
+        Month.JUNE, 1, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus1);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        java.util.Arrays.asList(ruleA, ruleB));
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule("Synthetic/BothPositive", tz, rules));
+    assertTrue(ex.getMessage().contains("Failed to identify"),
+        "expected 'Failed to identify' in message: " + ex.getMessage());
+  }
+
+  @Test
+  void testExtractDstRuleThrowsOnMismatchedSavings() {
+    // Start gains +1h, end loses -2h. Triggers the "Mismatched ORC DST savings"
+    // branch.
+    TimeZone tz = newConstantOffsetWithDstFlag("Synthetic/MismatchedSavings");
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus1 = ZoneOffset.ofHours(1);
+    ZoneOffset plus2 = ZoneOffset.ofHours(2);
+    ZoneOffsetTransitionRule startRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus1);
+    ZoneOffsetTransitionRule endRule = ZoneOffsetTransitionRule.of(
+        Month.NOVEMBER, 1, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus2, base);  // -2h, but start was +1h
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        java.util.Arrays.asList(startRule, endRule));
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule("Synthetic/MismatchedSavings", tz, rules));
+    assertTrue(ex.getMessage().contains("Mismatched ORC DST savings"),
+        "expected 'Mismatched ORC DST savings' in message: " + ex.getMessage());
+  }
+
+  @Test
+  void testExtractDstRuleThrowsOnUnsupportedRuleShape() {
+    // First rule has null dayOfWeek (DOM-shaped rule, fixed day-of-month).
+    // Triggers the "Unsupported ORC DST transition rule shape" branch in
+    // fillDstRuleFromTransitionRule.
+    TimeZone tz = newConstantOffsetWithDstFlag("Synthetic/DomRule");
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus1 = ZoneOffset.ofHours(1);
+    ZoneOffsetTransitionRule domRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 15, null, LocalTime.of(2, 0), false,  // null dayOfWeek
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus1);
+    ZoneOffsetTransitionRule endRule = ZoneOffsetTransitionRule.of(
+        Month.OCTOBER, 25, DayOfWeek.SUNDAY, LocalTime.of(1, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus1, base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        java.util.Arrays.asList(domRule, endRule));
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule("Synthetic/DomRule", tz, rules));
+    assertTrue(ex.getMessage().contains("transition rule shape"),
+        "expected 'transition rule shape' in message: " + ex.getMessage());
+  }
 }
