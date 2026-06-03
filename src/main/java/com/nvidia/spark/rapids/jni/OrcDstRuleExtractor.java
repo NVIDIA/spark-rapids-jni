@@ -376,12 +376,19 @@ final class OrcDstRuleExtractor {
           rule.endDayOfWeek, rule.endTime, rule.endTimeMode, rule.endMode,
           rawOffsetMs, rule.dstSavings, false);
 
+      // All sample points below land within the wall-clock year y for any
+      // real DST rule (boundaries ±12h, plus monthly noon-UTC anchors), so
+      // skip the per-sample year derivation and re-computation of these
+      // bounds inside computeDstOffset -- ~186 computeTransitionUtcMillis
+      // calls per verifyDstRule otherwise. Hand the already-computed bounds
+      // to the variant.
       long[] boundaries = {dstStart, dstEnd};
       for (long boundary : boundaries) {
         long from = boundary - 12 * 3600_000L;
         long to = boundary + 12 * 3600_000L;
         for (long ms = from; ms <= to; ms += 3600_000L) {
-          if (tz.getOffset(ms) != computeDstOffset(ms, rawOffsetMs, rule)) {
+          if (tz.getOffset(ms) != computeDstOffsetWithBounds(ms, rawOffsetMs, rule,
+              dstStart, dstEnd)) {
             return false;
           }
         }
@@ -389,7 +396,8 @@ final class OrcDstRuleExtractor {
 
       for (int m = 1; m <= 12; m++) {
         long ms = OrcTimezoneInfo.utcMillisForDate(y, m, 1) + 12 * 3600_000L;
-        if (tz.getOffset(ms) != computeDstOffset(ms, rawOffsetMs, rule)) {
+        if (tz.getOffset(ms) != computeDstOffsetWithBounds(ms, rawOffsetMs, rule,
+            dstStart, dstEnd)) {
           return false;
         }
       }
@@ -416,7 +424,15 @@ final class OrcDstRuleExtractor {
     long dstEnd = computeTransitionUtcMillis(year, rule.endMonth, rule.endDay,
         rule.endDayOfWeek, rule.endTime, rule.endTimeMode, rule.endMode,
         rawOffsetMs, rule.dstSavings, false);
+    return computeDstOffsetWithBounds(utcMs, rawOffsetMs, rule, dstStart, dstEnd);
+  }
 
+  /**
+   * In-DST classification with bounds supplied by the caller. Lets the hot
+   * verify loop skip the per-sample year derivation and bounds recomputation.
+   */
+  private static int computeDstOffsetWithBounds(long utcMs, int rawOffsetMs, DstRule rule,
+      long dstStart, long dstEnd) {
     boolean inDst = dstStart < dstEnd
         ? (utcMs >= dstStart && utcMs < dstEnd)
         : (utcMs >= dstStart || utcMs < dstEnd);
