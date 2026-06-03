@@ -18,8 +18,15 @@ package com.nvidia.spark.rapids.jni;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+import java.time.Month;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
+import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.TimeZone;
 
@@ -211,6 +218,45 @@ public class OrcTimezoneInfoTest {
     // Fixed-offset zones never observe DST.
     assertNull(extractDstRuleFor("UTC"));
     assertNull(extractDstRuleFor("+05:30"));
+  }
+
+  @Test
+  void testExtractDstRuleThrowsOnUnsupportedRuleCount() {
+    // Synthesize a TimeZone whose getOffset is constant. The probing path
+    // (extractDstRuleByProbing) observes no transitions across all anchor
+    // years and returns null, so extractDstRuleFromZoneRules runs with the
+    // hand-crafted ZoneRules below.
+    TimeZone constantOffsetWithDstFlag = new TimeZone() {
+      @Override public int getOffset(long instant) { return 0; }
+      @Override public int getOffset(int era, int year, int month, int day, int dow, int ms) {
+        return 0;
+      }
+      @Override public int getRawOffset() { return 0; }
+      @Override public void setRawOffset(int offsetMillis) {}
+      @Override public boolean useDaylightTime() { return true; }
+      @Override public boolean inDaylightTime(Date date) { return false; }
+    };
+    constantOffsetWithDstFlag.setID("Synthetic/UnsupportedRuleCount");
+
+    // ZoneRules with exactly one recurring rule. Production code rejects any
+    // count outside {0, 2}, so this triggers the "Unsupported ORC DST rule
+    // count" branch in extractDstRuleFromZoneRules.
+    ZoneOffset baseOffset = ZoneOffset.UTC;
+    ZoneOffsetTransitionRule lonelyRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        baseOffset, baseOffset, ZoneOffset.ofHours(1));
+    ZoneRules syntheticRules = ZoneRules.of(
+        baseOffset, baseOffset,
+        Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(lonelyRule));
+
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule(
+            "Synthetic/UnsupportedRuleCount", constantOffsetWithDstFlag, syntheticRules));
+    assertTrue(ex.getMessage().contains("Synthetic/UnsupportedRuleCount"),
+        "exception message should name the offending zone: " + ex.getMessage());
   }
 
   /**
