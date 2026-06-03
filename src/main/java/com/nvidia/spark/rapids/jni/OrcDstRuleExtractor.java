@@ -320,6 +320,15 @@ final class OrcDstRuleExtractor {
    * Decode a UTC transition instant into
    * {@code [month(0-11), baseDay, dayOfWeek(1-7), timeMs, mode]}.
    *
+   * <p><b>Precondition:</b> {@code utcMs} is the first millisecond at which
+   * the new offset applies — the convention returned by
+   * {@link OrcTimezoneInfo#binarySearchTransition}. With that convention,
+   * {@code utcMs + rawOffsetMs} recovers the standard-time wall clock at
+   * the transition moment for both spring-forward (offset before == rawOffset)
+   * and fall-back (offset after == rawOffset). If a future change shifts the
+   * binary-search return convention by one ms, the decoded {@code timeMs}
+   * will drift and {@code baseDay} can cross a midnight boundary.
+   *
    * <p>Recurring weekday rules are encoded as DOW_GE_DOM (mode=2). The base
    * day is the earliest possible day of the matching occurrence in the month:
    * 1st=1, 2nd=8, 3rd=15, 4th=22, last={@code monthLength - 6}. This mirrors
