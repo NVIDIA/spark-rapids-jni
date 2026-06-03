@@ -542,6 +542,54 @@ public class OrcTimezoneInfoTest {
   }
 
   @Test
+  void testExtractDstRuleFebruaryClampDoesNotThrow() {
+    // ZoneOffsetTransitionRule.getDayOfMonthIndicator()=29 for FEBRUARY
+    // forces ruleDay (29) > monthLength (28 in 2026, non-leap). Without the
+    // Math.min(ruleDay, monthLength) anchor clamp in computeRuleDay's
+    // MODE_DOW_GE_DOM branch, LocalDate.of(year, FEBRUARY, 29) on a non-leap
+    // year would throw DateTimeException. Path B is forced to fail (custom
+    // getDSTSavings()==0 mismatch) so Path A runs; we assert the rule extracts
+    // and the resulting startDay sits inside the clamp range.
+    TimeZone tz = new TimeZone() {
+      @Override public int getOffset(long instant) {
+        int year = LocalDate.ofEpochDay(Math.floorDiv(instant, 86_400_000L)).getYear();
+        long dstStart = nthDayOfWeekUtcMs(year, Month.FEBRUARY, DayOfWeek.SUNDAY, 4) + 2 * 3_600_000L;
+        long dstEnd = nthDayOfWeekUtcMs(year, Month.NOVEMBER, DayOfWeek.SUNDAY, 1) + 1 * 3_600_000L;
+        return (instant >= dstStart && instant < dstEnd) ? 2 * 3_600_000 : 0;
+      }
+      @Override public int getOffset(int era, int year, int month, int day, int dow, int ms) {
+        return 0;
+      }
+      @Override public int getRawOffset() { return 0; }
+      @Override public void setRawOffset(int offsetMillis) {}
+      @Override public boolean useDaylightTime() { return true; }
+      @Override public int getDSTSavings() { return 0; } // force Path B verify to fail
+      @Override public boolean inDaylightTime(Date date) { return false; }
+    };
+    tz.setID("Synthetic/FebruaryClamp");
+
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus2 = ZoneOffset.ofHours(2);
+    ZoneOffsetTransitionRule startRule = ZoneOffsetTransitionRule.of(
+        Month.FEBRUARY, 29, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus2);
+    ZoneOffsetTransitionRule endRule = ZoneOffsetTransitionRule.of(
+        Month.NOVEMBER, 1, DayOfWeek.SUNDAY, LocalTime.of(1, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus2, base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        Arrays.asList(startRule, endRule));
+
+    OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
+        "Synthetic/FebruaryClamp", tz, rules);
+    assertNotNull(rule, "Feb indicator=29 must not throw; clamp should yield a valid day");
+    assertTrue(rule.startDay >= 1 && rule.startDay <= 28,
+        "startDay must be clamped to [1, 28], got: " + rule.startDay);
+  }
+
+  @Test
   void testExtractDstRuleViaZoneRulesFallback() {
     // Path A (ZoneRules fallback) success scenario. The custom TimeZone
     // observes a real +2h DST window but reports getDSTSavings()==+1h.
