@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids.jni;
 import org.junit.jupiter.api.Test;
 
 import java.time.DayOfWeek;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.Month;
 import java.time.ZoneId;
@@ -26,6 +27,7 @@ import java.time.ZoneOffset;
 import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -305,7 +307,7 @@ public class OrcTimezoneInfoTest {
     // fail and the terminal "Failed to extract" throw fires.
     ZoneOffset baseOffset = ZoneOffset.UTC;
     ZoneOffsetTransition historical = ZoneOffsetTransition.of(
-        java.time.LocalDateTime.of(1900, 1, 1, 0, 0),
+        LocalDateTime.of(1900, 1, 1, 0, 0),
         ZoneOffset.ofHours(-1), baseOffset);
     ZoneRules rules = ZoneRules.of(
         baseOffset, baseOffset,
@@ -356,7 +358,7 @@ public class OrcTimezoneInfoTest {
         base, base, base);  // zero delta
     ZoneRules rules = ZoneRules.of(base, base,
         Collections.emptyList(), Collections.emptyList(),
-        java.util.Arrays.asList(startRule, zeroDeltaRule));
+        Arrays.asList(startRule, zeroDeltaRule));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/ZeroDelta", tz, rules));
     assertTrue(ex.getMessage().contains("zero-delta"),
@@ -380,7 +382,7 @@ public class OrcTimezoneInfoTest {
         base, base, plus1);
     ZoneRules rules = ZoneRules.of(base, base,
         Collections.emptyList(), Collections.emptyList(),
-        java.util.Arrays.asList(ruleA, ruleB));
+        Arrays.asList(ruleA, ruleB));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/BothPositive", tz, rules));
     assertTrue(ex.getMessage().contains("Failed to identify"),
@@ -405,7 +407,7 @@ public class OrcTimezoneInfoTest {
         base, plus2, base);  // -2h, but start was +1h
     ZoneRules rules = ZoneRules.of(base, base,
         Collections.emptyList(), Collections.emptyList(),
-        java.util.Arrays.asList(startRule, endRule));
+        Arrays.asList(startRule, endRule));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/MismatchedSavings", tz, rules));
     assertTrue(ex.getMessage().contains("Mismatched ORC DST savings"),
@@ -430,9 +432,35 @@ public class OrcTimezoneInfoTest {
         base, plus1, base);
     ZoneRules rules = ZoneRules.of(base, base,
         Collections.emptyList(), Collections.emptyList(),
-        java.util.Arrays.asList(domRule, endRule));
+        Arrays.asList(domRule, endRule));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/DomRule", tz, rules));
+    assertTrue(ex.getMessage().contains("transition rule shape"),
+        "expected 'transition rule shape' in message: " + ex.getMessage());
+  }
+
+  @Test
+  void testExtractDstRuleThrowsOnNegativeDayIndicator() {
+    // Negative dayOfMonthIndicator encodes a DOW_LE_DOM rule ("last <dayOfWeek>
+    // on or before day"); fillDstRuleFromTransitionRule rejects it via the
+    // same "Unsupported ORC DST transition rule shape" guard as null dayOfWeek
+    // (the two sub-cases share one || condition; this test pins the second).
+    TimeZone tz = newConstantOffsetWithDstFlag("Synthetic/NegativeIndicator");
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus1 = ZoneOffset.ofHours(1);
+    ZoneOffsetTransitionRule negativeIndicatorRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, -1, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus1);
+    ZoneOffsetTransitionRule endRule = ZoneOffsetTransitionRule.of(
+        Month.OCTOBER, 25, DayOfWeek.SUNDAY, LocalTime.of(1, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus1, base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        Arrays.asList(negativeIndicatorRule, endRule));
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule("Synthetic/NegativeIndicator", tz, rules));
     assertTrue(ex.getMessage().contains("transition rule shape"),
         "expected 'transition rule shape' in message: " + ex.getMessage());
   }
