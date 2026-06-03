@@ -95,6 +95,12 @@ final class OrcDstRuleExtractor {
    * Extract the recurring DST rule for a zone, or {@code null} if the zone has
    * no DST.
    *
+   * @param timezoneId IANA timezone id; used only in exception messages
+   * @param tz {@link TimeZone} for the zone; must describe the same zone as
+   *     {@code rules}
+   * @param rules {@link ZoneRules} for the zone
+   * @return the recurring DST rule, or {@code null} if the zone has no DST
+   *     ({@code rules.isFixedOffset()} or {@code !tz.useDaylightTime()})
    * @throws IllegalStateException if the zone reports DST but neither
    *     extraction path produces a usable rule — for example, an unsupported
    *     {@link ZoneRules#getTransitionRules()} count (not 0 and not 2), a
