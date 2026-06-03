@@ -218,7 +218,7 @@ final class OrcDstRuleExtractor {
 
   private static int getTransitionRuleTimeMillis(ZoneOffsetTransitionRule transitionRule) {
     int secondOfDay = transitionRule.isMidnightEndOfDay()
-        ? 24 * 3600
+        ? 24 * 3_600
         : transitionRule.getLocalTime().toSecondOfDay();
     return secondOfDay * 1000;
   }
