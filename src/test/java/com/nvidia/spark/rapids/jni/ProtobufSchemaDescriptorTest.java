@@ -96,9 +96,10 @@ public class ProtobufSchemaDescriptorTest {
   void testDuplicateFieldNumbersUnderSameParentRejected() {
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptorBuilder()
-            .addField(1, DType.STRUCT)
-            .addField(7, DType.INT32).parent(0)
-            .addField(7, DType.INT32).parent(0)  // duplicate field number under same parent
+            .addField(1, DType.STRUCT).down()
+                .addField(7, DType.INT32)
+                .addField(7, DType.INT32)  // duplicate field number under same parent
+            .up()
             .build());
   }
 
@@ -106,20 +107,23 @@ public class ProtobufSchemaDescriptorTest {
   void testDuplicateFieldNumbersUnderDifferentParentsAllowed() {
     assertDoesNotThrow(() ->
         new ProtobufSchemaDescriptorBuilder()
-            .addField(1, DType.STRUCT)
-            .addField(2, DType.STRUCT)
-            .addField(7, DType.INT32).parent(0)
-            .addField(7, DType.INT32).parent(1)  // same number, different parents -> allowed
+            .addField(1, DType.STRUCT).down()
+                .addField(7, DType.INT32)
+            .up()
+            .addField(2, DType.STRUCT).down()
+                .addField(7, DType.INT32)  // same number, different parents -> allowed
+            .up()
             .build());
   }
 
   @Test
   void testChildParentMustBeStruct() {
-    // Field 2 is parented under field 1, but field 1 is INT32 (not STRUCT) -> illegal.
+    // Field 2 is nested under field 1, but field 1 is INT32 (not STRUCT) -> illegal.
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptorBuilder()
-            .addField(1, DType.INT32)
-            .addField(2, DType.INT32).parent(0)
+            .addField(1, DType.INT32).down()
+                .addField(2, DType.INT32)
+            .up()
             .build());
   }
 
@@ -287,15 +291,17 @@ public class ProtobufSchemaDescriptorTest {
     // Hidden parent struct with a visible child -> illegal.
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptorBuilder()
-            .addField(1, DType.STRUCT).isOutput(false)
-            .addField(1, DType.INT32).parent(0).isOutput(true)
+            .addField(1, DType.STRUCT).isOutput(false).down()
+                .addField(1, DType.INT32).isOutput(true)
+            .up()
             .build());
 
     // Reverse direction: visible parent struct with a hidden child -> also illegal.
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptorBuilder()
-            .addField(1, DType.STRUCT).isOutput(true)
-            .addField(1, DType.INT32).parent(0).isOutput(false)
+            .addField(1, DType.STRUCT).isOutput(true).down()
+                .addField(1, DType.INT32).isOutput(false)
+            .up()
             .build());
   }
 
