@@ -391,6 +391,32 @@ public class OrcTimezoneInfoTest {
   }
 
   @Test
+  void testExtractDstRuleThrowsOnBothNegativeDeltaRules() {
+    // Symmetric to testExtractDstRuleThrowsOnBothPositiveDeltaRules. Two rules
+    // both with negative delta — startTransitionRule stays null. Pins the
+    // startTransitionRule == null sub-case of the || at line 157 so a future
+    // change from || to && cannot slip through.
+    TimeZone tz = newConstantOffsetWithDstFlag("Synthetic/BothNegative");
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus1 = ZoneOffset.ofHours(1);
+    ZoneOffsetTransitionRule ruleA = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus1, base);
+    ZoneOffsetTransitionRule ruleB = ZoneOffsetTransitionRule.of(
+        Month.NOVEMBER, 1, DayOfWeek.SUNDAY, LocalTime.of(1, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus1, base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        Arrays.asList(ruleA, ruleB));
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule("Synthetic/BothNegative", tz, rules));
+    assertTrue(ex.getMessage().contains("Failed to identify"),
+        "expected 'Failed to identify' in message: " + ex.getMessage());
+  }
+
+  @Test
   void testExtractDstRuleThrowsOnMismatchedSavings() {
     // Start gains +1h, end loses -2h. Triggers the "Mismatched ORC DST savings"
     // branch.
