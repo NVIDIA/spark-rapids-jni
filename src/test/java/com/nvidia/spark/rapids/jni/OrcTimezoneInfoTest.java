@@ -392,6 +392,22 @@ public class OrcTimezoneInfoTest {
   }
 
   @Test
+  void testExtractDstRuleThrowsWhenTzAndRulesDescribeDifferentZones() {
+    // The sanity-check in extractDstRule compares tz.getRawOffset() against
+    // rules.getStandardOffset(ref). Pair a constant-zero TimeZone with
+    // ZoneRules for America/New_York (rawOffset = -18_000_000 ms at the
+    // 2024 reference instant) so the check fires before either extraction
+    // path runs.
+    TimeZone zeroOffsetTz = newConstantOffsetWithDstFlag("Synthetic/OffsetMismatch");
+    ZoneRules newYorkRules = ZoneId.of("America/New_York").getRules();
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule(
+            "Synthetic/OffsetMismatch", zeroOffsetTz, newYorkRules));
+    assertTrue(ex.getMessage().contains("describe different zones"),
+        "expected 'describe different zones' in message: " + ex.getMessage());
+  }
+
+  @Test
   void testExtractDstRuleThrowsOnBothNegativeDeltaRules() {
     // Symmetric to testExtractDstRuleThrowsOnBothPositiveDeltaRules. Two rules
     // both with negative delta — startTransitionRule stays null. Pins the
