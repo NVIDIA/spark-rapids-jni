@@ -440,6 +440,36 @@ public class OrcTimezoneInfoTest {
   }
 
   @Test
+  void testExtractDstRuleThrowsWhenPathAVerificationFails() {
+    // Path A's verification-failure branch. The TimeZone returns offset 0
+    // everywhere, so probing finds no transitions and returns null. Path A
+    // then parses the two valid recurring rules into a DstRule with
+    // dstSavings=+1h, but verifyDstRuleAcrossReferenceYears compares
+    // computeDstOffset (which predicts +1h inside the DST window) against
+    // tz.getOffset (constant 0) — the mismatch causes verify to return
+    // false and the "ZoneRules ORC DST rule verification failed" branch
+    // fires.
+    TimeZone tz = newConstantOffsetWithDstFlag("Synthetic/PathAVerifyFail");
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus1 = ZoneOffset.ofHours(1);
+    ZoneOffsetTransitionRule startRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus1);
+    ZoneOffsetTransitionRule endRule = ZoneOffsetTransitionRule.of(
+        Month.NOVEMBER, 1, DayOfWeek.SUNDAY, LocalTime.of(1, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus1, base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        Arrays.asList(startRule, endRule));
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule("Synthetic/PathAVerifyFail", tz, rules));
+    assertTrue(ex.getMessage().contains("ZoneRules ORC DST rule verification failed"),
+        "expected verification-failed message: " + ex.getMessage());
+  }
+
+  @Test
   void testExtractDstRuleThrowsOnNegativeDayIndicator() {
     // Negative dayOfMonthIndicator encodes a DOW_LE_DOM rule ("last <dayOfWeek>
     // on or before day"); fillDstRuleFromTransitionRule rejects it via the
