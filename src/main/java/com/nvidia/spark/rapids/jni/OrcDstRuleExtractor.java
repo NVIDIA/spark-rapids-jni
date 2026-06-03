@@ -117,6 +117,20 @@ final class OrcDstRuleExtractor {
     if (rules.isFixedOffset() || !tz.useDaylightTime()) {
       return null;
     }
+    // Sanity-check that tz and rules describe the same zone. Both Path A and
+    // Path B assume this, but the two-argument signature lets a caller pass
+    // mismatched objects (the silent-GMT trap above is one way this can
+    // happen). Compare standard offsets at a recent reference instant -- the
+    // epoch is unsafe because some zones (e.g. Europe/London) were on a
+    // different standard offset in 1970 (British Standard Time experiment).
+    Instant ref = Instant.parse("2024-01-15T00:00:00Z");
+    int rulesStandardOffsetMillis = rules.getStandardOffset(ref).getTotalSeconds() * 1000;
+    if (tz.getRawOffset() != rulesStandardOffsetMillis) {
+      throw new IllegalStateException(
+          "TimeZone and ZoneRules describe different zones for timezone: " + timezoneId
+              + " (tz.rawOffset=" + tz.getRawOffset()
+              + ", rules.standardOffset=" + rulesStandardOffsetMillis + ")");
+    }
     DstRule rule = extractDstRuleByProbing(tz);
     if (rule != null) {
       return rule;
