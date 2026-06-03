@@ -23,6 +23,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.Month;
+import java.time.Year;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.zone.ZoneOffsetTransition;
@@ -543,17 +544,29 @@ public class OrcTimezoneInfoTest {
 
   @Test
   void testExtractDstRuleFebruaryClampDoesNotThrow() {
-    // ZoneOffsetTransitionRule.getDayOfMonthIndicator()=29 for FEBRUARY
-    // forces ruleDay (29) > monthLength (28 in 2026, non-leap). Without the
-    // Math.min(ruleDay, monthLength) anchor clamp in computeRuleDay's
-    // MODE_DOW_GE_DOM branch, LocalDate.of(year, FEBRUARY, 29) on a non-leap
-    // year would throw DateTimeException. Path B is forced to fail (custom
-    // getDSTSavings()==0 mismatch) so Path A runs; we assert the rule extracts
-    // and the resulting startDay sits inside the clamp range.
+    // dayOfMonthIndicator=29 + SUNDAY for FEBRUARY forces ruleDay (29) >
+    // monthLength (28 in non-leap years). Without the Math.min(ruleDay,
+    // monthLength) anchor clamp in computeRuleDay's MODE_DOW_GE_DOM branch,
+    // LocalDate.of(year, FEBRUARY, 29) on a non-leap year would throw
+    // DateTimeException inside verifyDstRuleAcrossReferenceYears.
+    //
+    // For indicator=29 the clamp makes computeRuleDay collapse to "last day
+    // of February": 29 on leap years, 28 on non-leap years (and the day-of-
+    // week constraint is silently dropped by the result clamp). The
+    // synthetic tz must mirror that semantics or verify will fail before
+    // the test can observe the clamp's effect; we therefore have the tz
+    // report DST starting on the last day of February.
+    //
+    // Path B is forced to fail (custom getDSTSavings()==0 mismatch) so
+    // Path A runs. Path A copies getDayOfMonthIndicator() verbatim into
+    // rule.startDay, so the stored value is 29 -- the clamp lives in
+    // computeRuleDay, not in Path A's encoding.
     TimeZone tz = new TimeZone() {
       @Override public int getOffset(long instant) {
         int year = LocalDate.ofEpochDay(Math.floorDiv(instant, 86_400_000L)).getYear();
-        long dstStart = nthDayOfWeekUtcMs(year, Month.FEBRUARY, DayOfWeek.SUNDAY, 4) + 2 * 3_600_000L;
+        int lastDayOfFeb = Year.of(year).isLeap() ? 29 : 28;
+        long dstStart = LocalDate.of(year, Month.FEBRUARY, lastDayOfFeb)
+            .toEpochDay() * 86_400_000L + 2 * 3_600_000L;
         long dstEnd = nthDayOfWeekUtcMs(year, Month.NOVEMBER, DayOfWeek.SUNDAY, 1) + 1 * 3_600_000L;
         return (instant >= dstStart && instant < dstEnd) ? 2 * 3_600_000 : 0;
       }
@@ -584,9 +597,12 @@ public class OrcTimezoneInfoTest {
 
     OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
         "Synthetic/FebruaryClamp", tz, rules);
-    assertNotNull(rule, "Feb indicator=29 must not throw; clamp should yield a valid day");
-    assertTrue(rule.startDay >= 1 && rule.startDay <= 28,
-        "startDay must be clamped to [1, 28], got: " + rule.startDay);
+    assertNotNull(rule, "Feb indicator=29 must not throw -- clamp should prevent DateTimeException");
+    // Path A stores getDayOfMonthIndicator() unchanged; the clamp is applied
+    // later in computeRuleDay. Surviving verifyDstRuleAcrossReferenceYears
+    // round-trip is what proves the clamp prevented a DateTimeException.
+    assertEquals(29, rule.startDay,
+        "Path A stores indicator verbatim; clamp lives in computeRuleDay");
   }
 
   @Test
