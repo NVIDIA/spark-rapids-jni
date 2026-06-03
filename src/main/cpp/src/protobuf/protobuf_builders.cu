@@ -19,6 +19,8 @@
 #include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/strings/detail/strings_column_factories.cuh>
 
+#include <algorithm>
+
 namespace spark_rapids_jni::protobuf::detail {
 
 std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
@@ -367,8 +369,6 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  auto const input_null_count = binary_input.null_count();
-
   CUDF_EXPECTS(total_count > 0, "build_repeated_string_column: total_count must be > 0");
 
   // Extract string lengths from occurrences
@@ -485,6 +485,8 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
 {
   CUDF_EXPECTS(depth < MAX_NESTING_DEPTH,
                "Nested protobuf struct depth exceeds supported decode recursion limit");
+  CUDF_EXPECTS(d_parent_locs.size() == static_cast<size_t>(num_rows),
+               "build_nested_struct_column: parent locations size must match row count");
 
   if (num_rows == 0) {
     return make_empty_struct_column_from_children(
@@ -505,10 +507,9 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
     h_child_field_descs[i].is_repeated        = schema[child_idx].is_repeated;
   }
 
-  auto const scratch_mr          = cudf::get_current_device_resource_ref();
-  auto const child_desc_capacity = num_child_fields > 0 ? num_child_fields : 1;
+  auto const scratch_mr = cudf::get_current_device_resource_ref();
   rmm::device_uvector<field_descriptor> d_child_field_descs(
-    child_desc_capacity, stream, scratch_mr);
+    std::max(num_child_fields, 1), stream, scratch_mr);
   if (num_child_fields > 0) {
     CUDF_CUDA_TRY(cudaMemcpyAsync(d_child_field_descs.data(),
                                   h_child_field_descs.data(),
@@ -519,7 +520,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
 
   auto const child_location_count = static_cast<size_t>(num_rows) * num_child_fields;
   rmm::device_uvector<field_location> d_child_locations(
-    child_location_count > 0 ? child_location_count : 1, stream, scratch_mr);
+    std::max(child_location_count, size_t{1}), stream, scratch_mr);
   // Scan over every child descriptor (including repeated ones) so STRICT-mode wire-type
   // validation still runs on repeated occurrences. Repeated child slots in d_child_locations
   // are not consumed; 3b.5 / 3b.6 produce them via dedicated count/scan kernels.
@@ -591,11 +592,18 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                                propagate_invalid_rows));
         break;
       }
-      default:
-        // STRING / LIST<UINT8> (bytes) / recursive STRUCT children land in 3b.3 / 3b.4.
+      case cudf::type_id::STRING:
+      case cudf::type_id::LIST:    // bytes represented as LIST<UINT8>
+      case cudf::type_id::STRUCT:
+        // Nested string/bytes/enum-as-string (3b.3) and recursive struct (3b.4) children are
+        // not decoded yet; emit a typed null column so the output schema still matches.
         struct_children.push_back(
           make_null_column_with_schema(schema, child_schema_idx, num_fields, num_rows, stream, mr));
         break;
+      default:
+        // List the supported/deferred types above explicitly so a newly-introduced output type
+        // fails loudly here instead of silently decoding as all-null.
+        CUDF_FAIL("Protobuf decode: unsupported nested child output type");
     }
   }
 

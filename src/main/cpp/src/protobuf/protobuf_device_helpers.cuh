@@ -234,6 +234,20 @@ __device__ inline bool check_message_bounds(int32_t start,
   return true;
 }
 
+// 64-bit overload: nested message offsets are computed in int64 (parent row offset + relative
+// field offset) before being bounds-checked against the child buffer size.
+__device__ inline bool check_message_bounds(int64_t start,
+                                            int64_t end_pos,
+                                            cudf::size_type total_size,
+                                            int* error_flag)
+{
+  if (start < 0 || end_pos < start || end_pos > total_size) {
+    set_error_once(error_flag, ERR_BOUNDS);
+    return false;
+  }
+  return true;
+}
+
 struct proto_tag {
   int field_number;
   int wire_type;

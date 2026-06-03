@@ -127,6 +127,11 @@ public class ProtobufTest {
     return out;
   }
 
+  /** Encode a length-delimited submessage: varint length prefix followed by the message bytes. */
+  private static Byte[] encodeMessage(Byte[] messageBytes) {
+    return concat(box(encodeVarint(messageBytes.length)), messageBytes);
+  }
+
   private static void assertSingleNullStructRow(ColumnVector actual, String message) {
     try (HostColumnVector hostStruct = actual.copyToHost()) {
       assertEquals(1, actual.getNullCount(), message);
@@ -1651,10 +1656,7 @@ public class ProtobufTest {
     // message Outer { Inner inner = 1; }
     // Outer with inner.x = 42
     Byte[] innerMessage = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
-    Byte[] row = concat(
-        box(tag(1, WT_LEN)),
-        box(encodeVarint(innerMessage.length)),
-        innerMessage);
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(innerMessage));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       try (ColumnVector result = Protobuf.decodeToStruct(
@@ -2600,28 +2602,16 @@ public class ProtobufTest {
     // message Inner { int32 x = 1; }
     // message Outer { Inner inner = 1; }
     Byte[] innerMessage = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
-    Byte[] row = concat(
-        box(tag(1, WT_LEN)),
-        box(encodeVarint(innerMessage.length)),
-        innerMessage);
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(innerMessage));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = decodeRaw(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 1},
-             new int[]{-1, 0},
-             new int[]{0, 1},
-             new int[]{WT_LEN, WT_VARINT},
-             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},
-             new boolean[]{false, false},
-             new boolean[]{false, false},
-             new long[]{0, 0},
-             new double[]{0.0, 0.0},
-             new boolean[]{false, false},
-             new byte[][]{null, null},
-             new int[][]{null, null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32)
+                 .up()
+                 .build(),
              false)) {
       assertNotNull(result);
       assertEquals(DType.STRUCT, result.getType());
@@ -2634,34 +2624,22 @@ public class ProtobufTest {
   }
 
   @Test
-  void testNestedMessageLastOneWins() {
+  void testNestedMessageDuplicateFieldTags_LastOneWins() {
     // message Inner { int32 x = 1; }
     // message Outer { Inner inner = 1; }
     Byte[] innerMessage = concat(
         box(tag(1, WT_VARINT)), box(encodeVarint(1)),
         box(tag(1, WT_VARINT)), box(encodeVarint(2)));
-    Byte[] row = concat(
-        box(tag(1, WT_LEN)),
-        box(encodeVarint(innerMessage.length)),
-        innerMessage);
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(innerMessage));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = decodeRaw(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 1},
-             new int[]{-1, 0},
-             new int[]{0, 1},
-             new int[]{WT_LEN, WT_VARINT},
-             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},
-             new boolean[]{false, false},
-             new boolean[]{false, false},
-             new long[]{0, 0},
-             new double[]{0.0, 0.0},
-             new boolean[]{false, false},
-             new byte[][]{null, null},
-             new int[][]{null, null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32)
+                 .up()
+                 .build(),
              false)) {
       try (ColumnVector expectedX = ColumnVector.fromBoxedInts(2);
            ColumnVector expectedInner = ColumnVector.makeStruct(expectedX);
@@ -2675,42 +2653,32 @@ public class ProtobufTest {
   void testNestedMessageMultipleScalarChildren() {
     // message Inner { int32 a = 1; int64 b = 2; bool c = 3; float d = 4; }
     // message Outer { Inner inner = 1; }
-    Byte[] inner0 = concat(
-        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
-        box(tag(2, WT_VARINT)), box(encodeVarint(123456789012L)),
-        box(tag(3, WT_VARINT)), box(encodeVarint(1)),
-        box(tag(4, WT_32BIT)), box(encodeFloat(3.5f)));
-    Byte[] row0 = concat(box(tag(1, WT_LEN)), box(encodeVarint(inner0.length)), inner0);
+    // This exercises every scalar wire type a nested child can use — varint (int32/int64/bool)
+    // and fixed32 (float) — across two rows including negatives and zeros. fixed64/string/bytes
+    // children share the same per-type extraction paths, covered by their own top-level tests.
+    Byte[][] rows = new Byte[][]{
+        concat(box(tag(1, WT_LEN)), encodeMessage(concat(
+            box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+            box(tag(2, WT_VARINT)), box(encodeVarint(123456789012L)),
+            box(tag(3, WT_VARINT)), box(encodeVarint(1)),
+            box(tag(4, WT_32BIT)), box(encodeFloat(3.5f))))),
+        concat(box(tag(1, WT_LEN)), encodeMessage(concat(
+            box(tag(1, WT_VARINT)), box(encodeVarint(-1)),
+            box(tag(2, WT_VARINT)), box(encodeVarint(0)),
+            box(tag(3, WT_VARINT)), box(encodeVarint(0)),
+            box(tag(4, WT_32BIT)), box(encodeFloat(-0.25f)))))};
 
-    Byte[] inner1 = concat(
-        box(tag(1, WT_VARINT)), box(encodeVarint(-1)),
-        box(tag(2, WT_VARINT)), box(encodeVarint(0)),
-        box(tag(3, WT_VARINT)), box(encodeVarint(0)),
-        box(tag(4, WT_32BIT)), box(encodeFloat(-0.25f)));
-    Byte[] row1 = concat(box(tag(1, WT_LEN)), box(encodeVarint(inner1.length)), inner1);
-
-    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
-         ColumnVector result = decodeRaw(
+    try (Table input = new Table.TestBuilder().column(rows).build();
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 1, 2, 3, 4},
-             new int[]{-1, 0, 0, 0, 0},
-             new int[]{0, 1, 1, 1, 1},
-             new int[]{WT_LEN, WT_VARINT, WT_VARINT, WT_VARINT, WT_32BIT},
-             new int[]{DType.STRUCT.getTypeId().getNativeId(),
-                       DType.INT32.getTypeId().getNativeId(),
-                       DType.INT64.getTypeId().getNativeId(),
-                       DType.BOOL8.getTypeId().getNativeId(),
-                       DType.FLOAT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT,
-                       Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false, false, false, false},
-             new boolean[]{false, false, false, false, false},
-             new boolean[]{false, false, false, false, false},
-             new long[]{0, 0, 0, 0, 0},
-             new double[]{0, 0, 0, 0, 0},
-             new boolean[]{false, false, false, false, false},
-             new byte[][]{null, null, null, null, null},
-             new int[][]{null, null, null, null, null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()    // Inner inner = 1
+                     .addField(1, DType.INT32)        //   int32 a = 1
+                     .addField(2, DType.INT64)        //   int64 b = 2
+                     .addField(3, DType.BOOL8)        //   bool  c = 3
+                     .addField(4, DType.FLOAT32)      //   float d = 4
+                 .up()
+                 .build(),
              false)) {
         assertNotNull(result);
         try (ColumnVector expA = ColumnVector.fromBoxedInts(7, -1);
@@ -2725,27 +2693,18 @@ public class ProtobufTest {
   }
 
   @Test
-  void testNestedMessageAbsentParentIsNull() {
+  void testAbsentNestedMessage_ProducesNull() {
     // Outer message present, but the nested Inner field is missing from the wire.
     Byte[] row = new Byte[]{};
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = decodeRaw(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 1},
-             new int[]{-1, 0},
-             new int[]{0, 1},
-             new int[]{WT_LEN, WT_VARINT},
-             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},
-             new boolean[]{false, false},
-             new boolean[]{false, true},
-             new long[]{0, 99},
-             new double[]{0.0, 0.0},
-             new boolean[]{false, false},
-             new byte[][]{null, null},
-             new int[][]{null, null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32).defaultInt(99)
+                 .up()
+                 .build(),
              false);
          ColumnVector inner = result.getChildColumnView(0).copyToColumnVector();
          ColumnVector innerX = inner.getChildColumnView(0).copyToColumnVector();
@@ -2758,27 +2717,18 @@ public class ProtobufTest {
   }
 
   @Test
-  void testZeroLengthNestedMessageChildNullability() {
+  void testZeroLengthNestedMessage_ChildIsNull() {
     // Outer carries the nested tag but with length 0 (Inner is empty).
     Byte[] row = concat(box(tag(1, WT_LEN)), box(encodeVarint(0)));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
-         ColumnVector result = decodeRaw(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1, 1},
-             new int[]{-1, 0},
-             new int[]{0, 1},
-             new int[]{WT_LEN, WT_VARINT},
-             new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-             new boolean[]{false, false},
-             new boolean[]{false, false},
-             new boolean[]{false, false},
-             new long[]{0, 0},
-             new double[]{0.0, 0.0},
-             new boolean[]{false, false},
-             new byte[][]{null, null},
-             new int[][]{null, null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32)
+                 .up()
+                 .build(),
              false);
          ColumnVector inner = result.getChildColumnView(0).copyToColumnVector();
          ColumnVector innerX = inner.getChildColumnView(0).copyToColumnVector();
@@ -2792,29 +2742,18 @@ public class ProtobufTest {
   }
 
   @Test
-  void testChildlessNestedMessagePresence() {
+  void testChildlessNestedMessage_IsPresent() {
     // message Empty {}
     // message Outer { Empty inner = 1; }
     Byte[] row0 = concat(box(tag(1, WT_LEN)), box(encodeVarint(0)));
     Byte[] row1 = new Byte[]{};
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
-         ColumnVector result = decodeRaw(
+         ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
-             new int[]{1},
-             new int[]{-1},
-             new int[]{0},
-             new int[]{WT_LEN},
-             new int[]{DType.STRUCT.getTypeId().getNativeId()},
-             new int[]{Protobuf.ENC_DEFAULT},
-             new boolean[]{false},
-             new boolean[]{false},
-             new boolean[]{false},
-             new long[]{0},
-             new double[]{0.0},
-             new boolean[]{false},
-             new byte[][]{null},
-             new int[][]{null},
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT)  // childless Empty message
+                 .build(),
              false);
          ColumnVector inner = result.getChildColumnView(0).copyToColumnVector();
          HostColumnVector hostInner = inner.copyToHost()) {
@@ -2824,33 +2763,21 @@ public class ProtobufTest {
   }
 
   @Test
-  void testFailfastNestedRepeatedWrongWireType() {
+  void testNestedRepeatedWrongWireType_FailsFast() {
     // message Inner { repeated int32 x = 1; }
     // message Outer { Inner inner = 1; }
     Byte[] innerMessage = concat(box(tag(1, WT_32BIT)), box(encodeFixed32(7)));
-    Byte[] row = concat(
-        box(tag(1, WT_LEN)),
-        box(encodeVarint(innerMessage.length)),
-        innerMessage);
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(innerMessage));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       assertThrows(ai.rapids.cudf.CudfException.class, () -> {
-        try (ColumnVector result = decodeRaw(
+        try (ColumnVector result = Protobuf.decodeToStruct(
             input.getColumn(0),
-            new int[]{1, 1},
-            new int[]{-1, 0},
-            new int[]{0, 1},
-            new int[]{WT_LEN, WT_VARINT},
-            new int[]{DType.STRUCT.getTypeId().getNativeId(), DType.INT32.getTypeId().getNativeId()},
-            new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
-            new boolean[]{false, true},
-            new boolean[]{false, false},
-            new boolean[]{false, false},
-            new long[]{0, 0},
-            new double[]{0.0, 0.0},
-            new boolean[]{false, false},
-            new byte[][]{null, null},
-            new int[][]{null, null},
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.STRUCT).down()
+                    .addField(1, DType.INT32).repeated()
+                .up()
+                .build(),
             true)) {
         }
       });
