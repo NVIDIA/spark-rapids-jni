@@ -281,6 +281,14 @@ public class OrcTimezoneInfoTest {
   private static OrcDstRuleExtractor.DstRule extractDstRuleFor(String timezoneId) {
     ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
     ZoneRules rules = zoneId.getRules();
+    // For fixed-offset zones the UTC placeholder has rawOffset=0, which would
+    // *not* match the rules' actual standard offset and so would fail
+    // extractDstRule's tz-vs-rules sanity check. That's safe today because
+    // extractDstRule's isFixedOffset() short-circuit at the top of the method
+    // returns null before the sanity check executes. If a future change ever
+    // reorders these guards, the mismatch would surface here as a confusing
+    // "describe different zones" exception rather than the silent-GMT bug we
+    // are guarding against.
     TimeZone tz = rules.isFixedOffset()
         ? TimeZone.getTimeZone("UTC")
         : TimeZone.getTimeZone(zoneId.getId());
