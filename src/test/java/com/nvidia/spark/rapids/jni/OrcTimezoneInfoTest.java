@@ -465,7 +465,16 @@ public class OrcTimezoneInfoTest {
         "expected 'transition rule shape' in message: " + ex.getMessage());
   }
 
-  /** Compute the UTC millis at midnight UTC of the Nth occurrence of {@code dow} in {@code month} of {@code year}. */
+  /**
+   * Compute the UTC millis at midnight UTC of the {@code n}-th occurrence of {@code dow} in
+   * {@code month} of {@code year}.
+   *
+   * @param year  calendar year
+   * @param month month (1-based via {@link Month})
+   * @param dow   day of week to match
+   * @param n     occurrence index (1 = first, 2 = second, ...)
+   * @return UTC epoch millis at midnight of the resolved date
+   */
   private static long nthDayOfWeekUtcMs(int year, Month month, DayOfWeek dow, int n) {
     LocalDate firstOfMonth = LocalDate.of(year, month, 1);
     int firstDow = firstOfMonth.getDayOfWeek().getValue(); // 1..7, Mon..Sun
