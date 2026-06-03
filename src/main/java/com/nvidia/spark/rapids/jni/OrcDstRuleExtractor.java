@@ -445,6 +445,12 @@ final class OrcDstRuleExtractor {
     int monthLength = firstOfMonth.lengthOfMonth();
     int firstDayOfWeek = toCalendarDayOfWeek(firstOfMonth.getDayOfWeek().getValue());
 
+    // The current extraction paths (Path A's fillDstRuleFromTransitionRule and
+    // Path B's decodeTransition) emit only MODE_DOW_GE_DOM. The other three
+    // branches are kept for forward compatibility -- e.g. a Part 3+ caller that
+    // constructs a DstRule directly from a serialised form. Until such a
+    // caller exists they are not reachable from any test; add coverage when
+    // one appears.
     switch (ruleMode) {
       case DstRule.MODE_DOW_IN_MONTH: {
         // Clamp the result into [1, monthLength] so a "Nth occurrence" that
