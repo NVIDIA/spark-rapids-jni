@@ -164,6 +164,15 @@ public class OrcTimezoneInfoTest {
     // Last Sunday of March (31-day month): base 25. Last Sunday of October (31-day): base 25.
     assertEquals(25, rule.startDay);
     assertEquals(25, rule.endDay);
+    // Probing path encodes both ends as DOW_GE_DOM (mode=2) on STANDARD time
+    // (timeMode=1). BST flips on at 01:00 standard in March and off at 01:00
+    // standard in October.
+    assertEquals(2, rule.startMode);
+    assertEquals(2, rule.endMode);
+    assertEquals(1, rule.startTimeMode);
+    assertEquals(1, rule.endTimeMode);
+    assertEquals(1 * 3_600_000, rule.startTime, "DST start at 01:00 standard");
+    assertEquals(1 * 3_600_000, rule.endTime, "DST end at 01:00 standard");
   }
 
   @Test
@@ -177,6 +186,17 @@ public class OrcTimezoneInfoTest {
     assertEquals(3, rule.endMonth);
     assertTrue(rule.startMonth > rule.endMonth,
         "southern hemisphere: start month should follow end month within the calendar year");
+    // 1st Sunday of October: base 1. 1st Sunday of April: base 1.
+    assertEquals(1, rule.startDay);
+    assertEquals(1, rule.endDay);
+    assertEquals(1, rule.startDayOfWeek);
+    assertEquals(1, rule.endDayOfWeek);
+    assertEquals(2, rule.startMode);
+    assertEquals(2, rule.endMode);
+    assertEquals(1, rule.startTimeMode);
+    assertEquals(1, rule.endTimeMode);
+    assertEquals(2 * 3_600_000, rule.startTime, "DST start at 02:00 standard");
+    assertEquals(2 * 3_600_000, rule.endTime, "DST end at 02:00 standard");
   }
 
   @Test
