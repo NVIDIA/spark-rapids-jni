@@ -641,6 +641,58 @@ public class OrcTimezoneInfoTest {
   }
 
   @Test
+  void testExtractDstRuleByProbingReturnsNullOnMultipleDstOnTransitions() {
+    // extractDstRuleByProbing returns null when probing finds more than one
+    // offset-increasing transition in a year. All other Path-A tests reach
+    // Path A by failing Path B's cross-year verify -- the early-return on
+    // "second DST-on transition seen" was never exercised.
+    //
+    // This synthetic TimeZone spring-forwards twice a year (March 2nd Sunday
+    // and June 1st Sunday) and falls back once (November 1st Sunday). The
+    // ZoneRules supplies no recurring transition rules, so Path A also
+    // returns null (Unsupported rule count). The terminal "Failed to extract"
+    // IllegalStateException confirms probing returned null due to the
+    // multiple-DST-on guard rather than some other reason.
+    TimeZone tz = new TimeZone() {
+      @Override public int getOffset(long instant) {
+        int year = LocalDate.ofEpochDay(Math.floorDiv(instant, 86_400_000L)).getYear();
+        long forward1 = nthDayOfWeekUtcMs(year, Month.MARCH, DayOfWeek.SUNDAY, 2) + 2 * 3_600_000L;
+        long forward2 = nthDayOfWeekUtcMs(year, Month.JUNE, DayOfWeek.SUNDAY, 1) + 2 * 3_600_000L;
+        long back = nthDayOfWeekUtcMs(year, Month.NOVEMBER, DayOfWeek.SUNDAY, 1) + 1 * 3_600_000L;
+        if (instant >= forward1 && instant < forward2) return 1 * 3_600_000;
+        if (instant >= forward2 && instant < back) return 2 * 3_600_000;
+        return 0;
+      }
+      @Override public int getOffset(int era, int year, int month, int day, int dow, int ms) {
+        return 0;
+      }
+      @Override public int getRawOffset() { return 0; }
+      @Override public void setRawOffset(int offsetMillis) {}
+      @Override public boolean useDaylightTime() { return true; }
+      @Override public int getDSTSavings() { return 3_600_000; }
+      @Override public boolean inDaylightTime(Date date) { return false; }
+    };
+    tz.setID("Synthetic/MultipleDstOn");
+    ZoneOffset base = ZoneOffset.UTC;
+    // A single historical transition is enough to make rules.isFixedOffset()
+    // return false (without it the entry-point short-circuit at the top of
+    // extractDstRule would return null before probing runs). The
+    // transitionRules list stays empty so Path A also returns null on the
+    // "empty getTransitionRules()" early-out, leaving the terminal
+    // "Failed to extract" throw as the expected outcome.
+    ZoneOffsetTransition historicalTransition = ZoneOffsetTransition.of(
+        LocalDateTime.of(1900, 1, 1, 0, 0), ZoneOffset.ofHours(-1), base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(),
+        Collections.singletonList(historicalTransition),
+        Collections.emptyList());
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule("Synthetic/MultipleDstOn", tz, rules));
+    assertTrue(ex.getMessage().contains("Failed to extract"),
+        "expected 'Failed to extract' in terminal throw: " + ex.getMessage());
+  }
+
+  @Test
   void testExtractDstRuleViaZoneRulesFallback() {
     // Path A (ZoneRules fallback) success scenario. The custom TimeZone
     // observes a real +2h DST window but reports getDSTSavings()==+1h.
