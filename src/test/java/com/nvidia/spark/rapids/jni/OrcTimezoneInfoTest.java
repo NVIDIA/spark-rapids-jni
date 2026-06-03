@@ -464,4 +464,83 @@ public class OrcTimezoneInfoTest {
     assertTrue(ex.getMessage().contains("transition rule shape"),
         "expected 'transition rule shape' in message: " + ex.getMessage());
   }
+
+  /** Compute the UTC millis at midnight UTC of the Nth occurrence of {@code dow} in {@code month} of {@code year}. */
+  private static long nthDayOfWeekUtcMs(int year, Month month, DayOfWeek dow, int n) {
+    LocalDate firstOfMonth = LocalDate.of(year, month, 1);
+    int firstDow = firstOfMonth.getDayOfWeek().getValue(); // 1..7, Mon..Sun
+    int diff = dow.getValue() - firstDow;
+    if (diff < 0) diff += 7;
+    int day = 1 + diff + (n - 1) * 7;
+    return LocalDate.of(year, month, day).toEpochDay() * 86_400_000L;
+  }
+
+  @Test
+  void testExtractDstRuleViaZoneRulesFallback() {
+    // Path A (ZoneRules fallback) success scenario. The custom TimeZone
+    // observes a real +2h DST window but reports getDSTSavings()==+1h.
+    // Probing therefore extracts a rule with dstSavings=+1h, whose
+    // computeDstOffset prediction (rawOffset + 1h) disagrees with the
+    // observed +2h inside the DST window — verifyDstRule fails, so
+    // extractDstRuleByProbing returns null. The synthetic ZoneRules below
+    // carries the actual +2h delta; extractDstRuleFromZoneRules re-derives
+    // dstSavings from the rule's offset deltas, verify passes, and the
+    // returned DstRule has dstSavings=+2h (proving Path A ran).
+    //
+    // The end rule uses TimeDefinition.UTC to exercise
+    // getTransitionRuleTimeMode's TIME_MODE_UTC branch — the only
+    // production path that produces non-STANDARD timeMode in DstRule.
+    TimeZone tz = new TimeZone() {
+      @Override public int getOffset(long instant) {
+        LocalDate date = LocalDate.ofEpochDay(Math.floorDiv(instant, 86_400_000L));
+        int year = date.getYear();
+        long dstStart = nthDayOfWeekUtcMs(year, Month.MARCH, DayOfWeek.SUNDAY, 2) + 2 * 3_600_000L;
+        long dstEnd = nthDayOfWeekUtcMs(year, Month.NOVEMBER, DayOfWeek.SUNDAY, 1) + 2 * 3_600_000L;
+        return (instant >= dstStart && instant < dstEnd) ? 2 * 3_600_000 : 0;
+      }
+      @Override public int getOffset(int era, int year, int month, int day, int dow, int ms) {
+        return 0; // never called by extractDstRule
+      }
+      @Override public int getRawOffset() { return 0; }
+      @Override public void setRawOffset(int offsetMillis) {}
+      @Override public boolean useDaylightTime() { return true; }
+      @Override public int getDSTSavings() { return 1 * 3_600_000; } // intentionally wrong
+      @Override public boolean inDaylightTime(Date date) { return false; }
+    };
+    tz.setID("Synthetic/PathASuccess");
+
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus2 = ZoneOffset.ofHours(2);
+    ZoneOffsetTransitionRule startRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus2);
+    ZoneOffsetTransitionRule endRule = ZoneOffsetTransitionRule.of(
+        Month.NOVEMBER, 1, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.UTC,
+        base, plus2, base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        Arrays.asList(startRule, endRule));
+
+    OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
+        "Synthetic/PathASuccess", tz, rules);
+    assertNotNull(rule, "Path A must succeed");
+    // dstSavings derived from rule deltas = +2h. If Path B had succeeded
+    // we would see +1h instead (tz.getDSTSavings).
+    assertEquals(2 * 3_600_000, rule.dstSavings,
+        "Path A derives dstSavings from offset deltas, not tz.getDSTSavings()");
+    assertEquals(2, rule.startMonth);
+    assertEquals(8, rule.startDay);
+    assertEquals(1, rule.startDayOfWeek);
+    assertEquals(2, rule.startMode);
+    assertEquals(1, rule.startTimeMode);  // STANDARD
+    assertEquals(2 * 3_600_000, rule.startTime);
+    assertEquals(10, rule.endMonth);
+    assertEquals(1, rule.endDay);
+    assertEquals(1, rule.endDayOfWeek);
+    assertEquals(2, rule.endMode);
+    assertEquals(2, rule.endTimeMode);  // UTC — covers TIME_MODE_UTC branch
+    assertEquals(2 * 3_600_000, rule.endTime);
+  }
 }
