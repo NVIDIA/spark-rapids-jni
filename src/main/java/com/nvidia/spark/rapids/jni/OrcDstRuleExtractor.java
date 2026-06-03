@@ -259,7 +259,7 @@ final class OrcDstRuleExtractor {
     long dstOffTransition = -1;
     int initialOffset = tz.getOffset(janFirst - 1);
     int prevOffset = initialOffset;
-    long step = 3600_000L; // 1 hour
+    long step = 3_600_000L; // 1 hour
 
     for (long ms = janFirst; ms < nextJanFirst; ms += step) {
       int curOffset = tz.getOffset(ms);
@@ -333,7 +333,7 @@ final class OrcDstRuleExtractor {
     int month = ldt.getMonthValue() - 1; // 0-based for Calendar compat
     int dayOfMonth = ldt.getDayOfMonth();
     int dayOfWeek = toCalendarDayOfWeek(ldt.getDayOfWeek().getValue());
-    int timeInDay = ldt.getHour() * 3600_000
+    int timeInDay = ldt.getHour() * 3_600_000
         + ldt.getMinute() * 60_000
         + ldt.getSecond() * 1000
         + ldt.getNano() / 1_000_000;
@@ -384,9 +384,9 @@ final class OrcDstRuleExtractor {
       // to the variant.
       long[] boundaries = {dstStart, dstEnd};
       for (long boundary : boundaries) {
-        long from = boundary - 12 * 3600_000L;
-        long to = boundary + 12 * 3600_000L;
-        for (long ms = from; ms <= to; ms += 3600_000L) {
+        long from = boundary - 12 * 3_600_000L;
+        long to = boundary + 12 * 3_600_000L;
+        for (long ms = from; ms <= to; ms += 3_600_000L) {
           if (tz.getOffset(ms) != computeDstOffsetWithBounds(ms, rawOffsetMs, rule,
               dstStart, dstEnd)) {
             return false;
@@ -395,7 +395,7 @@ final class OrcDstRuleExtractor {
       }
 
       for (int m = 1; m <= 12; m++) {
-        long ms = OrcTimezoneInfo.utcMillisForDate(y, m, 1) + 12 * 3600_000L;
+        long ms = OrcTimezoneInfo.utcMillisForDate(y, m, 1) + 12 * 3_600_000L;
         if (tz.getOffset(ms) != computeDstOffsetWithBounds(ms, rawOffsetMs, rule,
             dstStart, dstEnd)) {
           return false;
