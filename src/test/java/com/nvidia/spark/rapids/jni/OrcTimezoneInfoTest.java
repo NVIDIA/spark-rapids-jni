@@ -580,8 +580,19 @@ public class OrcTimezoneInfoTest {
     TimeZone tz = new TimeZone() {
       @Override public int getOffset(long instant) {
         int year = LocalDate.ofEpochDay(Math.floorDiv(instant, 86_400_000L)).getYear();
-        int lastDayOfFeb = Year.of(year).isLeap() ? 29 : 28;
-        long dstStart = LocalDate.of(year, Month.FEBRUARY, lastDayOfFeb)
+        // Mirror computeRuleDay(MODE_DOW_GE_DOM, 29, SUNDAY, year, FEBRUARY)
+        // step by step: anchor = min(29, monthLength); search forward for the
+        // first SUNDAY >= anchor; clamp the result to monthLength. The outer
+        // result clamp is what collapses the day-of-week constraint when the
+        // anchor is already at the month boundary -- which is exactly the
+        // case we want to exercise.
+        int monthLength = Year.of(year).isLeap() ? 29 : 28;
+        int anchorDay = Math.min(29, monthLength);
+        int targetDow = LocalDate.of(year, Month.FEBRUARY, anchorDay).getDayOfWeek().getValue();
+        int diff = DayOfWeek.SUNDAY.getValue() - targetDow;
+        if (diff < 0) diff += 7;
+        int computedDay = Math.min(anchorDay + diff, monthLength);
+        long dstStart = LocalDate.of(year, Month.FEBRUARY, computedDay)
             .toEpochDay() * 86_400_000L + 2 * 3_600_000L;
         long dstEnd = nthDayOfWeekUtcMs(year, Month.NOVEMBER, DayOfWeek.SUNDAY, 1) + 1 * 3_600_000L;
         return (instant >= dstStart && instant < dstEnd) ? 2 * 3_600_000 : 0;
