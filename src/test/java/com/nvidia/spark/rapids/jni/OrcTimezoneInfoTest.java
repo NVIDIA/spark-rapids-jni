@@ -582,4 +582,56 @@ public class OrcTimezoneInfoTest {
     assertEquals(2, rule.endTimeMode);  // UTC — covers TIME_MODE_UTC branch
     assertEquals(2 * 3_600_000, rule.endTime);
   }
+
+  @Test
+  void testExtractDstRuleTimeDefinitionWallMode() {
+    // Path A success with start rule encoded as TimeDefinition.WALL —
+    // exercises both TIME_MODE_WALL in getTransitionRuleTimeMode and the
+    // wall-time branch in computeTransitionUtcMillis. The custom TimeZone
+    // observes a +2h DST window from 2nd Sun of March 02:00 UTC to 1st Sun
+    // of November 01:00 UTC but reports getDSTSavings()==0 — Path B's
+    // probing extracts dstSavings=0 from getDSTSavings, verifyDstRule then
+    // disagrees (predicted 0, observed +2h), Path B returns null. Path A's
+    // ZoneRules deltas yield dstSavings=+2h, verify passes, the WALL start
+    // rule is encoded as startTimeMode=0.
+    TimeZone tz = new TimeZone() {
+      @Override public int getOffset(long instant) {
+        int year = LocalDate.ofEpochDay(Math.floorDiv(instant, 86_400_000L)).getYear();
+        long dstStart = nthDayOfWeekUtcMs(year, Month.MARCH, DayOfWeek.SUNDAY, 2) + 2 * 3_600_000L;
+        long dstEnd = nthDayOfWeekUtcMs(year, Month.NOVEMBER, DayOfWeek.SUNDAY, 1) + 1 * 3_600_000L;
+        return (instant >= dstStart && instant < dstEnd) ? 2 * 3_600_000 : 0;
+      }
+      @Override public int getOffset(int era, int year, int month, int day, int dow, int ms) {
+        return 0;
+      }
+      @Override public int getRawOffset() { return 0; }
+      @Override public void setRawOffset(int offsetMillis) {}
+      @Override public boolean useDaylightTime() { return true; }
+      @Override public int getDSTSavings() { return 0; } // forces Path B verify to fail
+      @Override public boolean inDaylightTime(Date date) { return false; }
+    };
+    tz.setID("Synthetic/WallMode");
+
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus2 = ZoneOffset.ofHours(2);
+    ZoneOffsetTransitionRule startRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.WALL,
+        base, base, plus2);
+    ZoneOffsetTransitionRule endRule = ZoneOffsetTransitionRule.of(
+        Month.NOVEMBER, 1, DayOfWeek.SUNDAY, LocalTime.of(1, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus2, base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        Arrays.asList(startRule, endRule));
+
+    OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
+        "Synthetic/WallMode", tz, rules);
+    assertNotNull(rule, "Path A with WALL start rule must succeed");
+    assertEquals(0, rule.startTimeMode,
+        "TimeDefinition.WALL must produce TIME_MODE_WALL (0)");
+    assertEquals(1, rule.endTimeMode,
+        "TimeDefinition.STANDARD must produce TIME_MODE_STANDARD (1)");
+  }
 }
