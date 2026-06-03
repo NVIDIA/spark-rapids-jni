@@ -443,16 +443,22 @@ final class OrcDstRuleExtractor {
 
     switch (ruleMode) {
       case DstRule.MODE_DOW_IN_MONTH: {
+        // Clamp the result into [1, monthLength] so a "Nth occurrence" that
+        // overflows the month (e.g. 5th Sunday in a 28-day February) or
+        // underflows (e.g. -5th occurrence in a 28-day month) collapses to a
+        // valid in-month day rather than escaping with a DateTimeException
+        // from utcMillisForDate. Mirrors the within-month clamp applied to
+        // MODE_DOW_GE_DOM below and SimpleTimeZone's documented behaviour.
         if (ruleDay > 0) {
           int diff = ruleDayOfWeek - firstDayOfWeek;
           if (diff < 0) diff += 7;
-          return 1 + diff + (ruleDay - 1) * 7;
+          return Math.min(1 + diff + (ruleDay - 1) * 7, monthLength);
         } else {
           int lastDayOfWeek = toCalendarDayOfWeek(
               LocalDate.of(year, month + 1, monthLength).getDayOfWeek().getValue());
           int diff = lastDayOfWeek - ruleDayOfWeek;
           if (diff < 0) diff += 7;
-          return monthLength - diff + (ruleDay + 1) * 7;
+          return Math.max(monthLength - diff + (ruleDay + 1) * 7, 1);
         }
       }
       case DstRule.MODE_DOW_GE_DOM: {
@@ -471,11 +477,16 @@ final class OrcDstRuleExtractor {
         return Math.min(anchorDay + diff, monthLength);
       }
       case DstRule.MODE_DOW_LE_DOM: {
+        // Mirrors the MODE_DOW_GE_DOM clamp above: the day-of-month indicator
+        // can exceed monthLength (e.g. 31 in February). Clamp the anchor
+        // before LocalDate.of so it never throws, and clamp the result to a
+        // valid in-month day so utcMillisForDate cannot receive day <= 0.
+        int anchorDay = Math.min(ruleDay, monthLength);
         int targetDayOfWeek = toCalendarDayOfWeek(
-            LocalDate.of(year, month + 1, ruleDay).getDayOfWeek().getValue());
+            LocalDate.of(year, month + 1, anchorDay).getDayOfWeek().getValue());
         int diff = targetDayOfWeek - ruleDayOfWeek;
         if (diff < 0) diff += 7;
-        return ruleDay - diff;
+        return Math.max(anchorDay - diff, 1);
       }
       case DstRule.MODE_DOM:
       default:
