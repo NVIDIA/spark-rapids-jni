@@ -202,10 +202,10 @@ public class OrcTimezoneInfoTest {
    * offset-format id. Mirror production's {@code rules.isFixedOffset()} guard
    * here so the test does not silently feed a GMT TimeZone into
    * {@code extractDstRule}; production's
-   * {@link OrcTimezoneInfo#extractDstRule} now short-circuits on
-   * {@code rules.isFixedOffset()} too, but the test helper keeps its own
-   * pre-call guard so a future caller pattern that drops the production guard
-   * cannot silently re-introduce the trap.
+   * {@link OrcDstRuleExtractor#extractDstRule(String, java.util.TimeZone, java.time.zone.ZoneRules)}
+   * now short-circuits on {@code rules.isFixedOffset()} too, but the test
+   * helper keeps its own pre-call guard so a future caller pattern that drops
+   * the production guard cannot silently re-introduce the trap.
    */
   private static OrcDstRuleExtractor.DstRule extractDstRuleFor(String timezoneId) {
     ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
