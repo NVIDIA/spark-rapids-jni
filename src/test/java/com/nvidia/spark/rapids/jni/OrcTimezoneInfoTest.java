@@ -23,6 +23,7 @@ import java.time.LocalTime;
 import java.time.Month;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
 import java.util.Collections;
@@ -280,5 +281,44 @@ public class OrcTimezoneInfoTest {
         ? TimeZone.getTimeZone("UTC")
         : TimeZone.getTimeZone(zoneId.getId());
     return OrcDstRuleExtractor.extractDstRule(timezoneId, tz, rules);
+  }
+
+  @Test
+  void testExtractDstRuleThrowsWhenBothPathsFail() {
+    // Constant-offset TimeZone — probing observes no transitions across all
+    // anchor years and returns null.
+    TimeZone constantOffsetWithDstFlag = new TimeZone() {
+      @Override public int getOffset(long instant) { return 0; }
+      @Override public int getOffset(int era, int year, int month, int day, int dow, int ms) {
+        return 0;
+      }
+      @Override public int getRawOffset() { return 0; }
+      @Override public void setRawOffset(int offsetMillis) {}
+      @Override public boolean useDaylightTime() { return true; }
+      @Override public boolean inDaylightTime(Date date) { return false; }
+    };
+    constantOffsetWithDstFlag.setID("Synthetic/NoRecurringRules");
+
+    // A single historical transition keeps rules.isFixedOffset() == false so
+    // the early guard in extractDstRule does not short-circuit; the empty
+    // lastRules list makes extractDstRuleFromZoneRules return null. Both paths
+    // fail and the terminal "Failed to extract" throw fires.
+    ZoneOffset baseOffset = ZoneOffset.UTC;
+    ZoneOffsetTransition historical = ZoneOffsetTransition.of(
+        java.time.LocalDateTime.of(1900, 1, 1, 0, 0),
+        ZoneOffset.ofHours(-1), baseOffset);
+    ZoneRules rules = ZoneRules.of(
+        baseOffset, baseOffset,
+        Collections.emptyList(),
+        Collections.singletonList(historical),
+        Collections.emptyList());
+
+    IllegalStateException ex = assertThrows(IllegalStateException.class,
+        () -> OrcDstRuleExtractor.extractDstRule(
+            "Synthetic/NoRecurringRules", constantOffsetWithDstFlag, rules));
+    assertTrue(ex.getMessage().contains("Synthetic/NoRecurringRules"),
+        "exception message should name the offending zone: " + ex.getMessage());
+    assertTrue(ex.getMessage().contains("Failed to extract"),
+        "terminal throw should mention 'Failed to extract': " + ex.getMessage());
   }
 }
