@@ -585,6 +585,54 @@ public class OrcTimezoneInfoTest {
   }
 
   @Test
+  void testExtractDstRuleMidnightEndOfDayRule() {
+    // ZoneOffsetTransitionRule.of(..., midnightEndOfDay=true, ...) encodes a
+    // transition at 24:00 (start of the next day). getTransitionRuleTimeMillis
+    // must return 24 * 3_600_000 for this case, NOT
+    // LocalTime.MIDNIGHT.toSecondOfDay() = 0. The TimeZone fires its DST start
+    // at March 2nd-Sunday + 24h (i.e., the 0:00 boundary of the following
+    // Monday) and reports getDSTSavings()==0 so Path B fails verify and Path A
+    // runs; the extracted rule's startTime is asserted to be 24h.
+    TimeZone tz = new TimeZone() {
+      @Override public int getOffset(long instant) {
+        int year = LocalDate.ofEpochDay(Math.floorDiv(instant, 86_400_000L)).getYear();
+        long dstStart = nthDayOfWeekUtcMs(year, Month.MARCH, DayOfWeek.SUNDAY, 2) + 24 * 3_600_000L;
+        long dstEnd = nthDayOfWeekUtcMs(year, Month.NOVEMBER, DayOfWeek.SUNDAY, 1) + 2 * 3_600_000L;
+        return (instant >= dstStart && instant < dstEnd) ? 2 * 3_600_000 : 0;
+      }
+      @Override public int getOffset(int era, int year, int month, int day, int dow, int ms) {
+        return 0;
+      }
+      @Override public int getRawOffset() { return 0; }
+      @Override public void setRawOffset(int offsetMillis) {}
+      @Override public boolean useDaylightTime() { return true; }
+      @Override public int getDSTSavings() { return 0; } // force Path B verify to fail
+      @Override public boolean inDaylightTime(Date date) { return false; }
+    };
+    tz.setID("Synthetic/MidnightEndOfDay");
+
+    ZoneOffset base = ZoneOffset.UTC;
+    ZoneOffset plus2 = ZoneOffset.ofHours(2);
+    ZoneOffsetTransitionRule startRule = ZoneOffsetTransitionRule.of(
+        Month.MARCH, 8, DayOfWeek.SUNDAY, LocalTime.MIDNIGHT, true,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, base, plus2);
+    ZoneOffsetTransitionRule endRule = ZoneOffsetTransitionRule.of(
+        Month.NOVEMBER, 1, DayOfWeek.SUNDAY, LocalTime.of(2, 0), false,
+        ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
+        base, plus2, base);
+    ZoneRules rules = ZoneRules.of(base, base,
+        Collections.emptyList(), Collections.emptyList(),
+        Arrays.asList(startRule, endRule));
+
+    OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
+        "Synthetic/MidnightEndOfDay", tz, rules);
+    assertNotNull(rule, "Path A with midnight-end-of-day start rule must succeed");
+    assertEquals(24 * 3_600_000, rule.startTime,
+        "isMidnightEndOfDay must produce time=24h, not LocalTime.MIDNIGHT.toSecondOfDay()=0");
+  }
+
+  @Test
   void testExtractDstRuleTimeDefinitionWallMode() {
     // Path A success with start rule encoded as TimeDefinition.WALL —
     // exercises both TIME_MODE_WALL in getTransitionRuleTimeMode and the
