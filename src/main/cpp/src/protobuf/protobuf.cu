@@ -421,18 +421,13 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     for (int i = 0; i < num_fields; i++) {
       if (schema[i].parent_idx != -1 || !is_output_field(context, i)) { continue; }
       auto field_type = cudf::data_type{schema[i].output_type};
-      if (schema[i].is_repeated && field_type.id() == cudf::type_id::STRUCT) {
-        auto empty_struct = make_empty_struct_column_with_schema(schema, i, num_fields, stream, mr);
-        empty_children.push_back(make_empty_list_column(std::move(empty_struct), stream, mr));
-      } else if (schema[i].is_repeated) {
-        auto empty_child = make_empty_column_safe(field_type, stream, mr);
-        empty_children.push_back(make_empty_list_column(std::move(empty_child), stream, mr));
-      } else if (field_type.id() == cudf::type_id::STRUCT) {
-        empty_children.push_back(
-          make_empty_struct_column_with_schema(schema, i, num_fields, stream, mr));
-      } else {
-        empty_children.push_back(make_empty_column_safe(field_type, stream, mr));
+      auto empty_child = (field_type.id() == cudf::type_id::STRUCT) ?
+          make_empty_struct_column_with_schema(schema, i, num_fields, stream, mr) :
+          make_empty_column_safe(field_type, stream, mr);
+      if (schema[i].is_repeated) {
+        empty_child = make_empty_list_column(std::move(empty_child), stream, mr);
       }
+      empty_children.push_back(std::move(empty_child));
     }
     return cudf::make_structs_column(
       0, std::move(empty_children), 0, rmm::device_buffer{}, stream, mr);
