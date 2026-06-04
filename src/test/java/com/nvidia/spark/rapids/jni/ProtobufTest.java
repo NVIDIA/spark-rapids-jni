@@ -3031,4 +3031,93 @@ public class ProtobufTest {
       });
     }
   }
+
+  @Test
+  void testHiddenFieldDoesNotAppearInOutput() {
+    // message Msg { int32 a = 1; int32 b = 2; } — both present in the wire, b is hidden.
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(11)));
+
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32)
+        .addField(2, DType.INT32).isOutput(false)  // hide b
+        .build();
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0), schema, true)) {
+      assertEquals(DType.STRUCT, result.getType());
+      assertEquals(1, result.getNumChildren());
+      try (ColumnVector childA = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector expectedA = ColumnVector.fromBoxedInts(7)) {
+        AssertUtils.assertColumnsAreEqual(expectedA, childA);
+      }
+    }
+  }
+
+  @Test
+  void testHiddenRepeatedMessageAbsentDoesNotFail() {
+    // message Msg { int32 a = 1; repeated Inner hidden = 2; }
+    // message Inner { int32 x = 1; }
+    // Wire data omits hidden; it should be validated/scanned, then dropped from the output.
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(7)));
+
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32)
+        .addField(2, DType.STRUCT).repeated().isOutput(false).down()
+            .addField(1, DType.INT32).isOutput(false)
+        .up()
+        .build();
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0), schema, true)) {
+      assertEquals(DType.STRUCT, result.getType());
+      assertEquals(1, result.getNumChildren());
+      try (ColumnVector childA = result.getChildColumnView(0).copyToColumnVector();
+           ColumnVector expectedA = ColumnVector.fromBoxedInts(7)) {
+        AssertUtils.assertColumnsAreEqual(expectedA, childA);
+      }
+    }
+  }
+
+  @Test
+  void testHiddenRequiredFieldStillValidates() {
+    // message Msg { int32 a = 1; int32 b = 2 [required]; } — b is hidden but required;
+    // wire data omits b. In failfast mode the missing required field must still throw.
+    Byte[] row = concat(box(tag(1, WT_VARINT)), box(encodeVarint(5)));
+
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32)
+        .addField(2, DType.INT32).required().isOutput(false)  // hidden but required
+        .build();
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(RuntimeException.class, () -> {
+        try (ColumnVector ignored = Protobuf.decodeToStruct(input.getColumn(0), schema, true)) {
+          // unreachable: required b is missing, must throw even though hidden
+        }
+      });
+    }
+  }
+
+  @Test
+  void testAllFieldsHiddenProducesEmptyStruct() {
+    // message Msg { int32 a = 1; int32 b = 2; } — both present on the wire but both hidden.
+    // The result is a STRUCT with no children, still carrying the correct row count.
+    Byte[] row = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+        box(tag(2, WT_VARINT)), box(encodeVarint(11)));
+
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32).isOutput(false)
+        .addField(2, DType.INT32).isOutput(false)
+        .build();
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(input.getColumn(0), schema, true)) {
+      assertEquals(DType.STRUCT, result.getType());
+      assertEquals(0, result.getNumChildren());
+      assertEquals(1, result.getRowCount());
+    }
+  }
 }

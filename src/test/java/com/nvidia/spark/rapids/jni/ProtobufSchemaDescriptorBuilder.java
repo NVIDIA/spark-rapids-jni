@@ -70,6 +70,7 @@ public final class ProtobufSchemaDescriptorBuilder {
     boolean isRepeated = false;
     boolean isRequired = false;
     boolean hasDefaultValue = false;
+    boolean isOutput = true;
     long defaultInt = 0L;
     double defaultFloat = 0.0;
     boolean defaultBool = false;
@@ -161,6 +162,12 @@ public final class ProtobufSchemaDescriptorBuilder {
     return this;
   }
 
+  /** Mark the current field hidden: decoded for validation but dropped from the output struct. */
+  public ProtobufSchemaDescriptorBuilder isOutput(boolean isOutput) {
+    current().isOutput = isOutput;
+    return this;
+  }
+
   public ProtobufSchemaDescriptorBuilder defaultInt(long value) {
     Field f = current();
     f.hasDefaultValue = true;
@@ -238,6 +245,7 @@ public final class ProtobufSchemaDescriptorBuilder {
     boolean[] isRepeated = new boolean[n];
     boolean[] isRequired = new boolean[n];
     boolean[] hasDefaultValue = new boolean[n];
+    boolean[] isOutput = new boolean[n];
     long[] defaultInts = new long[n];
     double[] defaultFloats = new double[n];
     boolean[] defaultBools = new boolean[n];
@@ -256,6 +264,7 @@ public final class ProtobufSchemaDescriptorBuilder {
       isRepeated[i] = f.isRepeated;
       isRequired[i] = f.isRequired;
       hasDefaultValue[i] = f.hasDefaultValue;
+      isOutput[i] = f.isOutput;
       defaultInts[i] = f.defaultInt;
       defaultFloats[i] = f.defaultFloat;
       defaultBools[i] = f.defaultBool;
@@ -265,7 +274,7 @@ public final class ProtobufSchemaDescriptorBuilder {
     }
 
     return new ProtobufSchemaDescriptor(fieldNumbers, parentIndices, depthLevels, wireTypes,
-        outputTypeIds, encodings, isRepeated, isRequired, hasDefaultValue,
+        outputTypeIds, encodings, isRepeated, isRequired, hasDefaultValue, isOutput,
         defaultInts, defaultFloats, defaultBools, defaultStrings, enumValidValues, enumNames);
   }
 
