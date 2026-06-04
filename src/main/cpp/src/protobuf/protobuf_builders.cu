@@ -593,7 +593,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
         break;
       }
       case cudf::type_id::STRING:
-      case cudf::type_id::LIST:    // bytes represented as LIST<UINT8>
+      case cudf::type_id::LIST:  // bytes represented as LIST<UINT8>
       case cudf::type_id::STRUCT:
         // Nested string/bytes/enum-as-string (3b.3) and recursive struct (3b.4) children are
         // not decoded yet; emit a typed null column so the output schema still matches.

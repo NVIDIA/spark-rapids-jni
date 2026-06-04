@@ -72,8 +72,10 @@ __device__ bool scan_message_field_locations(uint8_t const* msg_start,
     if (!decode_tag(cur, msg_end, tag, error_flag)) return false;
     int const wt = tag.wire_type;
 
-    int f = lookup_field(tag.field_number, field_lookup, field_lookup_size, num_fields,
-                         [&](int i, int fn) { return field_descs[i].field_number == fn; });
+    int f = lookup_field(
+      tag.field_number, field_lookup, field_lookup_size, num_fields, [&](int i, int fn) {
+        return field_descs[i].field_number == fn;
+      });
     if (f >= 0) {
       if (field_descs[f].is_repeated) {
         // Values are produced by the dedicated repeated count/scan path; we still validate the
