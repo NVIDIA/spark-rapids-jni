@@ -487,6 +487,11 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
                "Nested protobuf struct depth exceeds supported decode recursion limit");
   CUDF_EXPECTS(d_parent_locs.size() == static_cast<size_t>(num_rows),
                "build_nested_struct_column: parent locations size must match row count");
+  // d_row_force_null comes from the caller; empty means "don't track", otherwise it must be
+  // row-aligned since the scan/extract kernels index it by row.
+  CUDF_EXPECTS(
+    d_row_force_null.is_empty() || d_row_force_null.size() == static_cast<size_t>(num_rows),
+    "build_nested_struct_column: row-force-null buffer must be empty or row-sized");
 
   if (num_rows == 0) {
     return make_empty_struct_column_from_children(

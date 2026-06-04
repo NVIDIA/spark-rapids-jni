@@ -2718,8 +2718,8 @@ public class ProtobufTest {
 
   @Test
   void testZeroLengthNestedMessage_ChildIsNull() {
-    // Outer carries the nested tag but with length 0 (Inner is empty).
-    Byte[] row = concat(box(tag(1, WT_LEN)), box(encodeVarint(0)));
+    // Outer carries the nested tag but with an empty (length-0) Inner.
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(new Byte[]{}));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
          ColumnVector result = Protobuf.decodeToStruct(
@@ -2745,10 +2745,12 @@ public class ProtobufTest {
   void testChildlessNestedMessage_IsPresent() {
     // message Empty {}
     // message Outer { Empty inner = 1; }
-    Byte[] row0 = concat(box(tag(1, WT_LEN)), box(encodeVarint(0)));
-    Byte[] row1 = new Byte[]{};
+    // Row 0: present-but-empty Inner; row 1: Inner field absent entirely.
+    Byte[][] rows = new Byte[][]{
+        concat(box(tag(1, WT_LEN)), encodeMessage(new Byte[]{})),
+        new Byte[]{}};
 
-    try (Table input = new Table.TestBuilder().column(new Byte[][]{row0, row1}).build();
+    try (Table input = new Table.TestBuilder().column(rows).build();
          ColumnVector result = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
