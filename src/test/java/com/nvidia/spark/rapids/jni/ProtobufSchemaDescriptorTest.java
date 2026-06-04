@@ -96,9 +96,10 @@ public class ProtobufSchemaDescriptorTest {
   void testDuplicateFieldNumbersUnderSameParentRejected() {
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptorBuilder()
-            .addField(1, DType.STRUCT)
-            .addField(7, DType.INT32).parent(0)
-            .addField(7, DType.INT32).parent(0)  // duplicate field number under same parent
+            .addField(1, DType.STRUCT).down()
+                .addField(7, DType.INT32)
+                .addField(7, DType.INT32)  // duplicate field number under same parent
+            .up()
             .build());
   }
 
@@ -106,20 +107,23 @@ public class ProtobufSchemaDescriptorTest {
   void testDuplicateFieldNumbersUnderDifferentParentsAllowed() {
     assertDoesNotThrow(() ->
         new ProtobufSchemaDescriptorBuilder()
-            .addField(1, DType.STRUCT)
-            .addField(2, DType.STRUCT)
-            .addField(7, DType.INT32).parent(0)
-            .addField(7, DType.INT32).parent(1)  // same number, different parents -> allowed
+            .addField(1, DType.STRUCT).down()
+                .addField(7, DType.INT32)
+            .up()
+            .addField(2, DType.STRUCT).down()
+                .addField(7, DType.INT32)  // same number, different parents -> allowed
+            .up()
             .build());
   }
 
   @Test
   void testChildParentMustBeStruct() {
-    // Field 2 is parented under field 1, but field 1 is INT32 (not STRUCT) -> illegal.
+    // Field 2 is nested under field 1, but field 1 is INT32 (not STRUCT) -> illegal.
     assertThrows(IllegalArgumentException.class, () ->
         new ProtobufSchemaDescriptorBuilder()
-            .addField(1, DType.INT32)
-            .addField(2, DType.INT32).parent(0)
+            .addField(1, DType.INT32).down()
+                .addField(2, DType.INT32)
+            .up()
             .build());
   }
 
@@ -235,5 +239,113 @@ public class ProtobufSchemaDescriptorTest {
     assertNotSame(original.enumNames, roundTrip.enumNames);
     assertNotSame(original.enumNames[0], roundTrip.enumNames[0]);
     assertNotSame(original.enumNames[0][0], roundTrip.enumNames[0][0]);
+  }
+
+  @Test
+  void testMismatchedArrayLengthsRejected() {
+    // parentIndices has length 2 while every other array has length 1.
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptor(
+            new int[]{1},
+            new int[]{-1, -1},
+            new int[]{0},
+            new int[]{Protobuf.WT_VARINT},
+            new int[]{DType.INT32.getTypeId().getNativeId()},
+            new int[]{Protobuf.ENC_DEFAULT},
+            new boolean[]{false},
+            new boolean[]{false},
+            new boolean[]{false},
+            new long[]{0},
+            new double[]{0.0},
+            new boolean[]{false},
+            new byte[][]{null},
+            new int[][]{null},
+            new byte[][][]{null}));
+  }
+
+  @Test
+  void testBackCompatConstructorMarksAllFieldsAsOutput() {
+    // The 15-arg constructor is the back-compat path; verify it fills isOutput with all-true.
+    ProtobufSchemaDescriptor schema = new ProtobufSchemaDescriptor(
+        new int[]{1, 2},
+        new int[]{-1, -1},
+        new int[]{0, 0},
+        new int[]{Protobuf.WT_VARINT, Protobuf.WT_LEN},
+        new int[]{DType.INT32.getTypeId().getNativeId(),
+                  DType.STRING.getTypeId().getNativeId()},
+        new int[]{Protobuf.ENC_DEFAULT, Protobuf.ENC_DEFAULT},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new boolean[]{false, false},
+        new long[]{0, 0},
+        new double[]{0.0, 0.0},
+        new boolean[]{false, false},
+        new byte[][]{null, null},
+        new int[][]{null, null},
+        new byte[][][]{null, null});
+    assertArrayEquals(new boolean[]{true, true}, schema.isOutput);
+  }
+
+  @Test
+  void testNestedFieldMustShareOutputFlagWithParent() {
+    // Hidden parent struct with a visible child -> illegal.
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.STRUCT).isOutput(false).down()
+                .addField(1, DType.INT32).isOutput(true)
+            .up()
+            .build());
+
+    // Reverse direction: visible parent struct with a hidden child -> also illegal.
+    assertThrows(IllegalArgumentException.class, () ->
+        new ProtobufSchemaDescriptorBuilder()
+            .addField(1, DType.STRUCT).isOutput(true).down()
+                .addField(1, DType.INT32).isOutput(false)
+            .up()
+            .build());
+  }
+
+  @Test
+  void testHiddenFieldRoundTripsThroughSerialization() throws Exception {
+    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32)
+        .addField(2, DType.INT32).isOutput(false)  // second field hidden
+        .build();
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+      oos.writeObject(original);
+    }
+    ProtobufSchemaDescriptor roundTrip;
+    try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()))) {
+      roundTrip = (ProtobufSchemaDescriptor) ois.readObject();
+    }
+    assertArrayEquals(original.isOutput, roundTrip.isOutput);
+  }
+
+  @Test
+  void testLegacyStreamWithoutIsOutputBackfillsAllOutput() throws Exception {
+    ProtobufSchemaDescriptor original = new ProtobufSchemaDescriptorBuilder()
+        .addField(1, DType.INT32)
+        .addField(2, DType.INT32)
+        .build();
+
+    // Simulate a stream written before isOutput existed: such a stream deserializes the field as
+    // null. The constructor forbids a null isOutput, so null it out via reflection before
+    // serializing; the resulting blob deserializes with isOutput == null and must hit the
+    // readObject() backfill rather than failing validation.
+    java.lang.reflect.Field f = ProtobufSchemaDescriptor.class.getDeclaredField("isOutput");
+    f.setAccessible(true);
+    f.set(original, null);
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+      oos.writeObject(original);
+    }
+    ProtobufSchemaDescriptor roundTrip;
+    try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()))) {
+      roundTrip = (ProtobufSchemaDescriptor) ois.readObject();
+    }
+    assertArrayEquals(new boolean[]{true, true}, roundTrip.isOutput);
   }
 }
