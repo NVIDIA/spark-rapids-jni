@@ -48,8 +48,6 @@
 #include <thrust/transform.h>
 #include <thrust/uninitialized_fill.h>
 
-#include <unordered_set>
-
 namespace spark_rapids_jni {
 
 namespace detail {
@@ -845,15 +843,12 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
   auto const& parsed_meta = parsed_result.data.metadata;
   auto parsed_columns     = parsed_result.data.tbl->release();
 
-  // Spark's parent-NULL policy needs O(1) per-column lookup against the diagnostic list, so
-  // hoist the vector into a set once before the per-column loop.
-  std::unordered_set<std::string> const mismatched_columns(
-    parsed_result.diagnostics.top_level_columns_with_schema_mismatch.begin(),
-    parsed_result.diagnostics.top_level_columns_with_schema_mismatch.end());
-
   // Surface to the caller whether any top-level column mismatched the schema in this batch, so
   // spark-rapids can fall back the whole batch to CPU for exact Spark parity (#4536/#4645).
-  if (had_schema_mismatch != nullptr) { *had_schema_mismatch = !mismatched_columns.empty(); }
+  if (had_schema_mismatch != nullptr) {
+    *had_schema_mismatch =
+      !parsed_result.diagnostics.top_level_columns_with_schema_mismatch.empty();
+  }
 
   CUDF_EXPECTS(parsed_columns.size() == schema.child_types.size(),
                "Numbers of output columns is different from schema size.");
@@ -868,25 +863,6 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
 
     auto const& [col_name, col_schema] = schema_with_precision.child_types[i];
     CUDF_EXPECTS(parsed_meta.schema_info[i].name == col_name, "Mismatched column name.");
-
-    // Apply Spark's parent-NULL policy: JacksonParser.convertObject with isRoot=false propagates
-    // nested conversion errors up and nulls the depth-1 ancestor. cuDF reports schema-category
-    // mismatches via `json_reader_diagnostics.top_level_columns_with_schema_mismatch` from
-    // `read_json_with_diagnostics`; keep the policy on this side so the diagnostic stays out
-    // of cuDF's public ABI. Setting the column's null mask to ALL_NULL here marks the depth-1
-    // ancestor invalid in the validity buffer; downstream Spark consumers then see every
-    // descendant field as NULL because Spark's expression evaluator returns NULL when reading
-    // fields off a null parent struct (not because cuDF rewrites the child columns).
-    //
-    // Granularity caveat: the cuDF diagnostic is column-level, not row-level, so we null ALL
-    // rows of `col_name` even when only some rows in that column actually had the mismatch.
-    // This over-nulls mixed-row batches relative to Spark's per-row depth-1 nulling. Per-row
-    // diagnostics from cuDF would let us null only the affected rows; tracked in #4645.
-    if (mismatched_columns.contains(col_name)) {
-      auto const num_rows = parsed_columns[i]->size();
-      auto all_null_mask = cudf::create_null_mask(num_rows, cudf::mask_state::ALL_NULL, stream, mr);
-      parsed_columns[i]->set_null_mask(std::move(all_null_mask), num_rows);
-    }
 
     converted_cols.emplace_back(convert_data_type(std::move(parsed_columns[i]),
                                                   col_schema,
