@@ -45,6 +45,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class OrcTimezoneInfoTest {
 
+  /**
+   * An inert historical transition for synthetic {@link ZoneRules} fixtures.
+   *
+   * <p>On JDK 8 (the build's {@code maven.compiler.target}), {@code
+   * ZoneRules.of(base, base, emptyList, emptyList, recurringRules)} -- recurring
+   * rules but no concrete historical transitions -- reports {@code
+   * isFixedOffset() == true} even though DST rules are present. That makes
+   * {@link OrcDstRuleExtractor#extractDstRule} short-circuit to {@code null} at
+   * its {@code rules.isFixedOffset()} guard before either extraction path runs.
+   * JDK 17 reports {@code false}, so the gap is invisible to a JDK 17 compile
+   * check and only surfaces when the 1.8-target test suite actually runs.
+   *
+   * <p>Including one concrete transition flips {@code isFixedOffset()} to {@code
+   * false} on every JDK. Real IANA zones always carry historical transitions,
+   * so production is unaffected -- only these hand-built fixtures need it. The
+   * transition is dated 1900 and changes only the wall offset (the
+   * standard-offset history stays at the base offset), so it perturbs neither
+   * {@code getStandardOffset} nor the post-2060 probing windows the tests rely
+   * on.
+   */
+  private static final ZoneOffsetTransition SYNTHETIC_HISTORICAL_TRANSITION =
+      ZoneOffsetTransition.of(
+          LocalDateTime.of(1900, 1, 1, 0, 0), ZoneOffset.ofHours(-1), ZoneOffset.UTC);
+
   @Test
   void testGetFixedOffsetZone() {
     // Fixed-offset zones must return a non-null OrcTimezoneInfo with the
@@ -254,7 +278,7 @@ public class OrcTimezoneInfoTest {
     ZoneRules syntheticRules = ZoneRules.of(
         baseOffset, baseOffset,
         Collections.emptyList(),
-        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Collections.singletonList(lonelyRule));
 
     IllegalStateException ex = assertThrows(IllegalStateException.class,
@@ -367,7 +391,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, base, base);  // zero delta
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(startRule, zeroDeltaRule));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/ZeroDelta", tz, rules));
@@ -391,7 +416,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, base, plus1);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(ruleA, ruleB));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/BothPositive", tz, rules));
@@ -433,7 +459,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, plus1, base);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(ruleA, ruleB));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/BothNegative", tz, rules));
@@ -458,7 +485,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, plus2, base);  // -2h, but start was +1h
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(startRule, endRule));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/MismatchedSavings", tz, rules));
@@ -483,7 +511,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, plus1, base);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(domRule, endRule));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/DomRule", tz, rules));
@@ -513,7 +542,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, plus1, base);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(startRule, endRule));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/PathAVerifyFail", tz, rules));
@@ -539,7 +569,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, plus1, base);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(negativeIndicatorRule, endRule));
     IllegalStateException ex = assertThrows(IllegalStateException.class,
         () -> OrcDstRuleExtractor.extractDstRule("Synthetic/NegativeIndicator", tz, rules));
@@ -627,7 +658,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, plus2, base);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(startRule, endRule));
 
     OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
@@ -737,7 +769,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.UTC,
         base, plus2, base);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(startRule, endRule));
 
     OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
@@ -799,7 +832,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, plus2, base);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(startRule, endRule));
 
     OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
@@ -849,7 +883,8 @@ public class OrcTimezoneInfoTest {
         ZoneOffsetTransitionRule.TimeDefinition.STANDARD,
         base, plus2, base);
     ZoneRules rules = ZoneRules.of(base, base,
-        Collections.emptyList(), Collections.emptyList(),
+        Collections.emptyList(),
+        Collections.singletonList(SYNTHETIC_HISTORICAL_TRANSITION),
         Arrays.asList(startRule, endRule));
 
     OrcDstRuleExtractor.DstRule rule = OrcDstRuleExtractor.extractDstRule(
