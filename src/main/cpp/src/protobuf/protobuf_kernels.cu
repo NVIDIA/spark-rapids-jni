@@ -400,9 +400,9 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
       // cur - msg_base is bounded by the message length (<= INT32_MAX via check_message_bounds),
       // so this fits int32; checked_add_int32 still guards the offset + len_bytes addition. Matches
       // the LEN handling in scan_message_field_locations.
-      int const msg_data_offset = static_cast<int>(cur - msg_base);
+      int const data_offset = static_cast<int>(cur - msg_base);
       int32_t msg_offset;
-      if (!checked_add_int32(msg_data_offset, len_bytes, msg_offset)) {
+      if (!checked_add_int32(data_offset, len_bytes, msg_offset)) {
         set_error_once(error_flag, ERR_OVERFLOW);
         return;
       }

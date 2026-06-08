@@ -209,8 +209,9 @@ __device__ inline bool get_field_data_location(
 
 // Row-major flat index into a [num_rows x width] array. Takes any integral types and widens to
 // size_t internally so call sites don't need to cast (the multiply happens in size_t).
-template <std::integral Row, std::integral Width, std::integral Col>
-CUDF_HOST_DEVICE inline size_t flat_index(Row row, Width width, Col col)
+CUDF_HOST_DEVICE inline size_t flat_index(std::integral auto row,
+                                          std::integral auto width,
+                                          std::integral auto col)
 {
   return static_cast<size_t>(row) * static_cast<size_t>(width) + static_cast<size_t>(col);
 }
