@@ -527,7 +527,6 @@ void launch_compute_msg_locations_from_occurrences(repeated_occurrence const* oc
                                                    int* error_flag,
                                                    rmm::cuda_stream_view stream);
 
-
 // ============================================================================
 // Host-side template helpers that launch CUDA kernels
 // ============================================================================
