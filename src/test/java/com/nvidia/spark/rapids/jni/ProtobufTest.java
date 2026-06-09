@@ -1349,8 +1349,8 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.INT32).defaultInt(42)
-                 .addField(2, DType.INT64).defaultInt(100)
+                 .addField(1, DType.INT32).defaultValue(42)
+                 .addField(2, DType.INT64).defaultValue(100)
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1371,8 +1371,8 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.INT32).defaultInt(42)
-                 .addField(2, DType.INT64).defaultInt(100)
+                 .addField(1, DType.INT32).defaultValue(42)
+                 .addField(2, DType.INT64).defaultValue(100)
                  .build(),
              false)) {
       // Actual values should be used, not defaults
@@ -1392,7 +1392,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.INT32).defaultInt(42)
+                 .addField(1, DType.INT32).defaultValue(42)
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1410,7 +1410,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.BOOL8).defaultBool(true)
+                 .addField(1, DType.BOOL8).defaultValue(true)
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1428,7 +1428,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.FLOAT64).defaultFloat(3.14)
+                 .addField(1, DType.FLOAT64).defaultValue(3.14)
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1446,7 +1446,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.INT64).defaultInt(9876543210L)
+                 .addField(1, DType.INT64).defaultValue(9876543210L)
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1469,9 +1469,9 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.INT32).defaultInt(42)
+                 .addField(1, DType.INT32).defaultValue(42)
                  .addField(2, DType.INT64)
-                 .addField(3, DType.BOOL8).defaultBool(true)
+                 .addField(3, DType.BOOL8).defaultValue(true)
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1493,8 +1493,8 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.INT32).defaultInt(42)
-                 .addField(2, DType.INT64).defaultInt(100)
+                 .addField(1, DType.INT32).defaultValue(42)
+                 .addField(2, DType.INT64).defaultValue(100)
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1513,7 +1513,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.STRING).defaultString("hello".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                 .addField(1, DType.STRING).defaultValue("hello".getBytes(java.nio.charset.StandardCharsets.UTF_8))
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1532,7 +1532,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.STRING).defaultString(new byte[0])
+                 .addField(1, DType.STRING).defaultValue(new byte[0])
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1555,7 +1555,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.STRING).defaultString("default".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                 .addField(1, DType.STRING).defaultValue("default".getBytes(java.nio.charset.StandardCharsets.UTF_8))
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1576,8 +1576,8 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.INT32).defaultInt(42)
-                 .addField(2, DType.STRING).defaultString("test".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                 .addField(1, DType.INT32).defaultValue(42)
+                 .addField(2, DType.STRING).defaultValue("test".getBytes(java.nio.charset.StandardCharsets.UTF_8))
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -1602,7 +1602,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
-                 .addField(1, DType.STRING).defaultString("default".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                 .addField(1, DType.STRING).defaultValue("default".getBytes(java.nio.charset.StandardCharsets.UTF_8))
                  .build(),
              false)) {
       AssertUtils.assertStructColumnsAreEqual(expectedStruct, actualStruct);
@@ -3310,7 +3310,7 @@ public class ProtobufTest {
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
                  .addField(1, DType.STRUCT).down()
-                     .addField(1, DType.INT32).defaultInt(99)
+                     .addField(1, DType.INT32).defaultValue(99)
                  .up()
                  .build(),
              false);
