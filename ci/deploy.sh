@@ -94,7 +94,7 @@ echo "Deploy CMD: $DEPLOY_CMD"
 
 ###### Deploy spark-rapids-jni jar with all its additions ######
 $DEPLOY_CMD -Dfile=$FPATH.jar \
-            -DpomFile=pom.xml \
+            -DpomFile=$POM_FILE \
             -Dsources=$FPATH-sources.jar \
             -Djavadoc=$FPATH-javadoc.jar \
             -Dfiles=$CLASS_FILES \
