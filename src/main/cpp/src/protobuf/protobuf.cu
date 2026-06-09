@@ -21,6 +21,7 @@
 
 #include <thrust/binary_search.h>
 
+#include <algorithm>
 #include <limits>
 #include <set>
 #include <string>
@@ -396,7 +397,19 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   auto const& default_strings   = context.default_strings;
   auto const& enum_valid_values = context.enum_valid_values;
   auto const& enum_names        = context.enum_names;
-  bool fail_on_errors           = context.fail_on_errors;
+  // Per-decode cache keyed by schema index for enum-as-string lookup tables. Reusing the
+  // device buffers across recursive call sites avoids re-uploading the same metadata.
+  enum_string_lookup_cache enum_lookup_cache;
+  // Bundle defaults + enum metadata into a single view so the recursive nested/repeated
+  // builders take one parameter instead of six identical references.
+  schema_context_view const schema_ctx{default_ints,
+                                       default_floats,
+                                       default_bools,
+                                       default_strings,
+                                       enum_valid_values,
+                                       enum_names,
+                                       &enum_lookup_cache};
+  bool fail_on_errors = context.fail_on_errors;
   CUDF_EXPECTS(binary_input.type().id() == cudf::type_id::LIST,
                "binary_input must be a LIST<INT8/UINT8> column");
   cudf::lists_column_view const in_list(binary_input);
@@ -1271,12 +1284,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                  child_field_indices,
                                                  schema,
                                                  num_fields,
-                                                 default_ints,
-                                                 default_floats,
-                                                 default_bools,
-                                                 default_strings,
-                                                 enum_valid_values,
-                                                 enum_names,
+                                                 schema_ctx,
                                                  d_row_force_null,
                                                  d_error,
                                                  num_rows,

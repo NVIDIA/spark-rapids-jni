@@ -55,9 +55,9 @@ CUDF_KERNEL void set_error_if_unset_kernel(int* error_flag, int error_code)
  * `lookup_desc_idx(field_number) -> int` maps a wire field number to its descriptor index (or -1);
  * callers supply it so this helper stays agnostic to whether a lookup table is used.
  *
- * Matched repeated fields are delegated to `on_repeated(cur, msg_end, msg_base, wt, expected_wt)`
- * (which returns false on error). Top-level scalars pass a no-op handler since their descriptors
- * are never repeated; the nested scanner validates repeated occurrences via walk_repeated_element.
+ * Matched repeated fields are delegated to `on_repeated(f, cur, msg_end, msg_base, wt,
+ * expected_wt)` (f is the matched descriptor index) which returns false on error. Top-level scalars
+ * pass a no-op handler since their descriptors are never repeated.
  */
 __device__ bool scan_message_field_locations(uint8_t const* msg_base,
                                              uint8_t const* msg_end,
@@ -74,7 +74,7 @@ __device__ bool scan_message_field_locations(uint8_t const* msg_base,
 
     if (int f = lookup_desc_idx(tag.field_number); f >= 0) {
       if (field_descs[f].is_repeated) {
-        if (!on_repeated(cur, msg_end, msg_base, wt, field_descs[f].expected_wire_type)) {
+        if (!on_repeated(f, cur, msg_end, msg_base, wt, field_descs[f].expected_wire_type)) {
           return false;
         }
       } else if (wt != field_descs[f].expected_wire_type) {
@@ -175,7 +175,7 @@ CUDF_KERNEL void scan_all_fields_kernel(
     });
   };
   // Top-level scalar descriptors are never repeated, so the repeated handler is unreachable.
-  auto unreachable_repeated = [](uint8_t const*, uint8_t const*, uint8_t const*, int, int) {
+  auto unreachable_repeated = [](int, uint8_t const*, uint8_t const*, uint8_t const*, int, int) {
     return true;
   };
   if (!scan_message_field_locations(msg_base,
@@ -460,52 +460,41 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
     write_idx[f] = scan_descs[f].row_offsets[row];
   }
 
-  // Descriptor-index lookup. No depth filter here (scan kernel runs against a flat list
-  // of top-level repeated descriptors), so the predicate is just the field-number match.
-  auto lookup_desc_idx = [&](int fn) -> int {
-    return lookup_field(fn, fn_to_desc_idx, fn_to_desc_size, num_scan_fields, [&](int f, int fn) {
+  // Build field_descriptor[] from scan_descs; all entries are repeated (on_repeated handles them).
+  field_descriptor fd[MAX_REPEATED_FIELDS_PER_KERNEL];
+  field_location dummy_out[MAX_REPEATED_FIELDS_PER_KERNEL];
+  for (int f = 0; f < num_scan_fields; f++) {
+    fd[f]        = {scan_descs[f].field_number, scan_descs[f].wire_type, true};
+    dummy_out[f] = {-1, 0};
+  }
+
+  auto lookup_by_fn = [&](int fn) -> int {
+    return lookup_field(fn, fn_to_desc_idx, fn_to_desc_size, num_scan_fields, [&](int f, int) {
       return scan_descs[f].field_number == fn;
     });
   };
 
-  for (uint8_t const* cur = msg_base; cur < msg_end;) {
-    proto_tag tag;
-    if (!decode_tag(cur, msg_end, tag, error_flag)) return;
-    int const fn = tag.field_number;
-    int const wt = tag.wire_type;
-
-    if (int f = lookup_desc_idx(fn); f >= 0) {
-      int target_wt  = scan_descs[f].wire_type;
-      bool is_packed = (wt == wire_type_value(proto_wire_type::LEN) &&
-                        target_wt != wire_type_value(proto_wire_type::LEN));
-      if (!is_packed && wt != target_wt) {
-        set_error_once(error_flag, ERR_WIRE_TYPE);
-        return;
+  auto row_i32 = static_cast<int32_t>(row);
+  auto on_repeated_scan =
+    [&](int f, uint8_t const* cur, uint8_t const* me, uint8_t const* mb, int wt, int expected_wt)
+    -> bool {
+    auto* occs       = scan_descs[f].occurrences;
+    int& wi          = write_idx[f];
+    int const we     = scan_descs[f].row_offsets[row + 1];
+    auto scan_action = [&](int32_t off, int32_t len) -> bool {
+      if (wi >= we) {
+        set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
+        return false;
       }
-      auto* occs       = scan_descs[f].occurrences;
-      int& wi          = write_idx[f];
-      int const we     = scan_descs[f].row_offsets[row + 1];
-      auto scan_action = [&, row_i32 = static_cast<int32_t>(row)](int32_t off, int32_t len) {
-        if (wi >= we) {
-          set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
-          return false;
-        }
-        occs[wi] = {row_i32, off, len};
-        wi++;
-        return true;
-      };
-      if (!walk_repeated_element(cur, msg_end, msg_base, wt, target_wt, error_flag, scan_action)) {
-        return;
-      }
-    }
+      occs[wi] = {row_i32, off, len};
+      wi++;
+      return true;
+    };
+    return walk_repeated_element(cur, me, mb, wt, expected_wt, error_flag, scan_action);
+  };
 
-    uint8_t const* next;
-    if (!skip_field(cur, msg_end, wt, next)) {
-      set_error_once(error_flag, ERR_SKIP);
-      return;
-    }
-    cur = next;
-  }
+  scan_message_field_locations(
+    msg_base, msg_end, fd, dummy_out, error_flag, lookup_by_fn, on_repeated_scan);
 
   for (int f = 0; f < num_scan_fields; f++) {
     if (write_idx[f] != scan_descs[f].row_offsets[row + 1]) {
@@ -572,7 +561,8 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
         return field_descs[f].field_number == n;
       });
   };
-  auto validate_repeated = [&](uint8_t const* cur,
+  auto validate_repeated = [&](int /*f*/,
+                               uint8_t const* cur,
                                uint8_t const* msg_end,
                                uint8_t const* msg_base,
                                int wt,
