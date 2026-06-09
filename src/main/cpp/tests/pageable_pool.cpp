@@ -42,16 +42,16 @@ static pageable_pool_resource make_pool(std::size_t size = kPoolSize, int thread
 // ---------------------------------------------------------------------------
 TEST(PageablePool, AllocReturnsNonNull)
 {
-  auto  pool = make_pool();
-  void* p    = pool.allocate_sync(1024);
+  auto pool = make_pool();
+  void* p   = pool.allocate_sync(1024);
   ASSERT_NE(p, nullptr);
   pool.deallocate_sync(p, 1024);
 }
 
 TEST(PageablePool, AllocFillAndFree)
 {
-  auto  pool = make_pool();
-  void* p    = pool.allocate_sync(1024);
+  auto pool = make_pool();
+  void* p   = pool.allocate_sync(1024);
   ASSERT_NE(p, nullptr);
   std::memset(p, 0xAB, 1024);
   auto* bytes = static_cast<unsigned char*>(p);
@@ -60,14 +60,26 @@ TEST(PageablePool, AllocFillAndFree)
   pool.deallocate_sync(p, 1024);
 }
 
+TEST(PageablePool, ZeroByteAllocationDoesNotConsumePool)
+{
+  auto pool = make_pool();
+  void* p   = pool.allocate_sync(0);
+  ASSERT_EQ(p, nullptr);
+  pool.deallocate_sync(p, 0);
+
+  void* full = pool.allocate_sync(kPoolSize);
+  ASSERT_NE(full, nullptr);
+  pool.deallocate_sync(full, kPoolSize);
+}
+
 // ---------------------------------------------------------------------------
 // Alignment
 // ---------------------------------------------------------------------------
 TEST(PageablePool, PointerIsAligned)
 {
-  auto                  pool  = make_pool();
+  auto pool                   = make_pool();
   constexpr std::size_t align = cuda::mr::default_cuda_malloc_host_alignment;
-  void*                 p     = pool.allocate_sync(1);
+  void* p                     = pool.allocate_sync(1);
   ASSERT_EQ(reinterpret_cast<std::uintptr_t>(p) % align, 0u);
   pool.deallocate_sync(p, 1);
 }
@@ -77,9 +89,9 @@ TEST(PageablePool, PointerIsAligned)
 // ---------------------------------------------------------------------------
 TEST(PageablePool, CoalescingAllowsFullReuse)
 {
-  auto  pool = make_pool();
-  void* a    = pool.allocate_sync(kPoolSize / 2);
-  void* b    = pool.allocate_sync(kPoolSize / 2);
+  auto pool = make_pool();
+  void* a   = pool.allocate_sync(kPoolSize / 2);
+  void* b   = pool.allocate_sync(kPoolSize / 2);
   ASSERT_NE(a, nullptr);
   ASSERT_NE(b, nullptr);
 
@@ -90,7 +102,7 @@ TEST(PageablePool, CoalescingAllowsFullReuse)
   // After coalescing the two half-blocks should merge into one block large
   // enough for a near-full-pool allocation.
   constexpr std::size_t align = cuda::mr::default_cuda_malloc_host_alignment;
-  void*                 c     = pool.allocate_sync(kPoolSize - align);
+  void* c                     = pool.allocate_sync(kPoolSize - align);
   ASSERT_NE(c, nullptr);
   pool.deallocate_sync(c, kPoolSize - align);
 }
@@ -100,8 +112,8 @@ TEST(PageablePool, CoalescingAllowsFullReuse)
 // ---------------------------------------------------------------------------
 TEST(PageablePool, OOMThrows)
 {
-  auto  pool = make_pool();
-  void* p    = pool.allocate_sync(kPoolSize);
+  auto pool = make_pool();
+  void* p   = pool.allocate_sync(kPoolSize);
   ASSERT_NE(p, nullptr);
   // Suppress -Werror=unused-result for the nodiscard alloc inside EXPECT_THROW.
   EXPECT_THROW({ [[maybe_unused]] void* _ = pool.allocate_sync(1); }, std::bad_alloc);
@@ -113,9 +125,9 @@ TEST(PageablePool, OOMThrows)
 // ---------------------------------------------------------------------------
 TEST(PageablePool, MultipleAllocsExhaustPool)
 {
-  auto                  pool  = make_pool();
+  auto pool                   = make_pool();
   constexpr std::size_t chunk = 256 * 1024;  // 256 KiB
-  constexpr int         n     = static_cast<int>(kPoolSize / chunk);
+  constexpr int n             = static_cast<int>(kPoolSize / chunk);
 
   std::vector<void*> ptrs(n);
   for (int i = 0; i < n; ++i) {
@@ -134,9 +146,9 @@ TEST(PageablePool, ConcurrentAllocFree)
 {
   auto pool = make_pool(16 * 1024 * 1024, 4);
 
-  constexpr int         kThreads      = 8;
-  constexpr int         kOpsPerThread = 100;
-  constexpr std::size_t kChunk        = 4096;
+  constexpr int kThreads       = 8;
+  constexpr int kOpsPerThread  = 100;
+  constexpr std::size_t kChunk = 4096;
 
   std::vector<std::thread> threads;
   threads.reserve(kThreads);
@@ -176,8 +188,8 @@ TEST(PageablePool, CCCLConcept)
 
   // Verify the upstream any_resource round-trips correctly: allocate from the
   // pool, which internally calls upstream_.allocate_sync for the backing buffer.
-  auto  pool = make_pool(1024 * 1024);
-  void* p    = pool.allocate_sync(4096);
+  auto pool = make_pool(1024 * 1024);
+  void* p   = pool.allocate_sync(4096);
   ASSERT_NE(p, nullptr);
   pool.deallocate_sync(p, 4096);
 }

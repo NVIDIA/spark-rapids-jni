@@ -109,7 +109,7 @@ public final class PageableMemoryPool implements AutoCloseable {
   }
 
   /**
-   * Initialize the pool. The backing buffer is allocated and pre-touched (each 4KB page
+   * Initialize the pool. The backing buffer is allocated and pre-touched (each system page
    * written to force the kernel to map physical pages) using the given thread count.
    * Pre-touching parallelizes the page-fault work so it amortizes to a few hundred ms
    * for multi-GB pools instead of several seconds serially.
