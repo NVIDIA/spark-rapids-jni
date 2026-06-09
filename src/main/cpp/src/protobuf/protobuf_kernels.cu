@@ -523,30 +523,41 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
   auto const& parent_loc = parent_locations[row];
   if (parent_loc.offset < 0) return;
 
-  auto parent_row_start    = parent_row_offsets[row] - parent_base_offset;
-  int64_t nested_start_off = static_cast<int64_t>(parent_row_start) + parent_loc.offset;
+  // Do the subtraction in int64 to keep the bounds-check honest even if a future caller
+  // ever passes a sliced LIST where parent_base_offset > parent_row_offsets[row].
+  int64_t parent_row_start = static_cast<int64_t>(parent_row_offsets[row]) - parent_base_offset;
+  int64_t nested_start_off = parent_row_start + parent_loc.offset;
   int64_t nested_end_off   = nested_start_off + parent_loc.length;
-  if (nested_start_off < 0 || nested_end_off > message_data_size) {
-    set_error_once(error_flag, ERR_BOUNDS);
+  if (!check_message_bounds(nested_start_off, nested_end_off, message_data_size, error_flag)) {
     mark_row_error();
     return;
   }
-  uint8_t const* nested_start = message_data + nested_start_off;
-  uint8_t const* nested_end   = nested_start + parent_loc.length;
+  uint8_t const* const nested_start = message_data + nested_start_off;
+  uint8_t const* const nested_end   = message_data + nested_end_off;
 
-  // Linear lookup — no lookup table for nested messages (schema is small).
-  auto lookup_by_fn = [field_descs, num_fields](int fn) -> int {
-    for (int f = 0; f < num_fields; f++) {
-      if (field_descs[f].field_number == fn) return f;
-    }
-    return -1;
+  auto lookup_desc_idx = [&](int fn) {
+    return lookup_field(
+      fn, /*field_lookup=*/nullptr, /*field_lookup_size=*/0, num_fields, [&](int f, int n) {
+        return field_descs[f].field_number == n;
+      });
   };
-  // Repeated children are handled by the dedicated count/scan path; skip them here.
-  auto skip_repeated = [](int, uint8_t const*, uint8_t const*, uint8_t const*, int, int) {
-    return true;
+  auto validate_repeated = [&](int /*f*/,
+                               uint8_t const* cur,
+                               uint8_t const* msg_end,
+                               uint8_t const* msg_base,
+                               int wt,
+                               int expected_wt) {
+    auto noop = []([[maybe_unused]] int32_t off, [[maybe_unused]] int32_t len) { return true; };
+    return walk_repeated_element(cur, msg_end, msg_base, wt, expected_wt, error_flag, noop);
   };
-  if (!scan_message_field_locations(
-        nested_start, nested_end, field_descs, field_locations, error_flag, lookup_by_fn, skip_repeated)) {
+
+  if (!scan_message_field_locations(nested_start,
+                                    nested_end,
+                                    field_descs,
+                                    field_locations,
+                                    error_flag,
+                                    lookup_desc_idx,
+                                    validate_repeated)) {
     mark_row_error();
   }
 }
@@ -896,8 +907,9 @@ CUDF_KERNEL void compute_msg_locations_from_occurrences_kernel(
 }
 
 /**
- * Extract a single field's locations from a 2D strided array on the GPU.
- * Replaces a D2H + CPU loop + H2D pattern for nested message location extraction.
+ * Pull one field's per-row locations out of the 2D nested-locations array. Replaces a
+ * D2H + CPU loop + H2D pattern previously used to extract a parent-location vector per
+ * nested struct field.
  */
 CUDF_KERNEL void extract_strided_locations_kernel(field_location const* nested_locations,
                                                   int field_idx,
@@ -907,8 +919,7 @@ CUDF_KERNEL void extract_strided_locations_kernel(field_location const* nested_l
 {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
   if (row >= num_rows) return;
-  parent_locs[row] = nested_locations[flat_index(
-    static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(field_idx))];
+  parent_locs[row] = nested_locations[flat_index(row, num_fields, field_idx)];
 }
 
 // ============================================================================
