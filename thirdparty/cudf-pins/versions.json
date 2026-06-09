@@ -53,14 +53,6 @@
       "git_url" : "https://github.com/fmtlib/fmt.git",
       "version" : "11.0.2"
     },
-    "jitify" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "35a5b2d772691b7d1a3e739308f90d84c2c3d7ec",
-      "git_url" : "https://github.com/NVIDIA/jitify.git",
-      "version" : "2.0.0"
-    },
     "kvikio" : 
     {
       "always_download" : true,
@@ -97,7 +89,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "d1081d0844271f5782063c6002d323f642b1137e",
+      "git_tag" : "a66679d671694a1cd9b3965fbc9eccdd44efa2e4",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
       "version" : "26.08"
