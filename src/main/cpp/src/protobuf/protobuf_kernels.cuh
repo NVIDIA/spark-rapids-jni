@@ -66,9 +66,7 @@ struct top_level_location_provider {
 
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
-    auto loc = locations[flat_index(static_cast<size_t>(thread_idx),
-                                    static_cast<size_t>(num_fields),
-                                    static_cast<size_t>(field_idx))];
+    auto loc = locations[flat_index(thread_idx, num_fields, field_idx)];
     if (loc.offset >= 0) { data_offset = offsets[thread_idx] - base_offset + loc.offset; }
     return loc;
   }
@@ -98,9 +96,7 @@ struct nested_location_provider {
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
     auto ploc = parent_locations[thread_idx];
-    auto cloc = child_locations[flat_index(static_cast<size_t>(thread_idx),
-                                           static_cast<size_t>(num_fields),
-                                           static_cast<size_t>(field_idx))];
+    auto cloc = child_locations[flat_index(thread_idx, num_fields, field_idx)];
     if (ploc.offset >= 0 && cloc.offset >= 0) {
       data_offset = row_offsets[thread_idx] - base_offset + ploc.offset + cloc.offset;
     } else {
@@ -140,9 +136,7 @@ struct repeated_msg_child_location_provider {
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
     auto mloc = msg_locations[thread_idx];
-    auto cloc = child_locations[flat_index(static_cast<size_t>(thread_idx),
-                                           static_cast<size_t>(num_fields),
-                                           static_cast<size_t>(field_idx))];
+    auto cloc = child_locations[flat_index(thread_idx, num_fields, field_idx)];
     if (mloc.offset >= 0 && cloc.offset >= 0) {
       data_offset = row_offsets[thread_idx] - base_offset + mloc.offset + cloc.offset;
     } else {
@@ -680,10 +674,7 @@ struct extract_strided_count {
 
   __device__ int32_t operator()(int row) const
   {
-    return info[flat_index(static_cast<size_t>(row),
-                           static_cast<size_t>(num_fields),
-                           static_cast<size_t>(field_idx))]
-      .count;
+    return info[flat_index(row, num_fields, field_idx)].count;
   }
 };
 

@@ -210,9 +210,10 @@ std::unique_ptr<cudf::column> parse_strings_to_date(
  *
  * Pattern letters follow JDK conventions: `y`/`M`/`d`/`H`/`m`/`s`. Lowercase `m` is minute,
  * not month. Non-year letter runs must have length 2; longer runs (e.g. `MMM` for month
- * name) are rejected because this kernel does not implement text forms. Space in the
- * pattern matches either ' ' or 'T' in the input — quoted literals (`'T'`) are not
- * supported, callers should use a space instead. Pattern literals must be ASCII. In LEGACY
+ * name) are rejected because this kernel does not implement text forms. A space in the
+ * pattern matches exactly one ' ' in the input; 'T' is rejected as the date/time separator
+ * under both policies (unlike the format-less cast). Quoted literals (`'T'`) are not
+ * supported. Pattern literals must be ASCII. In LEGACY
  * mode, non-year digit fields are 1 or 2 digits unless adjacent to another digit field (in
  * which case widths are exact to disambiguate). Parsed values are wall-clock UTC; timezone
  * rebasing remains the caller's responsibility — in LEGACY mode the trailing non-digit rule

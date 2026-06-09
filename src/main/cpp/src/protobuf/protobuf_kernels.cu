@@ -42,17 +42,91 @@ CUDF_KERNEL void set_error_if_unset_kernel(int* error_flag, int error_code)
 }
 
 /**
- * Fused scanning kernel: scans each message once and records the location
- * of all requested fields.
+ * Scan one message's bytes [msg_base, msg_end) once, recording the last-one-wins location
+ * (relative to msg_base) of every matching non-repeated field into `out[field_index]`.
  *
- * For "last one wins" semantics (protobuf standard for repeated scalars),
- * we continue scanning even after finding a field.
+ * Shared by the top-level (`scan_all_fields_kernel`) and nested
+ * (`scan_nested_message_fields_kernel`) scanners. The caller initializes `out` to {-1, 0} and
+ * owns row-level error marking; this helper only sets `error_flag` and returns false on the first
+ * parse error that leaves the cursor unsafe to advance.
  *
- * If a row hits a parse error that leaves the cursor in an unsafe state (for example, malformed
- * varint bytes or a schema-matching field with the wrong wire type), the scan aborts for that row
- * instead of guessing where the next field begins. In permissive mode the caller may also supply a
- * row-level invalidity buffer so the full struct row can be nulled to match Spark CPU semantics for
- * malformed messages.
+ * `lookup_desc_idx(field_number) -> int` maps a wire field number to its descriptor index (or -1);
+ * callers supply it so this helper stays agnostic to whether a lookup table is used.
+ *
+ * Matched repeated fields are delegated to `on_repeated(cur, msg_end, msg_base, wt, expected_wt)`
+ * (which returns false on error). Top-level scalars pass a no-op handler since their descriptors
+ * are never repeated; the nested scanner validates repeated occurrences via walk_repeated_element.
+ */
+__device__ bool scan_message_field_locations(uint8_t const* msg_base,
+                                             uint8_t const* msg_end,
+                                             field_descriptor const* field_descs,
+                                             field_location* out,
+                                             int* error_flag,
+                                             auto&& lookup_desc_idx,
+                                             auto&& on_repeated)
+{
+  for (uint8_t const* cur = msg_base; cur < msg_end;) {
+    proto_tag tag;
+    if (!decode_tag(cur, msg_end, tag, error_flag)) return false;
+    int const wt = tag.wire_type;
+
+    if (int f = lookup_desc_idx(tag.field_number); f >= 0) {
+      if (field_descs[f].is_repeated) {
+        if (!on_repeated(cur, msg_end, msg_base, wt, field_descs[f].expected_wire_type)) {
+          return false;
+        }
+      } else if (wt != field_descs[f].expected_wire_type) {
+        set_error_once(error_flag, ERR_WIRE_TYPE);
+        return false;
+      } else {
+        // Record this field's location relative to the message start (last one wins).
+        int const data_offset = static_cast<int>(cur - msg_base);
+        if (wt == wire_type_value(proto_wire_type::LEN)) {
+          // Length-delimited: skip past the length prefix and record (data offset, data length).
+          uint64_t len;
+          int len_bytes;
+          if (!read_varint(cur, msg_end, len, len_bytes)) {
+            set_error_once(error_flag, ERR_VARINT);
+            return false;
+          }
+          if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
+              len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max())) {
+            set_error_once(error_flag, ERR_OVERFLOW);
+            return false;
+          }
+          int32_t data_location;
+          if (!checked_add_int32(data_offset, len_bytes, data_location)) {
+            set_error_once(error_flag, ERR_OVERFLOW);
+            return false;
+          }
+          out[f] = {data_location, static_cast<int32_t>(len)};
+        } else {
+          // Fixed-width / varint: record the offset and the wire-type-derived size.
+          int field_size = get_wire_type_size(wt, cur, msg_end);
+          if (field_size < 0) {
+            set_error_once(error_flag, ERR_FIELD_SIZE);
+            return false;
+          }
+          out[f] = {data_offset, field_size};
+        }
+      }
+    }
+
+    // Advance to the next field regardless of whether this one matched the schema.
+    uint8_t const* next;
+    if (!skip_field(cur, msg_end, wt, next)) {
+      set_error_once(error_flag, ERR_SKIP);
+      return false;
+    }
+    cur = next;
+  }
+  return true;
+}
+
+/**
+ * Top-level field scanner: one thread per row records each requested top-level field's location
+ * via the shared `scan_message_field_locations`. Null rows and out-of-bounds messages leave the
+ * row's locations as {-1, 0}; in permissive mode malformed rows are flagged for nulling.
  */
 CUDF_KERNEL void scan_all_fields_kernel(
   cudf::column_device_view const d_in,
@@ -66,18 +140,18 @@ CUDF_KERNEL void scan_all_fields_kernel(
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   cudf::detail::lists_column_device_view in{d_in};
-  if (row >= in.size()) { return; }
+  if (row >= in.size()) return;
 
   auto mark_row_error = [&]() {
     if (row_has_invalid_data != nullptr) { row_has_invalid_data[row] = true; }
   };
 
+  field_location* field_locations = locations + flat_index(row, num_fields, 0);
   for (int f = 0; f < num_fields; f++) {
-    locations[flat_index(
-      static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {-1, 0};
+    field_locations[f] = {-1, 0};
   }
 
-  if (in.nullable() && in.is_null(row)) { return; }
+  if (in.nullable() && in.is_null(row)) return;
 
   auto const base   = in.offset_at(0);
   auto const child  = in.get_sliced_child();
@@ -90,78 +164,26 @@ CUDF_KERNEL void scan_all_fields_kernel(
     return;
   }
 
-  uint8_t const* cur     = bytes + start;
-  uint8_t const* msg_end = bytes + end;
+  uint8_t const* const msg_base = bytes + start;
+  uint8_t const* const msg_end  = bytes + end;
 
-  while (cur < msg_end) {
-    proto_tag tag;
-    if (!decode_tag(cur, msg_end, tag, error_flag)) {
-      mark_row_error();
-      return;
-    }
-    int fn = tag.field_number;
-    int wt = tag.wire_type;
-
-    int f = lookup_field(fn, field_lookup, field_lookup_size, num_fields, [&](int i, int fn) {
-      return field_descs[i].field_number == fn;
+  auto lookup_desc_idx = [&](int fn) {
+    return lookup_field(fn, field_lookup, field_lookup_size, num_fields, [&](int f, int n) {
+      return field_descs[f].field_number == n;
     });
-    if (f >= 0) {
-      if (wt != field_descs[f].expected_wire_type) {
-        set_error_once(error_flag, ERR_WIRE_TYPE);
-        mark_row_error();
-        return;
-      }
-
-      // Record the location (relative to message start)
-      int data_offset = static_cast<int>(cur - bytes - start);
-
-      if (wt == wire_type_value(proto_wire_type::LEN)) {
-        // For length-delimited, record offset after length prefix and the data length
-        uint64_t len;
-        int len_bytes;
-        if (!read_varint(cur, msg_end, len, len_bytes)) {
-          set_error_once(error_flag, ERR_VARINT);
-          mark_row_error();
-          return;
-        }
-        if (len > static_cast<uint64_t>(msg_end - cur - len_bytes) ||
-            len > static_cast<uint64_t>(cuda::std::numeric_limits<int>::max())) {
-          set_error_once(error_flag, ERR_OVERFLOW);
-          mark_row_error();
-          return;
-        }
-        // Record offset pointing to the actual data (after length prefix)
-        int32_t data_location;
-        if (!checked_add_int32(data_offset, len_bytes, data_location)) {
-          set_error_once(error_flag, ERR_OVERFLOW);
-          mark_row_error();
-          return;
-        }
-        locations[flat_index(
-          static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
-          data_location, static_cast<int32_t>(len)};
-      } else {
-        // For fixed-size and varint fields, record offset and compute length
-        int field_size = get_wire_type_size(wt, cur, msg_end);
-        if (field_size < 0) {
-          set_error_once(error_flag, ERR_FIELD_SIZE);
-          mark_row_error();
-          return;
-        }
-        locations[flat_index(
-          static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {
-          data_offset, field_size};
-      }
-    }
-
-    // Skip to next field
-    uint8_t const* next;
-    if (!skip_field(cur, msg_end, wt, next)) {
-      set_error_once(error_flag, ERR_SKIP);
-      mark_row_error();
-      return;
-    }
-    cur = next;
+  };
+  // Top-level scalar descriptors are never repeated, so the repeated handler is unreachable.
+  auto unreachable_repeated = [](uint8_t const*, uint8_t const*, uint8_t const*, int, int) {
+    return true;
+  };
+  if (!scan_message_field_locations(msg_base,
+                                    msg_end,
+                                    field_descs,
+                                    field_locations,
+                                    error_flag,
+                                    lookup_desc_idx,
+                                    unreachable_repeated)) {
+    mark_row_error();
   }
 }
 
@@ -283,16 +305,12 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
 
   // Initialize repeated counts to 0
   for (int f = 0; f < num_repeated_fields; f++) {
-    repeated_info[flat_index(
-      static_cast<size_t>(row), static_cast<size_t>(num_repeated_fields), static_cast<size_t>(f))] =
-      {0};
+    repeated_info[flat_index(row, num_repeated_fields, f)] = {0};
   }
 
   // Initialize nested locations to not found
   for (int f = 0; f < num_nested_fields; f++) {
-    nested_locations[flat_index(
-      static_cast<size_t>(row), static_cast<size_t>(num_nested_fields), static_cast<size_t>(f))] = {
-      -1, 0};
+    nested_locations[flat_index(row, num_nested_fields, f)] = {-1, 0};
   }
 
   if (in.nullable() && in.is_null(row)) return;
@@ -305,8 +323,7 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
   if (!check_message_bounds(start, end, child.size(), error_flag)) return;
 
   uint8_t const* const msg_base = bytes + start;
-  uint8_t const* cur            = msg_base;
-  uint8_t const* msg_end        = bytes + end;
+  uint8_t const* const msg_end  = bytes + end;
 
   auto lookup_field_idx = [&](int fn,
                               int const* fn_to_idx,
@@ -319,19 +336,17 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
     });
   };
 
-  while (cur < msg_end) {
+  for (uint8_t const* cur = msg_base; cur < msg_end;) {
     proto_tag tag;
     if (!decode_tag(cur, msg_end, tag, error_flag)) return;
-    int fn = tag.field_number;
-    int wt = tag.wire_type;
+    int const fn = tag.field_number;
+    int const wt = tag.wire_type;
 
-    if (int i = lookup_field_idx(
+    if (int f = lookup_field_idx(
           fn, fn_to_rep_idx, fn_to_rep_size, repeated_field_indices, num_repeated_fields);
-        i >= 0) {
-      int schema_idx    = repeated_field_indices[i];
-      auto& info        = repeated_info[flat_index(static_cast<size_t>(row),
-                                            static_cast<size_t>(num_repeated_fields),
-                                            static_cast<size_t>(i))];
+        f >= 0) {
+      int schema_idx    = repeated_field_indices[f];
+      auto& info        = repeated_info[flat_index(row, num_repeated_fields, f)];
       auto count_action = [&info]([[maybe_unused]] int32_t off, [[maybe_unused]] int32_t len) {
         info.count++;
         return true;
@@ -343,9 +358,9 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
     }
 
     // Check nested message fields at this depth
-    if (int i = lookup_field_idx(
+    if (int f = lookup_field_idx(
           fn, fn_to_nested_idx, fn_to_nested_size, nested_field_indices, num_nested_fields);
-        i >= 0) {
+        f >= 0) {
       if (wt != wire_type_value(proto_wire_type::LEN)) {
         set_error_once(error_flag, ERR_WIRE_TYPE);
         return;
@@ -361,20 +376,17 @@ CUDF_KERNEL void count_repeated_fields_kernel(cudf::column_device_view const d_i
         set_error_once(error_flag, ERR_OVERFLOW);
         return;
       }
-      auto const rel_offset64 = static_cast<int64_t>(cur - msg_base);
-      if (rel_offset64 < cuda::std::numeric_limits<int32_t>::min() ||
-          rel_offset64 > cuda::std::numeric_limits<int32_t>::max()) {
+      // cur - msg_base is bounded by the message length (<= INT32_MAX via check_message_bounds),
+      // so this fits int32; checked_add_int32 still guards the offset + len_bytes addition. Matches
+      // the LEN handling in scan_message_field_locations.
+      int const data_offset = static_cast<int>(cur - msg_base);
+      int32_t data_location;
+      if (!checked_add_int32(data_offset, len_bytes, data_location)) {
         set_error_once(error_flag, ERR_OVERFLOW);
         return;
       }
-      int32_t msg_offset;
-      if (!checked_add_int32(static_cast<int32_t>(rel_offset64), len_bytes, msg_offset)) {
-        set_error_once(error_flag, ERR_OVERFLOW);
-        return;
-      }
-      nested_locations[flat_index(
-        static_cast<size_t>(row), static_cast<size_t>(num_nested_fields), static_cast<size_t>(i))] =
-        {msg_offset, static_cast<int32_t>(len)};
+      nested_locations[flat_index(row, num_nested_fields, f)] = {data_location,
+                                                                 static_cast<int32_t>(len)};
     }
 
     // Skip to next field
@@ -412,8 +424,7 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
   if (!check_message_bounds(start, end, child.size(), error_flag)) return;
 
   uint8_t const* const msg_base = bytes + start;
-  uint8_t const* cur            = msg_base;
-  uint8_t const* msg_end        = bytes + end;
+  uint8_t const* const msg_end  = bytes + end;
 
   // Host-side validate_decode_context enforces this cap, but keep the device-side guard as
   // defense-in-depth because overrunning write_idx below would otherwise be silent UB.
@@ -432,11 +443,11 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
     });
   };
 
-  while (cur < msg_end) {
+  for (uint8_t const* cur = msg_base; cur < msg_end;) {
     proto_tag tag;
     if (!decode_tag(cur, msg_end, tag, error_flag)) return;
-    int fn = tag.field_number;
-    int wt = tag.wire_type;
+    int const fn = tag.field_number;
+    int const wt = tag.wire_type;
 
     if (int f = lookup_desc_idx(fn); f >= 0) {
       int target_wt  = scan_descs[f].wire_type;
@@ -484,13 +495,9 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
 // ============================================================================
 
 /**
- * Scan nested message fields.
- * Each row represents a nested message at a specific parent location.
- * This kernel finds fields within the nested message bytes.
- *
- * Note: this path intentionally keeps a linear child-field scan. Unlike repeated-message child
- * scanning, previous benchmarking did not show a stable win from adding a host-built lookup table
- * here, so we keep the simpler implementation unless that trade-off changes.
+ * Scan one nested message per parent row to locate its direct singleton child fields.
+ * Repeated children are intentionally left to a separate count/scan path (3b.5/3b.6);
+ * this kernel only records last-one-wins locations for non-repeated descendants.
  */
 CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
                                                    cudf::size_type message_data_size,
@@ -508,17 +515,15 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   if (row >= num_parent_rows) return;
 
+  auto const top_row =
+    top_row_indices != nullptr ? top_row_indices[row] : static_cast<int32_t>(row);
   auto mark_row_error = [&]() {
-    if (row_has_invalid_data != nullptr) {
-      auto const top_row =
-        top_row_indices != nullptr ? top_row_indices[row] : static_cast<int32_t>(row);
-      row_has_invalid_data[top_row] = true;
-    }
+    if (row_has_invalid_data != nullptr) { row_has_invalid_data[top_row] = true; }
   };
 
+  field_location* field_locations = output_locations + flat_index(row, num_fields, 0);
   for (int f = 0; f < num_fields; f++) {
-    output_locations[flat_index(
-      static_cast<size_t>(row), static_cast<size_t>(num_fields), static_cast<size_t>(f))] = {-1, 0};
+    field_locations[f] = {-1, 0};
   }
 
   auto const& parent_loc = parent_locations[row];
@@ -1081,10 +1086,7 @@ CUDF_KERNEL void check_required_fields_kernel(
   if (parent_locs != nullptr && parent_locs[row].offset < 0) return;
 
   for (int f = 0; f < num_fields; f++) {
-    if (is_required[f] != 0 && locations[flat_index(static_cast<size_t>(row),
-                                                    static_cast<size_t>(num_fields),
-                                                    static_cast<size_t>(f))]
-                                   .offset < 0) {
+    if (is_required[f] != 0 && locations[flat_index(row, num_fields, f)].offset < 0) {
       if (row_force_null != nullptr) {
         auto const top_row =
           top_row_indices != nullptr ? top_row_indices[row] : static_cast<int32_t>(row);

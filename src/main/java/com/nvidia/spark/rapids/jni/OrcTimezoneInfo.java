@@ -77,7 +77,9 @@ class OrcTimezoneInfo {
   // year, month, and day are all 1-indexed, matching LocalDate.of conventions
   // (e.g. month=1 is January). This avoids the easy-to-misread mix of 0-based
   // month and 1-based day at the call site.
-  private static long utcMillisForDate(int year, int month, int day) {
+  //
+  // Package-private so OrcDstRuleExtractor can share the same anchor.
+  static long utcMillisForDate(int year, int month, int day) {
     return LocalDate.of(year, month, day).toEpochDay() * 24L * 3600_000L;
   }
 
@@ -277,7 +279,9 @@ class OrcTimezoneInfo {
     return currentOffset;
   }
 
-  private static long binarySearchTransition(TimeZone tz, long lo, long hi) {
+  // Package-private so OrcDstRuleExtractor can reuse the same bracketed
+  // binary search.
+  static long binarySearchTransition(TimeZone tz, long lo, long hi) {
     int loOffset = tz.getOffset(lo);
     while (hi - lo > 1) {
       long mid = lo + (hi - lo) / 2;

@@ -57,7 +57,9 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   final boolean[] isRepeated;
   final boolean[] isRequired;
   final boolean[] hasDefaultValue;
-  final boolean[] isOutput;
+  // Not final: instances serialized before isOutput existed deserialize it as null, and
+  // readObject() backfills it via allOutput() for backward compatibility.
+  boolean[] isOutput;
   final long[] defaultInts;
   final double[] defaultFloats;
   final boolean[] defaultBools;
@@ -66,6 +68,8 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   final byte[][][] enumNames;
 
   /**
+   * Back-compat constructor: every field is treated as visible in the output.
+   *
    * @throws IllegalArgumentException if any array is null, arrays have mismatched lengths,
    *         field numbers are out of range, or encoding values are invalid.
    */
@@ -92,6 +96,9 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   }
 
   /**
+   * @param isOutput per-field flag; if {@code false}, the field is decoded for validation but
+   *        dropped from the returned struct. Hidden fields must agree with their parent — a
+   *        visible STRUCT cannot have hidden children and vice versa.
    * @throws IllegalArgumentException if any array is null, arrays have mismatched lengths,
    *         field numbers are out of range, or encoding values are invalid.
    */
@@ -143,6 +150,13 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     // receive caller-owned array aliases here. Re-run validate() so deserialization cannot bypass
     // the constructor's schema invariants.
     in.defaultReadObject();
+    // Backward compatibility: streams written before isOutput existed carry no such field, so
+    // defaultReadObject() leaves it null. Treat a legacy descriptor as "all fields output",
+    // mirroring the back-compat constructor. A fully malformed stream (no fieldNumbers) still
+    // fails the non-null check in validate() below.
+    if (isOutput == null && fieldNumbers != null) {
+      isOutput = allOutput(fieldNumbers.length);
+    }
     try {
       validate(fieldNumbers, parentIndices, depthLevels, wireTypes, outputTypeIds,
           encodings, isRepeated, isRequired, hasDefaultValue, isOutput, defaultInts,
@@ -199,8 +213,9 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     if (fieldNumbers == null || parentIndices == null || depthLevels == null ||
         wireTypes == null || outputTypeIds == null || encodings == null ||
         isRepeated == null || isRequired == null || hasDefaultValue == null ||
-        isOutput == null || defaultInts == null || defaultFloats == null || defaultBools == null ||
-        defaultStrings == null || enumValidValues == null || enumNames == null) {
+        isOutput == null || defaultInts == null || defaultFloats == null ||
+        defaultBools == null || defaultStrings == null || enumValidValues == null ||
+        enumNames == null) {
       throw new IllegalArgumentException("All schema arrays must be non-null");
     }
 
@@ -219,8 +234,7 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     Set<Long> seenFieldNumbers = new HashSet<>();
     for (int i = 0; i < n; i++) {
       validateFieldRange(i, fieldNumbers[i], depthLevels[i]);
-      validateParentChild(i, parentIndices[i], depthLevels, outputTypeIds);
-      validateOutputFlag(i, parentIndices[i], isOutput);
+      validateParentChild(i, parentIndices[i], depthLevels, outputTypeIds, isOutput);
       validateUniqueFieldKey(i, parentIndices[i], fieldNumbers[i], seenFieldNumbers);
       validateWireTypeAndEncoding(i, wireTypes[i], outputTypeIds[i], encodings[i]);
       validateFieldFlags(i, isRepeated[i], isRequired[i], hasDefaultValue[i], outputTypeIds[i]);
@@ -242,7 +256,8 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
   }
 
   private static void validateParentChild(int index, int parentIndex,
-                                           int[] depthLevels, int[] outputTypeIds) {
+                                           int[] depthLevels, int[] outputTypeIds,
+                                           boolean[] isOutput) {
     if (parentIndex < -1 || parentIndex >= index) {
       throw new IllegalArgumentException(
           "Invalid parent index at index " + index + ": " + parentIndex +
@@ -259,6 +274,13 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
         throw new IllegalArgumentException(
             "Parent at index " + parentIndex + " for field " + index +
             " must be STRUCT, got type id " + outputTypeIds[parentIndex]);
+      }
+      // A field and its parent must share an output flag: a hidden STRUCT cannot expose
+      // visible children, and a visible STRUCT cannot hide individual children.
+      if (isOutput[index] != isOutput[parentIndex]) {
+        throw new IllegalArgumentException(
+            "Nested field at index " + index + " must use the same output flag as parent " +
+            parentIndex);
       }
       if (depthLevels[index] != depthLevels[parentIndex] + 1) {
         throw new IllegalArgumentException(
