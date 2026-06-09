@@ -19,6 +19,8 @@
 #include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/strings/detail/strings_column_factories.cuh>
 
+#include <algorithm>
+
 namespace spark_rapids_jni::protobuf::detail {
 
 std::unique_ptr<cudf::column> make_list_column_with_input_nulls(
@@ -367,8 +369,6 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  auto const input_null_count = binary_input.null_count();
-
   CUDF_EXPECTS(total_count > 0, "build_repeated_string_column: total_count must be > 0");
 
   // Extract string lengths from occurrences
@@ -445,6 +445,184 @@ std::unique_ptr<cudf::column> build_repeated_string_column(
   // Per Spark semantics: only INPUT-null rows are null; rows with count=0 produce [].
   return make_list_column_with_input_nulls(
     num_rows, std::move(offsets_col), std::move(child_col), binary_input, stream, mr);
+}
+
+// ============================================================================
+// Nested struct column builder
+// ============================================================================
+
+/**
+ * Build a STRUCT column for a nested protobuf message.
+ *
+ * 3b.2 scope: only scalar numeric/bool children are fully decoded. STRING/LIST<UINT8>/STRUCT
+ * children, repeated children, and proto2 required-field checks land in subsequent PRs
+ * (3b.3 / 3b.4 / 3b.5 / 3b.6); for now those child slots are filled with typed null columns
+ * so the output schema is still well-formed.
+ */
+std::unique_ptr<cudf::column> build_nested_struct_column(
+  uint8_t const* message_data,
+  cudf::size_type message_data_size,
+  cudf::size_type const* list_offsets,
+  cudf::size_type base_offset,
+  rmm::device_uvector<field_location> const& d_parent_locs,
+  std::vector<int> const& child_field_indices,
+  std::vector<nested_field_descriptor> const& schema,
+  int num_fields,
+  std::vector<int64_t> const& default_ints,
+  std::vector<double> const& default_floats,
+  std::vector<bool> const& default_bools,
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
+  rmm::device_uvector<bool>& d_row_force_null,
+  rmm::device_uvector<int>& d_error,
+  int num_rows,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr,
+  int32_t const* top_row_indices,
+  int depth,
+  bool propagate_invalid_rows)
+{
+  CUDF_EXPECTS(depth < MAX_NESTING_DEPTH,
+               "Nested protobuf struct depth exceeds supported decode recursion limit");
+  CUDF_EXPECTS(d_parent_locs.size() == static_cast<size_t>(num_rows),
+               "build_nested_struct_column: parent locations size must match row count");
+  // d_row_force_null comes from the caller; empty means "don't track", otherwise it must be
+  // row-aligned since the scan/extract kernels index it by row.
+  CUDF_EXPECTS(
+    d_row_force_null.is_empty() || d_row_force_null.size() == static_cast<size_t>(num_rows),
+    "build_nested_struct_column: row-force-null buffer must be empty or row-sized");
+
+  if (num_rows == 0) {
+    return make_empty_struct_column_from_children(
+      schema, child_field_indices, num_fields, stream, mr);
+  }
+
+  auto const threads   = THREADS_PER_BLOCK;
+  auto const blocks    = static_cast<int>((num_rows + threads - 1u) / threads);
+  int num_child_fields = static_cast<int>(child_field_indices.size());
+
+  // Stage child field descriptors through pinned memory so the H2D stays stream-async.
+  auto h_child_field_descs =
+    cudf::detail::make_pinned_vector_async<field_descriptor>(num_child_fields, stream);
+  for (int i = 0; i < num_child_fields; i++) {
+    int child_idx                             = child_field_indices[i];
+    h_child_field_descs[i].field_number       = schema[child_idx].field_number;
+    h_child_field_descs[i].expected_wire_type = static_cast<int>(schema[child_idx].wire_type);
+    h_child_field_descs[i].is_repeated        = schema[child_idx].is_repeated;
+  }
+
+  auto const scratch_mr = cudf::get_current_device_resource_ref();
+  rmm::device_uvector<field_descriptor> d_child_field_descs(
+    std::max(num_child_fields, 1), stream, scratch_mr);
+  if (num_child_fields > 0) {
+    CUDF_CUDA_TRY(cudaMemcpyAsync(d_child_field_descs.data(),
+                                  h_child_field_descs.data(),
+                                  num_child_fields * sizeof(field_descriptor),
+                                  cudaMemcpyHostToDevice,
+                                  stream.value()));
+  }
+
+  auto const child_location_count = static_cast<size_t>(num_rows) * num_child_fields;
+  rmm::device_uvector<field_location> d_child_locations(
+    std::max(child_location_count, size_t{1}), stream, scratch_mr);
+  // Scan over every child descriptor (including repeated ones) so STRICT-mode wire-type
+  // validation still runs on repeated occurrences. Repeated child slots in d_child_locations
+  // are not consumed; 3b.5 / 3b.6 produce them via dedicated count/scan kernels.
+  launch_scan_nested_message_fields(message_data,
+                                    message_data_size,
+                                    list_offsets,
+                                    base_offset,
+                                    d_parent_locs.data(),
+                                    num_rows,
+                                    d_child_field_descs.data(),
+                                    num_child_fields,
+                                    d_child_locations.data(),
+                                    d_error.data(),
+                                    d_row_force_null.size() > 0 ? d_row_force_null.data() : nullptr,
+                                    top_row_indices,
+                                    stream);
+
+  std::vector<std::unique_ptr<cudf::column>> struct_children;
+  for (int ci = 0; ci < num_child_fields; ci++) {
+    int child_schema_idx = child_field_indices[ci];
+    auto const dt        = cudf::data_type{schema[child_schema_idx].output_type};
+    auto const enc       = static_cast<int>(schema[child_schema_idx].encoding);
+    bool has_def         = schema[child_schema_idx].has_default_value;
+    bool is_repeated     = schema[child_schema_idx].is_repeated;
+
+    // Repeated children inside nested messages land in 3b.5 / 3b.6; emit a typed null LIST
+    // so the struct schema is still well-formed.
+    if (is_repeated) {
+      struct_children.push_back(
+        make_null_column_with_schema(schema, child_schema_idx, num_fields, num_rows, stream, mr));
+      continue;
+    }
+
+    switch (dt.id()) {
+      case cudf::type_id::BOOL8:
+      case cudf::type_id::INT32:
+      case cudf::type_id::UINT32:
+      case cudf::type_id::INT64:
+      case cudf::type_id::UINT64:
+      case cudf::type_id::FLOAT32:
+      case cudf::type_id::FLOAT64: {
+        nested_location_provider loc_provider{list_offsets,
+                                              base_offset,
+                                              d_parent_locs.data(),
+                                              d_child_locations.data(),
+                                              ci,
+                                              num_child_fields};
+        struct_children.push_back(
+          extract_typed_column(dt,
+                               enc,
+                               message_data,
+                               loc_provider,
+                               num_rows,
+                               blocks,
+                               threads,
+                               has_def,
+                               has_def ? default_ints[child_schema_idx] : 0,
+                               has_def ? default_floats[child_schema_idx] : 0.0,
+                               has_def ? default_bools[child_schema_idx] : false,
+                               default_strings[child_schema_idx],
+                               child_schema_idx,
+                               enum_valid_values,
+                               enum_names,
+                               d_row_force_null,
+                               d_error,
+                               stream,
+                               mr,
+                               top_row_indices,
+                               propagate_invalid_rows));
+        break;
+      }
+      case cudf::type_id::STRING:
+      case cudf::type_id::LIST:  // bytes represented as LIST<UINT8>
+      case cudf::type_id::STRUCT:
+        // Nested string/bytes/enum-as-string (3b.3) and recursive struct (3b.4) children are
+        // not decoded yet; emit a typed null column so the output schema still matches.
+        struct_children.push_back(
+          make_null_column_with_schema(schema, child_schema_idx, num_fields, num_rows, stream, mr));
+        break;
+      default:
+        // List the supported/deferred types above explicitly so a newly-introduced output type
+        // fails loudly here instead of silently decoding as all-null.
+        CUDF_FAIL("Protobuf decode: unsupported nested child output type");
+    }
+  }
+
+  rmm::device_uvector<bool> struct_valid(num_rows, stream, scratch_mr);
+  thrust::transform(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(num_rows),
+    struct_valid.data(),
+    [plocs = d_parent_locs.data()] __device__(auto row) { return plocs[row].offset >= 0; });
+  auto [struct_mask, struct_null_count] =
+    make_null_mask_from_valid(struct_valid, num_rows, stream, mr);
+  return cudf::make_structs_column(
+    num_rows, std::move(struct_children), struct_null_count, std::move(struct_mask), stream, mr);
 }
 
 }  // namespace spark_rapids_jni::protobuf::detail

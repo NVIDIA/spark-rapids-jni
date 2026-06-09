@@ -127,6 +127,11 @@ public class ProtobufTest {
     return out;
   }
 
+  /** Encode a length-delimited submessage: varint length prefix followed by the message bytes. */
+  private static Byte[] encodeMessage(Byte[] messageBytes) {
+    return concat(box(encodeVarint(messageBytes.length)), messageBytes);
+  }
+
   private static void assertSingleNullStructRow(ColumnVector actual, String message) {
     try (HostColumnVector hostStruct = actual.copyToHost()) {
       assertEquals(1, actual.getNullCount(), message);
@@ -1651,10 +1656,7 @@ public class ProtobufTest {
     // message Outer { Inner inner = 1; }
     // Outer with inner.x = 42
     Byte[] innerMessage = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
-    Byte[] row = concat(
-        box(tag(1, WT_LEN)),
-        box(encodeVarint(innerMessage.length)),
-        innerMessage);
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(innerMessage));
 
     try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
       try (ColumnVector result = Protobuf.decodeToStruct(
@@ -2592,6 +2594,195 @@ public class ProtobufTest {
              false)) {
       assertNotNull(result);
       assertEquals(DType.STRUCT, result.getType());
+    }
+  }
+
+  @Test
+  void testNestedMessageInt32Child() {
+    // message Inner { int32 x = 1; }
+    // message Outer { Inner inner = 1; }
+    Byte[] innerMessage = concat(box(tag(1, WT_VARINT)), box(encodeVarint(42)));
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(innerMessage));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32)
+                 .up()
+                 .build(),
+             false)) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      try (ColumnVector expectedX = ColumnVector.fromBoxedInts(42);
+           ColumnVector expectedInner = ColumnVector.makeStruct(expectedX);
+           ColumnVector expectedOuter = ColumnVector.makeStruct(expectedInner)) {
+        AssertUtils.assertStructColumnsAreEqual(expectedOuter, result);
+      }
+    }
+  }
+
+  @Test
+  void testNestedMessageDuplicateFieldTags_LastOneWins() {
+    // message Inner { int32 x = 1; }
+    // message Outer { Inner inner = 1; }
+    Byte[] innerMessage = concat(
+        box(tag(1, WT_VARINT)), box(encodeVarint(1)),
+        box(tag(1, WT_VARINT)), box(encodeVarint(2)));
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(innerMessage));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32)
+                 .up()
+                 .build(),
+             false)) {
+      try (ColumnVector expectedX = ColumnVector.fromBoxedInts(2);
+           ColumnVector expectedInner = ColumnVector.makeStruct(expectedX);
+           ColumnVector expectedOuter = ColumnVector.makeStruct(expectedInner)) {
+        AssertUtils.assertStructColumnsAreEqual(expectedOuter, result);
+      }
+    }
+  }
+
+  @Test
+  void testNestedMessageMultipleScalarChildren() {
+    // message Inner { int32 a = 1; int64 b = 2; bool c = 3; float d = 4; }
+    // message Outer { Inner inner = 1; }
+    // This exercises every scalar wire type a nested child can use — varint (int32/int64/bool)
+    // and fixed32 (float) — across two rows including negatives and zeros. fixed64/string/bytes
+    // children share the same per-type extraction paths, covered by their own top-level tests.
+    Byte[][] rows = new Byte[][]{
+        concat(box(tag(1, WT_LEN)), encodeMessage(concat(
+            box(tag(1, WT_VARINT)), box(encodeVarint(7)),
+            box(tag(2, WT_VARINT)), box(encodeVarint(123456789012L)),
+            box(tag(3, WT_VARINT)), box(encodeVarint(1)),
+            box(tag(4, WT_32BIT)), box(encodeFloat(3.5f))))),
+        concat(box(tag(1, WT_LEN)), encodeMessage(concat(
+            box(tag(1, WT_VARINT)), box(encodeVarint(-1)),
+            box(tag(2, WT_VARINT)), box(encodeVarint(0)),
+            box(tag(3, WT_VARINT)), box(encodeVarint(0)),
+            box(tag(4, WT_32BIT)), box(encodeFloat(-0.25f)))))};
+
+    try (Table input = new Table.TestBuilder().column(rows).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()    // Inner inner = 1
+                     .addField(1, DType.INT32)        //   int32 a = 1
+                     .addField(2, DType.INT64)        //   int64 b = 2
+                     .addField(3, DType.BOOL8)        //   bool  c = 3
+                     .addField(4, DType.FLOAT32)      //   float d = 4
+                 .up()
+                 .build(),
+             false)) {
+        assertNotNull(result);
+        try (ColumnVector expA = ColumnVector.fromBoxedInts(7, -1);
+             ColumnVector expB = ColumnVector.fromBoxedLongs(123456789012L, 0L);
+             ColumnVector expC = ColumnVector.fromBoxedBooleans(true, false);
+             ColumnVector expD = ColumnVector.fromBoxedFloats(3.5f, -0.25f);
+             ColumnVector expInner = ColumnVector.makeStruct(expA, expB, expC, expD);
+             ColumnVector expOuter = ColumnVector.makeStruct(expInner)) {
+          AssertUtils.assertStructColumnsAreEqual(expOuter, result);
+        }
+    }
+  }
+
+  @Test
+  void testAbsentNestedMessage_ProducesNull() {
+    // Outer message present, but the nested Inner field is missing from the wire.
+    Byte[] row = new Byte[]{};
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32).defaultInt(99)
+                 .up()
+                 .build(),
+             false);
+         ColumnVector inner = result.getChildColumnView(0).copyToColumnVector();
+         ColumnVector innerX = inner.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostInner = inner.copyToHost();
+         HostColumnVector hostX = innerX.copyToHost()) {
+      assertNotNull(result);
+      assertTrue(hostInner.isNull(0), "Inner struct should be null when parent field absent");
+      assertTrue(hostX.isNull(0), "Inner x should inherit nullability from absent parent");
+    }
+  }
+
+  @Test
+  void testZeroLengthNestedMessage_ChildIsNull() {
+    // Outer carries the nested tag but with an empty (length-0) Inner.
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(new Byte[]{}));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT).down()
+                     .addField(1, DType.INT32)
+                 .up()
+                 .build(),
+             false);
+         ColumnVector inner = result.getChildColumnView(0).copyToColumnVector();
+         ColumnVector innerX = inner.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostInner = inner.copyToHost();
+         HostColumnVector hostX = innerX.copyToHost()) {
+      assertNotNull(result);
+      assertEquals(DType.STRUCT, result.getType());
+      assertFalse(hostInner.isNull(0), "Inner struct should be present (length=0 nested)");
+      assertTrue(hostX.isNull(0), "Inner x should be null since the field is absent");
+    }
+  }
+
+  @Test
+  void testChildlessNestedMessage_IsPresent() {
+    // message Empty {}
+    // message Outer { Empty inner = 1; }
+    // Row 0: present-but-empty Inner; row 1: Inner field absent entirely.
+    Byte[][] rows = new Byte[][]{
+        concat(box(tag(1, WT_LEN)), encodeMessage(new Byte[]{})),
+        new Byte[]{}};
+
+    try (Table input = new Table.TestBuilder().column(rows).build();
+         ColumnVector result = Protobuf.decodeToStruct(
+             input.getColumn(0),
+             new ProtobufSchemaDescriptorBuilder()
+                 .addField(1, DType.STRUCT)  // childless Empty message
+                 .build(),
+             false);
+         ColumnVector inner = result.getChildColumnView(0).copyToColumnVector();
+         HostColumnVector hostInner = inner.copyToHost()) {
+      assertFalse(hostInner.isNull(0), "Present empty message should produce a valid STRUCT<>");
+      assertTrue(hostInner.isNull(1), "Missing empty message should produce a null STRUCT<>");
+    }
+  }
+
+  @Test
+  void testNestedRepeatedWrongWireType_FailsFast() {
+    // message Inner { repeated int32 x = 1; }
+    // message Outer { Inner inner = 1; }
+    Byte[] innerMessage = concat(box(tag(1, WT_32BIT)), box(encodeFixed32(7)));
+    Byte[] row = concat(box(tag(1, WT_LEN)), encodeMessage(innerMessage));
+
+    try (Table input = new Table.TestBuilder().column(new Byte[][]{row}).build()) {
+      assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+        try (ColumnVector result = Protobuf.decodeToStruct(
+            input.getColumn(0),
+            new ProtobufSchemaDescriptorBuilder()
+                .addField(1, DType.STRUCT).down()
+                    .addField(1, DType.INT32).repeated()
+                .up()
+                .build(),
+            true)) {
+        }
+      });
     }
   }
 

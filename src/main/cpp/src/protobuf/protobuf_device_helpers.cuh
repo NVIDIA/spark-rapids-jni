@@ -26,6 +26,7 @@
 #include <cuda/std/limits>
 #include <cuda/std/type_traits>
 
+#include <concepts>
 #include <type_traits>
 
 namespace spark_rapids_jni::protobuf::detail {
@@ -206,9 +207,13 @@ __device__ inline bool get_field_data_location(
   return true;
 }
 
-CUDF_HOST_DEVICE inline size_t flat_index(size_t row, size_t width, size_t col)
+// Row-major flat index into a [num_rows x width] array. Takes any integral types and widens to
+// size_t internally so call sites don't need to cast (the multiply happens in size_t).
+CUDF_HOST_DEVICE inline size_t flat_index(std::integral auto row,
+                                          std::integral auto width,
+                                          std::integral auto col)
 {
-  return row * width + col;
+  return static_cast<size_t>(row) * static_cast<size_t>(width) + static_cast<size_t>(col);
 }
 
 __device__ inline bool checked_add_int32(int32_t lhs, int32_t rhs, int32_t& out)
@@ -222,8 +227,11 @@ __device__ inline bool checked_add_int32(int32_t lhs, int32_t rhs, int32_t& out)
   return true;
 }
 
-__device__ inline bool check_message_bounds(int32_t start,
-                                            int32_t end_pos,
+// `T` defaults to int32 for the top-level callers; nested message offsets are computed in int64
+// (parent row offset + relative field offset) and instantiate the int64 form.
+template <std::integral T = int32_t>
+__device__ inline bool check_message_bounds(T start,
+                                            T end_pos,
                                             cudf::size_type total_size,
                                             int* error_flag)
 {

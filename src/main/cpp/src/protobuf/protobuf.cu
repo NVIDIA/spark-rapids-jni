@@ -138,6 +138,29 @@ void propagate_nulls_to_descendants(cudf::column& col,
   }
 }
 
+// Per-field bookkeeping for the three-phase top-level repeated pipeline:
+// `offsets` is the prefix-sum row offsets (size num_rows+1) computed in Phase A; it both
+// seeds the Phase B scan kernel's per-row write index and flows directly into the output
+// LIST column built in Phase C, so it must be allocated against the caller's `mr`.
+// `occurrences` stores the (offset,length,row_idx) tuples produced by Phase B for Phase C
+// builders to consume.
+struct repeated_field_work {
+  int schema_idx;
+  int32_t total_count{0};
+  rmm::device_uvector<int32_t> offsets;
+  std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
+
+  repeated_field_work(int si,
+                      cudf::size_type n,
+                      rmm::cuda_stream_view s,
+                      rmm::device_async_resource_ref m)
+    : schema_idx(si), offsets(static_cast<size_t>(n) + 1, s, m)
+  {
+  }
+};
+
+}  // namespace
+
 std::unique_ptr<cudf::column> make_null_column_with_schema(
   std::vector<nested_field_descriptor> const& schema,
   int schema_idx,
@@ -147,7 +170,7 @@ std::unique_ptr<cudf::column> make_null_column_with_schema(
   rmm::device_async_resource_ref mr)
 {
   auto const& field = schema[schema_idx];
-  auto const dtype  = cudf::data_type{schema[schema_idx].output_type};
+  auto const dtype  = cudf::data_type{field.output_type};
 
   if (field.is_repeated) {
     std::unique_ptr<cudf::column> empty_child;
@@ -174,29 +197,6 @@ std::unique_ptr<cudf::column> make_null_column_with_schema(
 
   return make_null_column(dtype, num_rows, stream, mr);
 }
-
-// Per-field bookkeeping for the three-phase top-level repeated pipeline:
-// `offsets` is the prefix-sum row offsets (size num_rows+1) computed in Phase A; it both
-// seeds the Phase B scan kernel's per-row write index and flows directly into the output
-// LIST column built in Phase C, so it must be allocated against the caller's `mr`.
-// `occurrences` stores the (offset,length,row_idx) tuples produced by Phase B for Phase C
-// builders to consume.
-struct repeated_field_work {
-  int schema_idx;
-  int32_t total_count{0};
-  rmm::device_uvector<int32_t> offsets;
-  std::unique_ptr<rmm::device_uvector<repeated_occurrence>> occurrences;
-
-  repeated_field_work(int si,
-                      cudf::size_type n,
-                      rmm::cuda_stream_view s,
-                      rmm::device_async_resource_ref m)
-    : schema_idx(si), offsets(static_cast<size_t>(n) + 1, s, m)
-  {
-  }
-};
-
-}  // namespace
 
 bool is_encoding_compatible(nested_field_descriptor const& field, cudf::data_type const& type)
 {
@@ -393,6 +393,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   auto const& default_ints      = context.default_ints;
   auto const& default_floats    = context.default_floats;
   auto const& default_bools     = context.default_bools;
+  auto const& default_strings   = context.default_strings;
   auto const& enum_valid_values = context.enum_valid_values;
   auto const& enum_names        = context.enum_names;
   bool fail_on_errors           = context.fail_on_errors;
@@ -436,7 +437,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   // Extract shared input data pointers (used by scalar, repeated, and nested sections)
   cudf::lists_column_view const in_list_view(binary_input);
   auto const* message_data = reinterpret_cast<uint8_t const*>(in_list_view.child().data<int8_t>());
-  auto const* list_offsets = in_list_view.offsets().data<cudf::size_type>();
+  auto const message_data_size = in_list_view.child().size();
+  auto const* list_offsets     = in_list_view.offsets().data<cudf::size_type>();
 
   // Stage list_offsets[0] through pinned host memory so the D2H stays truly async (pageable
   // destinations turn small cudaMemcpyAsync calls into synchronous bounce-buffer copies).
@@ -908,11 +910,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
               list_offsets, base_offset, d_locations.data(), i, num_scalar};
             auto valid_fn = [locs = d_locations.data(), i, num_scalar, has_def_str] __device__(
                               cudf::size_type row) {
-              return locs[flat_index(static_cast<size_t>(row),
-                                     static_cast<size_t>(num_scalar),
-                                     static_cast<size_t>(i))]
-                         .offset >= 0 ||
-                     has_def_str;
+              return locs[flat_index(row, num_scalar, i)].offset >= 0 || has_def_str;
             };
             column_map[schema_idx] = extract_and_build_string_or_bytes_column(false,
                                                                               message_data,
@@ -938,11 +936,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
             list_offsets, base_offset, d_locations.data(), i, num_scalar};
           auto valid_fn = [locs = d_locations.data(), i, num_scalar, has_def_bytes] __device__(
                             cudf::size_type row) {
-            return locs[flat_index(static_cast<size_t>(row),
-                                   static_cast<size_t>(num_scalar),
-                                   static_cast<size_t>(i))]
-                       .offset >= 0 ||
-                   has_def_bytes;
+            return locs[flat_index(row, num_scalar, i)].offset >= 0 || has_def_bytes;
           };
           column_map[schema_idx] = extract_and_build_string_or_bytes_column(true,
                                                                             message_data,
@@ -1254,6 +1248,45 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                     std::to_string(static_cast<int>(element_type.id())));
       }
     }  // for (ri)
+  }
+
+  // Process nested struct fields (3b.2). Only scalar numeric/bool children decode for real;
+  // other child shapes are filled with typed null columns by build_nested_struct_column.
+  for (int ni = 0; ni < num_nested; ni++) {
+    int parent_schema_idx = nested_field_indices[ni];
+    // find_child_field_indices is a full linear pass over the schema per nested struct, so this
+    // is O(num_nested * num_fields). Fine for realistic schemas; if deeply-nested wide schemas
+    // ever make it hot, precompute a parent->children index once in a single pass.
+    auto child_field_indices = find_child_field_indices(schema, num_fields, parent_schema_idx);
+
+    rmm::device_uvector<field_location> d_parent_locs(num_rows, stream, scratch_mr);
+    launch_extract_strided_locations(
+      d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
+
+    auto nested_col = build_nested_struct_column(message_data,
+                                                 message_data_size,
+                                                 list_offsets,
+                                                 base_offset,
+                                                 d_parent_locs,
+                                                 child_field_indices,
+                                                 schema,
+                                                 num_fields,
+                                                 default_ints,
+                                                 default_floats,
+                                                 default_bools,
+                                                 default_strings,
+                                                 enum_valid_values,
+                                                 enum_names,
+                                                 d_row_force_null,
+                                                 d_error,
+                                                 num_rows,
+                                                 stream,
+                                                 mr,
+                                                 nullptr,
+                                                 0,
+                                                 track_permissive_null_rows);
+    propagate_nulls_to_descendants(*nested_col, stream, mr);
+    column_map[parent_schema_idx] = std::move(nested_col);
   }
 
   // Assemble top_level_children in schema order (not processing order). Hidden fields are

@@ -66,9 +66,7 @@ struct top_level_location_provider {
 
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
-    auto loc = locations[flat_index(static_cast<size_t>(thread_idx),
-                                    static_cast<size_t>(num_fields),
-                                    static_cast<size_t>(field_idx))];
+    auto loc = locations[flat_index(thread_idx, num_fields, field_idx)];
     if (loc.offset >= 0) { data_offset = offsets[thread_idx] - base_offset + loc.offset; }
     return loc;
   }
@@ -98,9 +96,7 @@ struct nested_location_provider {
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
     auto ploc = parent_locations[thread_idx];
-    auto cloc = child_locations[flat_index(static_cast<size_t>(thread_idx),
-                                           static_cast<size_t>(num_fields),
-                                           static_cast<size_t>(field_idx))];
+    auto cloc = child_locations[flat_index(thread_idx, num_fields, field_idx)];
     if (ploc.offset >= 0 && cloc.offset >= 0) {
       data_offset = row_offsets[thread_idx] - base_offset + ploc.offset + cloc.offset;
     } else {
@@ -140,9 +136,7 @@ struct repeated_msg_child_location_provider {
   __device__ inline field_location get(int thread_idx, int32_t& data_offset) const
   {
     auto mloc = msg_locations[thread_idx];
-    auto cloc = child_locations[flat_index(static_cast<size_t>(thread_idx),
-                                           static_cast<size_t>(num_fields),
-                                           static_cast<size_t>(field_idx))];
+    auto cloc = child_locations[flat_index(thread_idx, num_fields, field_idx)];
     if (mloc.offset >= 0 && cloc.offset >= 0) {
       data_offset = row_offsets[thread_idx] - base_offset + mloc.offset + cloc.offset;
     } else {
@@ -416,6 +410,27 @@ void launch_scan_all_repeated_occurrences(cudf::column_device_view const& d_in,
                                           int num_rows,
                                           rmm::cuda_stream_view stream);
 
+void launch_extract_strided_locations(field_location const* nested_locations,
+                                      int field_idx,
+                                      int num_fields,
+                                      field_location* parent_locs,
+                                      int num_rows,
+                                      rmm::cuda_stream_view stream);
+
+void launch_scan_nested_message_fields(uint8_t const* message_data,
+                                       cudf::size_type message_data_size,
+                                       cudf::size_type const* parent_row_offsets,
+                                       cudf::size_type parent_base_offset,
+                                       field_location const* parent_locations,
+                                       int num_parent_rows,
+                                       field_descriptor const* field_descs,
+                                       int num_fields,
+                                       field_location* output_locations,
+                                       int* error_flag,
+                                       bool* row_has_invalid_data,
+                                       int32_t const* top_row_indices,
+                                       rmm::cuda_stream_view stream);
+
 // ============================================================================
 // Host-side template helpers that launch CUDA kernels
 // ============================================================================
@@ -564,10 +579,7 @@ struct extract_strided_count {
 
   __device__ int32_t operator()(int row) const
   {
-    return info[flat_index(static_cast<size_t>(row),
-                           static_cast<size_t>(num_fields),
-                           static_cast<size_t>(field_idx))]
-      .count;
+    return info[flat_index(row, num_fields, field_idx)].count;
   }
 };
 

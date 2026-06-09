@@ -115,16 +115,26 @@ inline cudf::type_id get_output_type_id(FieldT const& field)
   }
 }
 
+// Forward declaration for the mutual recursion with make_empty_struct_column_from_children.
 template <typename SchemaT>
 std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   SchemaT const& schema,
   int parent_idx,
   int num_fields,
   rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
+
+// Build an empty (0-row) STRUCT column from an explicit child-index list, recursing into
+// STRUCT children and wrapping repeated fields in an empty LIST. Shared by both the
+// parent-indexed entry point and build_nested_struct_column's zero-row fast path.
+template <typename SchemaT>
+std::unique_ptr<cudf::column> make_empty_struct_column_from_children(
+  SchemaT const& schema,
+  std::vector<int> const& child_indices,
+  int num_fields,
+  rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  auto child_indices = find_child_field_indices(schema, num_fields, parent_idx);
-
   std::vector<std::unique_ptr<cudf::column>> children;
   for (int child_idx : child_indices) {
     auto child_type = cudf::data_type{get_output_type_id(schema[child_idx])};
@@ -144,6 +154,18 @@ std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
   }
 
   return cudf::make_structs_column(0, std::move(children), 0, rmm::device_buffer{}, stream, mr);
+}
+
+template <typename SchemaT>
+std::unique_ptr<cudf::column> make_empty_struct_column_with_schema(
+  SchemaT const& schema,
+  int parent_idx,
+  int num_fields,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto child_indices = find_child_field_indices(schema, num_fields, parent_idx);
+  return make_empty_struct_column_from_children(schema, child_indices, num_fields, stream, mr);
 }
 
 void maybe_check_required_fields(field_location const* locations,
@@ -182,6 +204,17 @@ std::unique_ptr<cudf::column> make_null_column(cudf::data_type dtype,
                                                cudf::size_type num_rows,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr);
+
+// Schema-aware all-null builder: recurses into STRUCT children and wraps repeated fields
+// in a null-list, mirroring the shape `make_empty_struct_column_with_schema` would produce
+// but with `num_rows` all-null rows.
+std::unique_ptr<cudf::column> make_null_column_with_schema(
+  std::vector<nested_field_descriptor> const& schema,
+  int schema_idx,
+  int num_fields,
+  cudf::size_type num_rows,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
 
 std::unique_ptr<cudf::column> make_null_list_column_with_child(
   std::unique_ptr<cudf::column> child_col,
