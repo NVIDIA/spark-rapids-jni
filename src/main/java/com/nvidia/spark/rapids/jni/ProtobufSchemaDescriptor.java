@@ -300,14 +300,6 @@ public final class ProtobufSchemaDescriptor implements java.io.Serializable {
     }
   }
 
-  private static void validateOutputFlag(int index, int parentIndex, boolean[] isOutput) {
-    if (parentIndex >= 0 && isOutput[index] != isOutput[parentIndex]) {
-      throw new IllegalArgumentException(
-          "Nested field at index " + index + " must use the same output flag as parent " +
-          parentIndex);
-    }
-  }
-
   private static void validateWireTypeAndEncoding(int index, int wireType,
                                                    int outputTypeId, int encoding) {
     if (wireType != Protobuf.WT_VARINT && wireType != Protobuf.WT_64BIT &&

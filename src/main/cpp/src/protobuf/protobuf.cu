@@ -1083,13 +1083,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         continue;
       }
 
-      // Repeated MessageType is not supported in this part; full implementation lands in
-      // parts 3b/3c. Fail fast rather than silently returning a null LIST<STRUCT>, which
-      // would be indistinguishable from a real all-null result downstream.
-      CUDF_EXPECTS(
-        element_type.id() != cudf::type_id::STRUCT,
-        "Protobuf decode: repeated MessageType is not yet supported (covered by parts 3b/3c)");
-
       if (total_count <= 0) {
         // All rows empty: w.offsets is already a zero-filled buffer from Phase A.
         auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
@@ -1348,6 +1341,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     launch_extract_strided_locations(
       d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
 
+    // Invalid enum values inside a nested struct should null only the enum field, not the
+    // top-level row. Malformed data still propagates via the scan kernel directly.
     auto nested_col = build_nested_struct_column(message_data,
                                                  message_data_size,
                                                  list_offsets,
@@ -1356,12 +1351,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                  child_field_indices,
                                                  schema,
                                                  num_fields,
-                                                 default_ints,
-                                                 default_floats,
-                                                 default_bools,
-                                                 default_strings,
-                                                 enum_valid_values,
-                                                 enum_names,
+                                                 schema_ctx,
                                                  d_row_force_null,
                                                  d_error,
                                                  num_rows,
@@ -1369,7 +1359,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                  mr,
                                                  nullptr,
                                                  0,
-                                                 track_permissive_null_rows);
+                                                 false);
     propagate_nulls_to_descendants(*nested_col, stream, mr);
     column_map[parent_schema_idx] = std::move(nested_col);
   }
