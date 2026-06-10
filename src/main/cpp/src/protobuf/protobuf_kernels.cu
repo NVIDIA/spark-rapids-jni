@@ -50,8 +50,9 @@ CUDF_KERNEL void set_error_if_unset_kernel(int* error_flag, int error_code)
  * Shared by the top-level (`scan_all_fields_kernel`), nested
  * (`scan_nested_message_fields_kernel`), and repeated-occurrence
  * (`scan_all_repeated_occurrences_kernel`) scanners. Only matched non-repeated fields are
- * written, so the caller is responsible for initializing `out` if it cares about the result.
- * The caller also owns row-level error marking; this helper only sets `error_flag` and returns
+ * written, so the caller is responsible for initializing `out` if it cares about the result;
+ * pass `out == nullptr` when the scan is only validating (e.g. an all-repeated schema). The
+ * caller also owns row-level error marking; this helper only sets `error_flag` and returns
  * false on the first parse error that leaves the cursor unsafe to advance.
  *
  * `lookup_desc_idx(field_number) -> int` maps a wire field number to its descriptor index (or -1);
@@ -103,7 +104,7 @@ __device__ bool scan_message_field_locations(uint8_t const* msg_base,
             set_error_once(error_flag, ERR_OVERFLOW);
             return false;
           }
-          out[f] = {data_location, static_cast<int32_t>(len)};
+          if (out != nullptr) { out[f] = {data_location, static_cast<int32_t>(len)}; }
         } else {
           // Fixed-width / varint: record the offset and the wire-type-derived size.
           int field_size = get_wire_type_size(wt, cur, msg_end);
@@ -111,7 +112,7 @@ __device__ bool scan_message_field_locations(uint8_t const* msg_base,
             set_error_once(error_flag, ERR_FIELD_SIZE);
             return false;
           }
-          out[f] = {data_offset, field_size};
+          if (out != nullptr) { out[f] = {data_offset, field_size}; }
         }
       }
     }
@@ -464,9 +465,8 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
 
   // Build field_descriptor[] from scan_descs; all entries are repeated (on_repeated handles them).
   // `field_number` is unused by scan_message_field_locations (the lookup lambda matches by field
-  // number itself), and `dummy_out` is never written since every match is repeated.
+  // number itself), and `out` is nullptr since every match is repeated, so nothing is recorded.
   field_descriptor fd[MAX_REPEATED_FIELDS_PER_KERNEL];
-  field_location dummy_out[MAX_REPEATED_FIELDS_PER_KERNEL];
   for (int f = 0; f < num_scan_fields; f++) {
     fd[f] = {.expected_wire_type = scan_descs[f].wire_type, .is_repeated = true};
   }
@@ -500,7 +500,7 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
   };
 
   if (!scan_message_field_locations(
-        msg_base, msg_end, fd, dummy_out, error_flag, lookup_by_fn, on_repeated_scan)) {
+        msg_base, msg_end, fd, /*out=*/nullptr, error_flag, lookup_by_fn, on_repeated_scan)) {
     return;
   }
 

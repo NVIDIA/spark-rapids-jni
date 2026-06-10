@@ -40,8 +40,9 @@ namespace spark_rapids_jni::protobuf::detail {
 
 /**
  * View of the per-decode default-value and enum metadata. Reduces parameter pressure on the
- * recursive nested/repeated builders, which all consume the same six host vectors. The struct
- * holds non-owning references — its lifetime must enclose the calls.
+ * recursive nested/repeated builders, which all consume the same six host vectors. Holds
+ * non-owning references and is cheap to copy, so it is passed by value; the referenced vectors
+ * must outlive every call that takes the view.
  */
 struct schema_context_view {
   std::vector<int64_t> const& default_ints;
@@ -304,7 +305,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int> const& child_field_indices,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  schema_context_view const& ctx,
+  schema_context_view ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   int num_rows,
