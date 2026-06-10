@@ -149,6 +149,12 @@ std::unique_ptr<cudf::column> make_empty_list_column(std::unique_ptr<cudf::colum
 // Enum-as-string column builders
 // ============================================================================
 
+struct enum_string_lookup_tables {
+  rmm::device_uvector<int32_t> d_valid_enums;
+  rmm::device_uvector<int32_t> d_name_offsets;
+  rmm::device_uvector<uint8_t> d_name_chars;
+};
+
 enum_string_lookup_tables make_enum_string_lookup_tables(
   cudf::detail::host_vector<int32_t> const& valid_enums,
   std::vector<cudf::detail::host_vector<uint8_t>> const& enum_name_bytes,

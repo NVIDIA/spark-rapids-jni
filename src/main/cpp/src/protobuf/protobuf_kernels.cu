@@ -47,10 +47,12 @@ CUDF_KERNEL void set_error_if_unset_kernel(int* error_flag, int error_code)
  * Scan one message's bytes [msg_base, msg_end) once, recording the last-one-wins location
  * (relative to msg_base) of every matching non-repeated field into `out[field_index]`.
  *
- * Shared by the top-level (`scan_all_fields_kernel`) and nested
- * (`scan_nested_message_fields_kernel`) scanners. The caller initializes `out` to {-1, 0} and
- * owns row-level error marking; this helper only sets `error_flag` and returns false on the first
- * parse error that leaves the cursor unsafe to advance.
+ * Shared by the top-level (`scan_all_fields_kernel`), nested
+ * (`scan_nested_message_fields_kernel`), and repeated-occurrence
+ * (`scan_all_repeated_occurrences_kernel`) scanners. Only matched non-repeated fields are
+ * written, so the caller is responsible for initializing `out` if it cares about the result.
+ * The caller also owns row-level error marking; this helper only sets `error_flag` and returns
+ * false on the first parse error that leaves the cursor unsafe to advance.
  *
  * `lookup_desc_idx(field_number) -> int` maps a wire field number to its descriptor index (or -1);
  * callers supply it so this helper stays agnostic to whether a lookup table is used.
@@ -461,27 +463,31 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
   }
 
   // Build field_descriptor[] from scan_descs; all entries are repeated (on_repeated handles them).
+  // `field_number` is unused by scan_message_field_locations (the lookup lambda matches by field
+  // number itself), and `dummy_out` is never written since every match is repeated.
   field_descriptor fd[MAX_REPEATED_FIELDS_PER_KERNEL];
   field_location dummy_out[MAX_REPEATED_FIELDS_PER_KERNEL];
   for (int f = 0; f < num_scan_fields; f++) {
-    fd[f]        = {scan_descs[f].field_number, scan_descs[f].wire_type, true};
-    dummy_out[f] = {-1, 0};
+    fd[f] = {.expected_wire_type = scan_descs[f].wire_type, .is_repeated = true};
   }
 
-  auto lookup_by_fn = [&](int fn) -> int {
+  auto lookup_by_fn = [&](int fn) {
     return lookup_field(fn, fn_to_desc_idx, fn_to_desc_size, num_scan_fields, [&](int f, int) {
       return scan_descs[f].field_number == fn;
     });
   };
 
-  auto row_i32 = static_cast<int32_t>(row);
-  auto on_repeated_scan =
-    [&](int f, uint8_t const* cur, uint8_t const* me, uint8_t const* mb, int wt, int expected_wt)
-    -> bool {
+  auto row_i32          = static_cast<int32_t>(row);
+  auto on_repeated_scan = [&](int f,
+                              uint8_t const* cur,
+                              uint8_t const* me,
+                              uint8_t const* mb,
+                              int wt,
+                              int expected_wt) {
     auto* occs       = scan_descs[f].occurrences;
     int& wi          = write_idx[f];
     int const we     = scan_descs[f].row_offsets[row + 1];
-    auto scan_action = [&](int32_t off, int32_t len) -> bool {
+    auto scan_action = [&](int32_t off, int32_t len) {
       if (wi >= we) {
         set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
         return false;
@@ -493,8 +499,10 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
     return walk_repeated_element(cur, me, mb, wt, expected_wt, error_flag, scan_action);
   };
 
-  scan_message_field_locations(
-    msg_base, msg_end, fd, dummy_out, error_flag, lookup_by_fn, on_repeated_scan);
+  if (!scan_message_field_locations(
+        msg_base, msg_end, fd, dummy_out, error_flag, lookup_by_fn, on_repeated_scan)) {
+    return;
+  }
 
   for (int f = 0; f < num_scan_fields; f++) {
     if (write_idx[f] != scan_descs[f].row_offsets[row + 1]) {
@@ -561,7 +569,7 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
         return field_descs[f].field_number == n;
       });
   };
-  auto validate_repeated = [&](int /*f*/,
+  auto validate_repeated = [&]([[maybe_unused]] int f,
                                uint8_t const* cur,
                                uint8_t const* msg_end,
                                uint8_t const* msg_base,

@@ -212,7 +212,7 @@ public class ProtobufSchemaDescriptorTest {
         .addField(1, DType.STRING)
             .enumMetadata(new int[]{0, 1}, new byte[][]{"A".getBytes(), "B".getBytes()})
             .defaultValue("def".getBytes())
-            .defaultValue(7L)  // non-zero numeric default to exercise scalar round-trip
+            .defaultValue(7)  // non-zero numeric default to exercise scalar round-trip
         .build();
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();

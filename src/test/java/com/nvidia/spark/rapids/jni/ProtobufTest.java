@@ -1275,6 +1275,7 @@ public class ProtobufTest {
          ColumnVector actualStruct = Protobuf.decodeToStruct(
              input.getColumn(0),
              new ProtobufSchemaDescriptorBuilder()
+                 // Defaults are NOT used here since both fields are present.
                  .addField(1, DType.INT32).defaultValue(42)
                  .addField(2, DType.INT64).defaultValue(100)
                  .build(),
