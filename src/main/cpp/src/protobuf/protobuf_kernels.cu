@@ -178,7 +178,7 @@ CUDF_KERNEL void scan_all_fields_kernel(
       return field_descs[f].field_number == n;
     });
   };
-  auto is_repeated_field = [&](int f) { return field_descs[f].is_repeated; };
+  auto is_repeated_field      = [&](int f) { return field_descs[f].is_repeated; };
   auto get_expected_wire_type = [&](int f) { return field_descs[f].expected_wire_type; };
   // Top-level scalar descriptors are never repeated, so the repeated handler is unreachable.
   auto unreachable_repeated = [](int, uint8_t const*, uint8_t const*, uint8_t const*, int, int) {
@@ -472,7 +472,7 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
       return scan_descs[f].field_number == fn;
     });
   };
-  auto is_repeated_field = []([[maybe_unused]] int f) { return true; };
+  auto is_repeated_field      = []([[maybe_unused]] int f) { return true; };
   auto get_expected_wire_type = [&](int f) { return scan_descs[f].wire_type; };
 
   auto row_i32 = static_cast<int32_t>(row);
@@ -493,15 +493,14 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
       return walk_repeated_element(cur, me, mb, wt, expected_wt, error_flag, scan_action);
     };
 
-  if (!scan_message_field_locations(
-        msg_base,
-        msg_end,
-        /*out=*/nullptr,
-        error_flag,
-        lookup_by_fn,
-        is_repeated_field,
-        get_expected_wire_type,
-        on_repeated_scan)) {
+  if (!scan_message_field_locations(msg_base,
+                                    msg_end,
+                                    /*out=*/nullptr,
+                                    error_flag,
+                                    lookup_by_fn,
+                                    is_repeated_field,
+                                    get_expected_wire_type,
+                                    on_repeated_scan)) {
     return;
   }
 
@@ -570,9 +569,9 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
         return field_descs[f].field_number == n;
       });
   };
-  auto is_repeated_field = [&](int f) { return field_descs[f].is_repeated; };
+  auto is_repeated_field      = [&](int f) { return field_descs[f].is_repeated; };
   auto get_expected_wire_type = [&](int f) { return field_descs[f].expected_wire_type; };
-  auto validate_repeated = [&]([[maybe_unused]] int f,
+  auto validate_repeated      = [&]([[maybe_unused]] int f,
                                uint8_t const* cur,
                                uint8_t const* msg_end,
                                uint8_t const* msg_base,
