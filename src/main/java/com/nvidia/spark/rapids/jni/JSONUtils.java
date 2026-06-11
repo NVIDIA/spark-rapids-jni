@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * Copyright (c) 2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -183,13 +183,12 @@ public class JSONUtils {
    * @param opts The options for parsing JSON strings
    * @param isUSLocale Whether the current local is US locale, used when converting strings to
    *        decimal types
-   * @return A {@link FromJSONResult} holding the parsed struct column and a flag indicating
-   *         whether any top-level column had a nested schema-category mismatch in this batch
+   * @return A struct column in which each row is parsed from the corresponding json string
    */
-  public static FromJSONResult fromJSONToStructs(ColumnView input, Schema schema, JSONOptions opts,
-                                                 boolean isUSLocale) {
+  public static ColumnVector fromJSONToStructs(ColumnView input, Schema schema, JSONOptions opts,
+                                               boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    long[] result = fromJSONToStructs(input.getNativeView(),
+    return new ColumnVector(fromJSONToStructs(input.getNativeView(),
         schema.getFlattenedColumnNames(),
         schema.getFlattenedNumChildren(),
         schema.getFlattenedTypeIds(),
@@ -199,31 +198,7 @@ public class JSONUtils {
         opts.leadingZerosAllowed(),
         opts.nonNumericNumbersAllowed(),
         opts.unquotedControlChars(),
-        isUSLocale);
-    return new FromJSONResult(new ColumnVector(result[0]), result[1] != 0);
-  }
-
-  /**
-   * Result of {@link #fromJSONToStructs(ColumnView, Schema, JSONOptions, boolean)}: the parsed
-   * struct column plus a flag indicating whether any top-level column had a nested schema-category
-   * mismatch in this batch. spark-rapids uses the flag to fall back the whole batch to CPU
-   * {@code JsonToStructs} for exact Spark parity. The caller owns {@link #getData()} and must
-   * close it.
-   */
-  public static final class FromJSONResult {
-    private final ColumnVector data;
-    private final boolean hasSchemaMismatch;
-
-    FromJSONResult(ColumnVector data, boolean hasSchemaMismatch) {
-      this.data = data;
-      this.hasSchemaMismatch = hasSchemaMismatch;
-    }
-
-    /** The parsed struct column. The caller owns this column and is responsible for closing it. */
-    public ColumnVector getData() { return data; }
-
-    /** Whether any top-level column had a nested schema-category mismatch in this batch. */
-    public boolean hasSchemaMismatch() { return hasSchemaMismatch; }
+        isUSLocale));
   }
 
   /**
@@ -286,7 +261,7 @@ public class JSONUtils {
                                                          boolean nonNumericNumbersAllowed,
                                                          boolean unquotedControlChars);
 
-  private static native long[] fromJSONToStructs(long input,
+  private static native long fromJSONToStructs(long input,
                                                String[] names,
                                                int[] numChildren,
                                                int[] typeIds,

@@ -809,7 +809,6 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    bool allow_nonnumeric_numbers,
                                                    bool allow_unquoted_control,
                                                    bool is_us_locale,
-                                                   bool* had_schema_mismatch,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
@@ -839,16 +838,9 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
       .dtypes(schema)
       .prune_columns(schema.child_types.size() != 0);
 
-  auto parsed_result      = cudf::io::read_json_with_diagnostics(opts_builder.build());
-  auto const& parsed_meta = parsed_result.data.metadata;
-  auto parsed_columns     = parsed_result.data.tbl->release();
-
-  // Surface to the caller whether any top-level column mismatched the schema in this batch, so
-  // spark-rapids can fall back the whole batch to CPU for exact Spark parity (#4536/#4645).
-  if (had_schema_mismatch != nullptr) {
-    *had_schema_mismatch =
-      !parsed_result.diagnostics.top_level_columns_with_schema_mismatch.empty();
-  }
+  auto const parsed_table_with_meta = cudf::io::read_json(opts_builder.build());
+  auto const& parsed_meta           = parsed_table_with_meta.metadata;
+  auto parsed_columns               = parsed_table_with_meta.tbl->release();
 
   CUDF_EXPECTS(parsed_columns.size() == schema.child_types.size(),
                "Numbers of output columns is different from schema size.");
@@ -863,7 +855,6 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
 
     auto const& [col_name, col_schema] = schema_with_precision.child_types[i];
     CUDF_EXPECTS(parsed_meta.schema_info[i].name == col_name, "Mismatched column name.");
-
     converted_cols.emplace_back(convert_data_type(std::move(parsed_columns[i]),
                                                   col_schema,
                                                   allow_nonnumeric_numbers,
@@ -902,7 +893,6 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    bool allow_nonnumeric_numbers,
                                                    bool allow_unquoted_control,
                                                    bool is_us_locale,
-                                                   bool* had_schema_mismatch,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
@@ -919,7 +909,6 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                       allow_nonnumeric_numbers,
                                       allow_unquoted_control,
                                       is_us_locale,
-                                      had_schema_mismatch,
                                       stream,
                                       mr);
 }
