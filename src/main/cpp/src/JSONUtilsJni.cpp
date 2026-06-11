@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -172,7 +172,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
   JNI_CATCH(env, 0);
 }
 
-JNIEXPORT jlong JNICALL
+JNIEXPORT jlongArray JNICALL
 Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
                                                              jclass,
                                                              jlong j_input,
@@ -211,19 +211,28 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
     CUDF_EXPECTS(col_names.size() == scales.size(), "Invalid schema data: scales.");
     CUDF_EXPECTS(col_names.size() == precisions.size(), "Invalid schema data: precisions.");
 
-    return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv},
-                                             col_names,
-                                             num_children,
-                                             types,
-                                             scales,
-                                             precisions,
-                                             normalize_single_quotes,
-                                             allow_leading_zeros,
-                                             allow_nonnumeric_numbers,
-                                             allow_unquoted_control,
-                                             is_us_locale)
-        .release());
+    bool had_schema_mismatch = false;
+    auto result = spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv},
+                                                         col_names,
+                                                         num_children,
+                                                         types,
+                                                         scales,
+                                                         precisions,
+                                                         normalize_single_quotes,
+                                                         allow_leading_zeros,
+                                                         allow_nonnumeric_numbers,
+                                                         allow_unquoted_control,
+                                                         is_us_locale,
+                                                         &had_schema_mismatch);
+
+    // Return {column handle, mismatch flag}. spark-rapids reads the flag to fall back the whole
+    // batch to CPU JsonToStructs for exact Spark parity on nested schema mismatches. Assign the
+    // flag first so the array is pinned before release_as_jlong hands the column over to it: a
+    // pin failure (OOM) after release would otherwise orphan the released column pointer.
+    cudf::jni::native_jlongArray out_handles(env, 2);
+    out_handles[1] = had_schema_mismatch ? 1 : 0;
+    out_handles[0] = cudf::jni::release_as_jlong(result);
+    return out_handles.get_jArray();
   }
   JNI_CATCH(env, 0);
 }
