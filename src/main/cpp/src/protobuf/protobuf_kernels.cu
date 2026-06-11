@@ -475,24 +475,24 @@ CUDF_KERNEL void scan_all_repeated_occurrences_kernel(cudf::column_device_view c
   auto is_repeated_field      = []([[maybe_unused]] int f) { return true; };
   auto get_expected_wire_type = [&](int f) { return scan_descs[f].wire_type; };
 
-  auto row_i32          = static_cast<int32_t>(row);
-  auto on_repeated_scan = [&](int f, uint8_t const* cur, uint8_t const* me, uint8_t const* mb,
-                              int wt) {
-    auto* occs       = scan_descs[f].occurrences;
-    int& wi          = write_idx[f];
-    int const we     = scan_descs[f].row_offsets[row + 1];
-    auto scan_action = [&](int32_t off, int32_t len) {
-      if (wi >= we) {
-        set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
-        return false;
-      }
-      occs[wi] = {row_i32, off, len};
-      wi++;
-      return true;
+  auto row_i32 = static_cast<int32_t>(row);
+  auto on_repeated_scan =
+    [&](int f, uint8_t const* cur, uint8_t const* me, uint8_t const* mb, int wt) {
+      auto* occs       = scan_descs[f].occurrences;
+      int& wi          = write_idx[f];
+      int const we     = scan_descs[f].row_offsets[row + 1];
+      auto scan_action = [&](int32_t off, int32_t len) {
+        if (wi >= we) {
+          set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
+          return false;
+        }
+        occs[wi] = {row_i32, off, len};
+        wi++;
+        return true;
+      };
+      return walk_repeated_element(
+        cur, me, mb, wt, get_expected_wire_type(f), error_flag, scan_action);
     };
-    return walk_repeated_element(
-      cur, me, mb, wt, get_expected_wire_type(f), error_flag, scan_action);
-  };
 
   if (!scan_message_field_locations(msg_base,
                                     msg_end,
@@ -572,17 +572,14 @@ CUDF_KERNEL void scan_nested_message_fields_kernel(uint8_t const* message_data,
   };
   auto is_repeated_field      = [&](int f) { return field_descs[f].is_repeated; };
   auto get_expected_wire_type = [&](int f) { return field_descs[f].expected_wire_type; };
-  auto validate_repeated      = [&](int f,
-                               uint8_t const* cur,
-                               uint8_t const* msg_end,
-                               uint8_t const* msg_base,
-                               int wt) {
-    // Values come from the dedicated nested repeated count/scan path (3b.5/3b.6); here we only
-    // validate the occurrence so strict/permissive errors surface.
-    auto noop = []([[maybe_unused]] int32_t off, [[maybe_unused]] int32_t len) { return true; };
-    return walk_repeated_element(
-      cur, msg_end, msg_base, wt, get_expected_wire_type(f), error_flag, noop);
-  };
+  auto validate_repeated =
+    [&](int f, uint8_t const* cur, uint8_t const* msg_end, uint8_t const* msg_base, int wt) {
+      // Values come from the dedicated nested repeated count/scan path (3b.5/3b.6); here we only
+      // validate the occurrence so strict/permissive errors surface.
+      auto noop = []([[maybe_unused]] int32_t off, [[maybe_unused]] int32_t len) { return true; };
+      return walk_repeated_element(
+        cur, msg_end, msg_base, wt, get_expected_wire_type(f), error_flag, noop);
+    };
 
   if (!scan_message_field_locations(nested_start,
                                     nested_end,
