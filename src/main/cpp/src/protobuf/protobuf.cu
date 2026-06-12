@@ -1288,48 +1288,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     }
   }
 
-  // Process nested struct fields (Phase 2)
-  if (num_nested > 0) {
-    for (int ni = 0; ni < num_nested; ni++) {
-      int parent_schema_idx = nested_field_indices[ni];
-
-      // Find child fields of this nested message
-      auto child_field_indices = find_child_field_indices(schema, num_fields, parent_schema_idx);
-
-      if (child_field_indices.empty()) {
-        // No child fields - create empty struct
-        column_map[parent_schema_idx] = make_null_column(
-          cudf::data_type{schema[parent_schema_idx].output_type}, num_rows, stream, mr);
-        continue;
-      }
-
-      // Extract parent locations for this nested field directly on GPU
-      rmm::device_uvector<field_location> d_parent_locs(num_rows, stream, scratch_mr);
-      launch_extract_strided_locations(
-        d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
-
-      column_map[parent_schema_idx] = build_nested_struct_column(message_data,
-                                                                 message_data_size,
-                                                                 list_offsets,
-                                                                 base_offset,
-                                                                 d_parent_locs,
-                                                                 child_field_indices,
-                                                                 schema,
-                                                                 num_fields,
-                                                                 schema_ctx,
-                                                                 d_row_force_null,
-                                                                 d_error,
-                                                                 num_rows,
-                                                                 stream,
-                                                                 mr,
-                                                                 nullptr,
-                                                                 0,
-                                                                 false);
-    }
-  }
-
-  // Process nested struct fields (3b.2). Only scalar numeric/bool children decode for real;
-  // other child shapes are filled with typed null columns by build_nested_struct_column.
+  // Process nested struct fields after direct top-level fields are available.
   for (int ni = 0; ni < num_nested; ni++) {
     int parent_schema_idx = nested_field_indices[ni];
     // find_child_field_indices is a full linear pass over the schema per nested struct, so this
@@ -1360,41 +1319,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                  nullptr,
                                                  0,
                                                  false);
-    propagate_nulls_to_descendants(*nested_col, stream, mr);
-    column_map[parent_schema_idx] = std::move(nested_col);
-  }
-
-  // Process nested struct fields (3b.2). Only scalar numeric/bool children decode for real;
-  // other child shapes are filled with typed null columns by build_nested_struct_column.
-  for (int ni = 0; ni < num_nested; ni++) {
-    int parent_schema_idx = nested_field_indices[ni];
-    // find_child_field_indices is a full linear pass over the schema per nested struct, so this
-    // is O(num_nested * num_fields). Fine for realistic schemas; if deeply-nested wide schemas
-    // ever make it hot, precompute a parent->children index once in a single pass.
-    auto child_field_indices = find_child_field_indices(schema, num_fields, parent_schema_idx);
-
-    rmm::device_uvector<field_location> d_parent_locs(num_rows, stream, scratch_mr);
-    launch_extract_strided_locations(
-      d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
-
-    auto nested_col = build_nested_struct_column(
-      message_data,
-      message_data_size,
-      list_offsets,
-      base_offset,
-      d_parent_locs,
-      child_field_indices,
-      schema,
-      num_fields,
-      {default_ints, default_floats, default_bools, default_strings, enum_valid_values, enum_names},
-      d_row_force_null,
-      d_error,
-      num_rows,
-      stream,
-      mr,
-      nullptr,
-      0,
-      track_permissive_null_rows);
     propagate_nulls_to_descendants(*nested_col, stream, mr);
     column_map[parent_schema_idx] = std::move(nested_col);
   }
