@@ -62,10 +62,9 @@ using enum_string_lookup_cache = std::unordered_map<int, enum_string_lookup_tabl
 
 /**
  * View of the per-decode default-value and enum metadata. Reduces parameter pressure on the
- * recursive nested/repeated builders, which all consume the same six host vectors. The struct
- * holds non-owning references — its lifetime must enclose the calls. Optionally carries a
- * pointer to a mutable enum lookup cache; when present, builders reuse cached lookup tables
- * across recursive call sites instead of re-running `make_enum_string_lookup_tables`.
+ * recursive nested/repeated builders, which all consume the same six host vectors. Holds
+ * non-owning references and an optional enum lookup cache pointer, and is cheap to copy. The
+ * referenced objects must outlive every call that takes the view.
  */
 struct schema_context_view {
   std::vector<int64_t> const& default_ints;
@@ -329,7 +328,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int> const& child_field_indices,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  schema_context_view const& ctx,
+  schema_context_view ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   int num_rows,
@@ -349,7 +348,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   int child_schema_idx,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  schema_context_view const& ctx,
+  schema_context_view ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -371,7 +370,7 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   std::vector<device_nested_field_descriptor> const& h_device_schema,
   std::vector<int> const& child_field_indices,
   std::vector<nested_field_descriptor> const& schema,
-  schema_context_view const& ctx,
+  schema_context_view ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error_top,
   rmm::cuda_stream_view stream,
