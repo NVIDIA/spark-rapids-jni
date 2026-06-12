@@ -620,7 +620,7 @@ CUDF_KERNEL void scan_repeated_message_children_kernel(
   // Repeated children are handled by the dedicated count/scan path; skip them here.
   auto is_repeated_field      = [&](int f) { return child_descs[f].is_repeated; };
   auto get_expected_wire_type = [&](int f) { return child_descs[f].expected_wire_type; };
-  auto skip_repeated = [](int, uint8_t const*, uint8_t const*, uint8_t const*, int) {
+  auto skip_repeated          = [](int, uint8_t const*, uint8_t const*, uint8_t const*, int) {
     return true;
   };
   field_location* row_locs = child_locs + static_cast<size_t>(occ_idx) * num_child_fields;
@@ -705,15 +705,15 @@ CUDF_KERNEL void count_repeated_in_nested_kernel(uint8_t const* message_data,
 
   auto on_repeated_count =
     [&](int ri, uint8_t const* cur, uint8_t const* me, uint8_t const* mb, int wt) -> bool {
-      auto& info        = repeated_info[flat_index(
-        static_cast<size_t>(row), static_cast<size_t>(num_repeated), static_cast<size_t>(ri))];
-      auto count_action = [&info]([[maybe_unused]] int32_t, [[maybe_unused]] int32_t) {
-        info.count++;
-        return true;
-      };
-      return walk_repeated_element(
-        cur, me, mb, wt, get_expected_wire_type(ri), error_flag, count_action);
+    auto& info        = repeated_info[flat_index(
+      static_cast<size_t>(row), static_cast<size_t>(num_repeated), static_cast<size_t>(ri))];
+    auto count_action = [&info]([[maybe_unused]] int32_t, [[maybe_unused]] int32_t) {
+      info.count++;
+      return true;
     };
+    return walk_repeated_element(
+      cur, me, mb, wt, get_expected_wire_type(ri), error_flag, count_action);
+  };
 
   if (!scan_message_field_locations(msg_start,
                                     msg_end,
@@ -772,25 +772,25 @@ CUDF_KERNEL void scan_repeated_in_nested_kernel(uint8_t const* message_data,
   int schema_idx         = repeated_indices[0];
   field_descriptor fd[1] = {{schema[schema_idx].field_number, schema[schema_idx].wire_type, true}};
 
-  auto lookup_by_fn = [&fd](int fn) -> int { return fd[0].field_number == fn ? 0 : -1; };
+  auto lookup_by_fn           = [&fd](int fn) -> int { return fd[0].field_number == fn ? 0 : -1; };
   auto is_repeated_field      = []([[maybe_unused]] int) { return true; };
   auto get_expected_wire_type = [&](int) { return fd[0].expected_wire_type; };
 
   auto row_i32 = static_cast<int32_t>(row);
   auto on_repeated_scan =
     [&](int f, uint8_t const* cur, uint8_t const* me, uint8_t const* mb, int wt) -> bool {
-      auto scan_action = [&](int32_t off, int32_t len) -> bool {
-        if (write_idx >= write_end) {
-          set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
-          return false;
-        }
-        occurrences[write_idx] = {row_i32, off, len};
-        write_idx++;
-        return true;
-      };
-      return walk_repeated_element(
-        cur, me, mb, wt, get_expected_wire_type(f), error_flag, scan_action);
+    auto scan_action = [&](int32_t off, int32_t len) -> bool {
+      if (write_idx >= write_end) {
+        set_error_once(error_flag, ERR_REPEATED_COUNT_MISMATCH);
+        return false;
+      }
+      occurrences[write_idx] = {row_i32, off, len};
+      write_idx++;
+      return true;
     };
+    return walk_repeated_element(
+      cur, me, mb, wt, get_expected_wire_type(f), error_flag, scan_action);
+  };
 
   if (!scan_message_field_locations(msg_start,
                                     msg_end,
