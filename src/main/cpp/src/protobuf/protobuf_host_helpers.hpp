@@ -35,6 +35,25 @@
 namespace spark_rapids_jni::protobuf::detail {
 
 // ============================================================================
+// Schema-context bundle
+// ============================================================================
+
+/**
+ * View of the per-decode default-value and enum metadata. Reduces parameter pressure on the
+ * recursive nested/repeated builders, which all consume the same six host vectors. Holds
+ * non-owning references and is cheap to copy, so it is passed by value; the referenced vectors
+ * must outlive every call that takes the view.
+ */
+struct schema_context_view {
+  std::vector<int64_t> const& default_ints;
+  std::vector<double> const& default_floats;
+  std::vector<bool> const& default_bools;
+  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings;
+  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values;
+  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names;
+};
+
+// ============================================================================
 // Field number lookup table helpers
 // ============================================================================
 
@@ -286,12 +305,7 @@ std::unique_ptr<cudf::column> build_nested_struct_column(
   std::vector<int> const& child_field_indices,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  std::vector<int64_t> const& default_ints,
-  std::vector<double> const& default_floats,
-  std::vector<bool> const& default_bools,
-  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
-  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
+  schema_context_view ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   int num_rows,
@@ -311,12 +325,7 @@ std::unique_ptr<cudf::column> build_repeated_child_list_column(
   int child_schema_idx,
   std::vector<nested_field_descriptor> const& schema,
   int num_fields,
-  std::vector<int64_t> const& default_ints,
-  std::vector<double> const& default_floats,
-  std::vector<bool> const& default_bools,
-  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
-  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
+  schema_context_view ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error,
   rmm::cuda_stream_view stream,
@@ -337,13 +346,8 @@ std::unique_ptr<cudf::column> build_repeated_struct_column(
   int num_rows,
   std::vector<device_nested_field_descriptor> const& h_device_schema,
   std::vector<int> const& child_field_indices,
-  std::vector<int64_t> const& default_ints,
-  std::vector<double> const& default_floats,
-  std::vector<bool> const& default_bools,
-  std::vector<cudf::detail::host_vector<uint8_t>> const& default_strings,
   std::vector<nested_field_descriptor> const& schema,
-  std::vector<cudf::detail::host_vector<int32_t>> const& enum_valid_values,
-  std::vector<std::vector<cudf::detail::host_vector<uint8_t>>> const& enum_names,
+  schema_context_view ctx,
   rmm::device_uvector<bool>& d_row_force_null,
   rmm::device_uvector<int>& d_error_top,
   rmm::cuda_stream_view stream,

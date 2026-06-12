@@ -1263,28 +1263,24 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     launch_extract_strided_locations(
       d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
 
-    auto nested_col = build_nested_struct_column(message_data,
-                                                 message_data_size,
-                                                 list_offsets,
-                                                 base_offset,
-                                                 d_parent_locs,
-                                                 child_field_indices,
-                                                 schema,
-                                                 num_fields,
-                                                 default_ints,
-                                                 default_floats,
-                                                 default_bools,
-                                                 default_strings,
-                                                 enum_valid_values,
-                                                 enum_names,
-                                                 d_row_force_null,
-                                                 d_error,
-                                                 num_rows,
-                                                 stream,
-                                                 mr,
-                                                 nullptr,
-                                                 0,
-                                                 track_permissive_null_rows);
+    auto nested_col = build_nested_struct_column(
+      message_data,
+      message_data_size,
+      list_offsets,
+      base_offset,
+      d_parent_locs,
+      child_field_indices,
+      schema,
+      num_fields,
+      {default_ints, default_floats, default_bools, default_strings, enum_valid_values, enum_names},
+      d_row_force_null,
+      d_error,
+      num_rows,
+      stream,
+      mr,
+      nullptr,
+      0,
+      track_permissive_null_rows);
     propagate_nulls_to_descendants(*nested_col, stream, mr);
     column_map[parent_schema_idx] = std::move(nested_col);
   }
