@@ -21,6 +21,7 @@
 
 #include <thrust/binary_search.h>
 
+#include <algorithm>
 #include <limits>
 #include <set>
 #include <string>
@@ -351,8 +352,7 @@ void validate_decode_context(protobuf_decode_context const& context)
 
   // Reject schemas that exceed the combined-scan kernel's stack-array capacity. Counting
   // here (rather than relying on the device-side guard hit during a particular batch) keeps
-  // the error surface schema-deterministic: a 40-field schema fails the same way regardless
-  // of which fields happen to carry data in the input.
+  // the error surface schema-deterministic.
   int top_level_repeated = 0;
   for (auto const& field : context.schema) {
     if (field.parent_idx == -1 && field.is_repeated) { ++top_level_repeated; }
@@ -396,7 +396,20 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
   auto const& default_strings   = context.default_strings;
   auto const& enum_valid_values = context.enum_valid_values;
   auto const& enum_names        = context.enum_names;
-  bool fail_on_errors           = context.fail_on_errors;
+  // Per-decode cache keyed by schema index for enum-as-string lookup tables. Reusing the
+  // device buffers across recursive call sites (each `build_repeated_child_list_column`
+  // invocation that hits the same enum field) avoids re-uploading the same metadata.
+  enum_string_lookup_cache enum_lookup_cache;
+  // Bundle defaults + enum metadata into a single view so the recursive nested/repeated
+  // builders take one parameter instead of six identical references.
+  schema_context_view const schema_ctx{default_ints,
+                                       default_floats,
+                                       default_bools,
+                                       default_strings,
+                                       enum_valid_values,
+                                       enum_names,
+                                       &enum_lookup_cache};
+  bool fail_on_errors = context.fail_on_errors;
   CUDF_EXPECTS(binary_input.type().id() == cudf::type_id::LIST,
                "binary_input must be a LIST<INT8/UINT8> column");
   cudf::lists_column_view const in_list(binary_input);
@@ -891,8 +904,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                        has_def,
                                                        def_int);
 
-            // Outer sizing is guaranteed by `validate_decode_context`; only the per-field
-            // metadata-populated check remains.
             auto const& valid_enums     = enum_valid_values[schema_idx];
             auto const& enum_name_bytes = enum_names[schema_idx];
             CUDF_EXPECTS(!valid_enums.empty() && valid_enums.size() == enum_name_bytes.size(),
@@ -960,6 +971,20 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     }
   }
 
+  // Required top-level nested messages are tracked in d_nested_locations during the scan/count
+  // pass.
+  maybe_check_required_fields(d_nested_locations.data(),
+                              nested_field_indices,
+                              schema,
+                              num_rows,
+                              binary_input.null_count() > 0 ? binary_input.null_mask() : nullptr,
+                              binary_input.offset(),
+                              nullptr,
+                              track_permissive_null_rows ? d_row_force_null.data() : nullptr,
+                              nullptr,
+                              d_error.data(),
+                              stream);
+
   // Process repeated fields (three-phase: offsets → combined scan → build columns)
   if (num_repeated > 0) {
     // Phase A: build per-row LIST offsets. Allocate against `mr` since the buffer
@@ -1021,8 +1046,8 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                     stream.value()));
 
       // Build field_number -> scan_desc_index lookup. `build_lookup_table` returns {} when
-      // max field_number exceeds FIELD_LOOKUP_TABLE_MAX (would over-allocate); the kernel
-      // detects this via fn_to_scan_size == 0 and falls back to a linear scan.
+      // max field_number exceeds FIELD_LOOKUP_TABLE_MAX; the kernel detects this via
+      // fn_to_scan_size == 0 and falls back to a linear scan.
       auto h_fn_to_scan = build_lookup_table([&](int i) { return h_scan_descs[i].field_number; },
                                              static_cast<int>(h_scan_descs.size()));
       rmm::device_uvector<int> d_fn_to_scan(0, stream, scratch_mr);
@@ -1058,13 +1083,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
         continue;
       }
 
-      // Repeated MessageType is not supported in this part; full implementation lands in
-      // parts 3b/3c. Fail fast rather than silently returning a null LIST<STRUCT>, which
-      // would be indistinguishable from a real all-null result downstream.
-      CUDF_EXPECTS(
-        element_type.id() != cudf::type_id::STRUCT,
-        "Protobuf decode: repeated MessageType is not yet supported (covered by parts 3b/3c)");
-
       if (total_count <= 0) {
         // All rows empty: w.offsets is already a zero-filled buffer from Phase A.
         auto offsets_col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
@@ -1072,8 +1090,13 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                           w.offsets.release(),
                                                           rmm::device_buffer{},
                                                           0);
-
-        auto child_col         = make_empty_column_safe(element_type, stream, mr);
+        std::unique_ptr<cudf::column> child_col;
+        if (element_type.id() == cudf::type_id::STRUCT) {
+          child_col =
+            make_empty_struct_column_with_schema(schema, schema_idx, num_fields, stream, mr);
+        } else {
+          child_col = make_empty_column_safe(element_type, stream, mr);
+        }
         column_map[schema_idx] = make_list_column_with_input_nulls(
           num_rows, std::move(offsets_col), std::move(child_col), binary_input, stream, mr);
         continue;
@@ -1081,7 +1104,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
 
       auto& d_occurrences = *w.occurrences;
 
-      // For repeated fields, schema[].output_type holds the element type (not the outer LIST).
       switch (element_type.id()) {
         case cudf::type_id::INT32:
           column_map[schema_idx] =
@@ -1190,8 +1212,6 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           auto const field_meta = make_field_meta_view(context, schema_idx);
           auto enc              = field_meta.schema.encoding;
           if (enc == proto_encoding::ENUM_STRING) {
-            // Same host-side schema check as the scalar enum path — fail loudly instead of
-            // silently emitting a null column.
             CUDF_EXPECTS(!field_meta.enum_valid_values.empty() &&
                            field_meta.enum_valid_values.size() == field_meta.enum_names.size(),
                          "Protobuf decode error: missing or mismatched enum metadata for "
@@ -1226,7 +1246,7 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
           }
           break;
         }
-        case cudf::type_id::LIST:  // bytes as LIST<INT8>
+        case cudf::type_id::LIST:
           column_map[schema_idx] = build_repeated_string_column(binary_input,
                                                                 message_data,
                                                                 list_offsets,
@@ -1240,18 +1260,35 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
                                                                 stream,
                                                                 mr);
           break;
+        case cudf::type_id::STRUCT: {
+          auto child_field_indices = find_child_field_indices(schema, num_fields, schema_idx);
+          column_map[schema_idx]   = build_repeated_struct_column(binary_input,
+                                                                message_data,
+                                                                message_data_size,
+                                                                list_offsets,
+                                                                base_offset,
+                                                                std::move(w.offsets),
+                                                                d_occurrences,
+                                                                total_count,
+                                                                num_rows,
+                                                                h_device_schema,
+                                                                child_field_indices,
+                                                                schema,
+                                                                schema_ctx,
+                                                                d_row_force_null,
+                                                                d_error,
+                                                                stream,
+                                                                mr);
+          break;
+        }
         default:
-          // Unreachable: schema validation admits the types enumerated above; STRUCT is
-          // rejected at the loop entry above (parts 3b/3c). Reaching this branch means a
-          // schema slipped past validation.
           CUDF_FAIL("Protobuf decode internal error: unsupported repeated element type id=" +
                     std::to_string(static_cast<int>(element_type.id())));
       }
-    }  // for (ri)
+    }
   }
 
-  // Process nested struct fields (3b.2). Only scalar numeric/bool children decode for real;
-  // other child shapes are filled with typed null columns by build_nested_struct_column.
+  // Process nested struct fields after direct top-level fields are available.
   for (int ni = 0; ni < num_nested; ni++) {
     int parent_schema_idx = nested_field_indices[ni];
     // find_child_field_indices is a full linear pass over the schema per nested struct, so this
@@ -1263,24 +1300,25 @@ std::unique_ptr<cudf::column> decode_protobuf_to_struct(cudf::column_view const&
     launch_extract_strided_locations(
       d_nested_locations.data(), ni, num_nested, d_parent_locs.data(), num_rows, stream);
 
-    auto nested_col = build_nested_struct_column(
-      message_data,
-      message_data_size,
-      list_offsets,
-      base_offset,
-      d_parent_locs,
-      child_field_indices,
-      schema,
-      num_fields,
-      {default_ints, default_floats, default_bools, default_strings, enum_valid_values, enum_names},
-      d_row_force_null,
-      d_error,
-      num_rows,
-      stream,
-      mr,
-      nullptr,
-      0,
-      track_permissive_null_rows);
+    // Invalid enum values inside a nested struct should null only the enum field, not the
+    // top-level row. Malformed data still propagates via the scan kernel directly.
+    auto nested_col = build_nested_struct_column(message_data,
+                                                 message_data_size,
+                                                 list_offsets,
+                                                 base_offset,
+                                                 d_parent_locs,
+                                                 child_field_indices,
+                                                 schema,
+                                                 num_fields,
+                                                 schema_ctx,
+                                                 d_row_force_null,
+                                                 d_error,
+                                                 num_rows,
+                                                 stream,
+                                                 mr,
+                                                 nullptr,
+                                                 0,
+                                                 false);
     propagate_nulls_to_descendants(*nested_col, stream, mr);
     column_map[parent_schema_idx] = std::move(nested_col);
   }
